@@ -71,8 +71,8 @@ Then run:
 
 ## Model Layout
 
-Model files are intentionally ignored by git. A future packaged model
-directory should follow the layout described by `models/model.json.example`:
+Model files are intentionally ignored by git. A packaged model directory should
+follow the layout described by `models/model.json.example`:
 
 ```text
 hunyuan_ocr_ncnn_model/
@@ -102,7 +102,51 @@ selects `vision/grid_<grid_h>x<grid_w>/vision.ncnn.param` and `.bin` after image
 preprocessing computes `image_grid_thw`. You can still override this selection
 with `--vision-param` and `--vision-bin` for diagnostics.
 
-For local development, a temporary model directory can use symlinks to the
+Use `tools/package_model.py` to build that directory from the exported artifacts
+in the outer project workspace. The default mode creates symlinks, so the
+packaged directory is cheap to recreate and should still stay outside git:
+
+```bash
+python tools/package_model.py \
+  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
+  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --force
+```
+
+Use `--copy` instead of symlinks when creating a portable bundle or when
+symlink creation is unavailable:
+
+```bash
+python tools/package_model.py \
+  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
+  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --copy \
+  --force
+```
+
+The generated directory contains only runtime files: tokenizer assets,
+`text_embed`, `text_decoder`, `lm_head`, fixed-grid vision packages, and
+`model.json`. It intentionally excludes PyTorch checkpoints, `.pt`, `.npy`,
+`.npz`, logs, and conversion scripts.
+
+After packaging, the raw-image path can run without explicit vision network
+arguments:
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
+  --image /root/hpf/workspace/ncnn_hunyuanocr/datasets/test_images/hf_demo_tools-dark.png \
+  --prompt-mode spotting
+```
+
+The local five-sample regression can package the model and run all current
+golden cases with one command:
+
+```bash
+python tools/run_5sample_regression.py --package
+```
+
+For local development, the packaged model directory normally points to the
 validated artifacts under the project workspace:
 
 ```text
