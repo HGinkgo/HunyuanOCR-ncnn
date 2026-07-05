@@ -1,91 +1,129 @@
 # Examples
 
-The CLI currently exposes development fixture paths. Model artifacts and
-fixtures are intentionally kept outside git.
+These examples assume:
 
-## Token Decode
+- `hunyuan_ocr_cli` has been built under `build/`.
+- Runtime artifacts have been packaged with `tools/package_model.py`.
+- Model files, fixtures, and outputs remain outside git.
+
+## Package The Runtime Model
+
+```bash
+python tools/package_model.py \
+  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
+  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --force
+```
+
+Use `--copy` if you need a portable model directory instead of symlinks.
+
+## Run A PNG/JPEG Image
+
+Spot text and coordinates:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
+  --image /root/hpf/workspace/ncnn_hunyuanocr/datasets/test_images/hf_demo_tools-dark.png \
+  --prompt-mode spotting
+```
+
+Parse a document-style image into markdown-like text:
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
+  --image /path/to/document.png \
+  --prompt-mode document
+```
+
+The image must match a packaged fixed-grid vision directory:
+
+```text
+vision/grid_<grid_h>x<grid_w>/vision.ncnn.param
+vision/grid_<grid_h>x<grid_w>/vision.ncnn.bin
+```
+
+## Run The Five-Sample Regression
+
+```bash
+python tools/run_5sample_regression.py --package
+```
+
+This rebuilds `/tmp/hunyuanocr_ncnn_model_packaged`, runs the five local golden
+images, compares prompt ids, position ids, generated token ids, and decoded
+text, then writes logs to `/tmp/hunyuanocr_5sample_regression/`.
+
+Expected summary:
+
+```text
+summary: 5/5 passed
+```
+
+## Development Validation Commands
+
+These commands are for debugging individual runtime stages. They require
+fixtures produced from the Python baseline/export workflow.
+
+Decode generated token ids:
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
   --decode-ids-file generated_ids.txt
 ```
 
-## Text Decoder Fixture
+Run decoder prefill/KV decode from raw tensors:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
   --text-fixture /tmp/text_fixture \
   --max-tokens 16
 ```
 
-## VLM Fixture With External Vision Features
+Run text embedding, vision feature injection, decoder, and tokenizer decode:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
   --vlm-fixture /tmp/vlm_fixture
 ```
 
-## Vision Fixture Plus VLM Decode
-
-This validates a fixed-grid vision ncnn artifact from flattened patch input,
-then injects the generated features into the VLM decode fixture.
+Validate a fixed-grid vision artifact from flattened patch tensors, then feed
+the resulting vision features into the VLM fixture:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
   --vision-param /path/to/vision_fixed_grid.ncnn.param \
   --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
   --vision-fixture /tmp/vision_fixture \
   --vlm-fixture /tmp/vlm_fixture
 ```
 
-This is not yet a raw image OCR command. The current vision fixture expects
-precomputed flattened patch tensors.
-
-## Resized RGB Preprocess Plus VLM Decode
-
-This validates C++ preprocessing from already resized RGB bytes to flattened
-patch tensors, then runs the same fixed-grid vision and VLM decode path.
+Validate resized RGB preprocessing before vision and decode:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
   --image-preprocess-fixture /tmp/image_preprocess_fixture \
   --vision-param /path/to/vision_fixed_grid.ncnn.param \
   --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
   --vlm-fixture /tmp/vlm_fixture
 ```
 
-This still assumes the fixture image has already been resized with the same
-PIL-compatible behavior as the HF processor.
-
-## Raw PNG/JPEG Image Plus VLM Decode
-
-This decodes a PNG/JPEG file in C++, applies the PIL-compatible resize and
-HunyuanOCR patch flattening, then runs fixed-grid vision and the VLM decode
-path. `--prompt-mode` builds the fixed prompt tensors in C++; the fixture is
-only used as an oracle for expected output when provided.
+Validate original RGB resize, preprocessing, vision, and decode:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model /path/to/hunyuan_ocr_ncnn_model \
-  --image /path/to/image.png \
-  --prompt-mode spotting \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
+  --image-file-fixture /tmp/image_file_fixture \
+  --vision-param /path/to/vision_fixed_grid.ncnn.param \
+  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
   --vlm-fixture /tmp/vlm_fixture
 ```
 
-This is the current closest path to raw image OCR, but it is still a
-development validation command. `--prompt-mode` currently supports the two
-fixed baseline prompts, `spotting` and `document`; arbitrary user prompt
-encoding is still pending.
-
-The model directory must contain a fixed-grid vision package matching the
-preprocessed image grid:
-
-```text
-vision/grid_<grid_h>x<grid_w>/vision.ncnn.param
-vision/grid_<grid_h>x<grid_w>/vision.ncnn.bin
-```
+When `--vlm-fixture` is passed with image or vision commands, the fixture is
+used as an oracle for expected ids/tokens/text. The runtime path still uses the
+C++ generated tensors for the stages under test.

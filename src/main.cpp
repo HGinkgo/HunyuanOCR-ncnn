@@ -19,8 +19,8 @@ void print_usage(const char* program)
     std::cout
         << "Usage: " << program << " [--help] [--version] [--model PATH]\n"
         << "\n"
-        << "Phase 5 text-runtime CLI. It validates model layout and runs\n"
-        << "development fixtures before the full image pipeline is wired.\n"
+        << "HunyuanOCR-ncnn CLI. It validates model layout, runs development\n"
+        << "fixtures, and executes the fixed-grid PNG/JPEG image path.\n"
         << "\n"
         << "Options:\n"
         << "  --help          Show this help message.\n"

@@ -1,33 +1,63 @@
 # HunyuanOCR-ncnn
 
-C++/ncnn deployment workspace for Tencent HunyuanOCR.
+C++/ncnn deployment scaffold for Tencent HunyuanOCR.
 
-Current status: Phase 5 fixture pipeline. The repository can build a C++
-CLI linked with ncnn, validate the expected model directory layout, decode
-generated token ids with the exported tokenizer vocabulary, run
-`text_embed + text_decoder + lm_head`, inject vision features, and validate a
-fixed-grid `PNG/JPEG image -> RGB -> PIL-compatible resize -> pixel_values ->
-vision_features -> built-in prompt -> decoder` development path. It does not
-yet provide arbitrary text prompts because generic C++ BPE encode/chat-template
-support and dynamic vision packaging are still pending.
+This repository converts the HunyuanOCR inference path into ncnn submodules and
+connects them with a small C++ runtime. The current validated path targets a
+deterministic fp32 deployment baseline and compares final generated tokens/text
+against a PyTorch fp32 golden run.
 
-## Scope
+Model weights and converted ncnn artifacts are not redistributed in this
+repository.
 
-- Convert HunyuanOCR submodules with pnnx and run them with ncnn.
-- Keep model weights and converted artifacts outside git.
-- Target a deterministic fp32 deployment path first.
-- Match the PyTorch fp32 baseline text output for the same images and prompts.
-- Build with CMake on Linux and Windows.
+## Current Status
 
-The current validated baseline is the fp32 capped route with
-`max_pixels=524288`. The default high-resolution route remains a later
-extension point.
+- Linux CMake build passes with a local ncnn build.
+- Windows compile-only passes in GitHub Actions with MSVC 2022.
+- The current fp32 `max_pixels=524288` route matches the PyTorch fp32 golden
+  output on the five local regression images.
+- The CLI can run PNG/JPEG input through C++ image decode, PIL-compatible
+  resize, patch flattening, fixed-grid ncnn vision, built-in prompt assembly,
+  text decoding, and tokenizer decode.
+- Supported prompt modes are currently `spotting` and `document`.
+
+The implementation is intentionally conservative: fixed-grid vision packages
+are used first so model conversion, runtime wiring, and token alignment can be
+verified before general dynamic-grid packaging is added.
+
+## Supported Baseline
+
+| Item | Current value |
+| --- | --- |
+| Precision | fp32 ncnn runtime path |
+| Image processor bounds | `min_pixels=262144`, `max_pixels=524288` |
+| Vision input boundary | flattened patches `[patch_count, 768]` |
+| Vision packages | fixed grid directories under `vision/grid_<h>x<w>/` |
+| Current regression grids | `38x52`, `54x36`, `58x34` |
+| Text decoder | KV cache greedy decode |
+| Repetition penalty | `1.03` |
+| EOS ids | `120007`, `120020` |
+| Prompts | built-in `spotting` and `document` templates |
+
+The default high-resolution HunyuanOCR route and arbitrary user prompt encoding
+are not part of the current validated package.
 
 ## Build
 
-Use either an installed ncnn package or direct paths to a local ncnn build.
+Requirements:
 
-Example with direct paths:
+- CMake 3.18 or newer
+- C++17 compiler
+- ncnn built or installed
+
+With an installed ncnn CMake package:
+
+```bash
+cmake -S . -B build -Dncnn_DIR=/path/to/ncnn/lib/cmake/ncnn
+cmake --build build -j
+```
+
+With direct paths to a local ncnn build:
 
 ```bash
 cmake -S . -B build \
@@ -38,41 +68,43 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
-Windows compile-only is covered by `.github/workflows/windows-compile.yml`.
-The workflow builds ncnn with MSVC 2022, installs the ncnn SDK into the Actions
-workspace, then configures this project through `ncnn_DIR` and builds the CLI.
-It does not download models or run OCR inference.
-
-Then run:
+Basic CLI checks:
 
 ```bash
 ./build/hunyuan_ocr_cli --help
 ./build/hunyuan_ocr_cli --version
 ./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model --smoke-text 0
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model --decode-ids-file generated_ids.txt
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model --text-fixture /tmp/text_fixture --max-tokens 16
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model --vlm-fixture /tmp/vlm_fixture
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model \
-  --vision-param /path/to/vision_fixed_grid.ncnn.param \
-  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
-  --vision-fixture /tmp/vision_fixture \
-  --vlm-fixture /tmp/vlm_fixture
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model \
-  --image-preprocess-fixture /tmp/image_preprocess_fixture \
-  --vision-param /path/to/vision_fixed_grid.ncnn.param \
-  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
-  --vlm-fixture /tmp/vlm_fixture
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model \
-  --image /path/to/image.png \
-  --prompt-mode spotting \
-  --vlm-fixture /tmp/vlm_fixture
 ```
 
-## Model Layout
+Windows compile-only is covered by `.github/workflows/windows-compile.yml`.
+The workflow builds ncnn with MSVC 2022, installs the ncnn SDK into the Actions
+workspace, configures this project through `ncnn_DIR`, and builds the CLI. It
+does not download models or run OCR inference.
 
-Model files are intentionally ignored by git. A packaged model directory should
-follow the layout described by `models/model.json.example`:
+## Model Packaging
+
+`tools/package_model.py` creates the standard runtime model directory from
+exported artifacts in the outer project workspace:
+
+```bash
+python tools/package_model.py \
+  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
+  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --force
+```
+
+The default mode creates symlinks. Use `--copy` when creating a portable bundle
+or when symlink creation is unavailable:
+
+```bash
+python tools/package_model.py \
+  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
+  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --copy \
+  --force
+```
+
+Packaged layout:
 
 ```text
 hunyuan_ocr_ncnn_model/
@@ -97,40 +129,13 @@ hunyuan_ocr_ncnn_model/
       vision.ncnn.bin
 ```
 
-The current deployment path uses fixed-grid fp32 p512k vision packages. The CLI
-selects `vision/grid_<grid_h>x<grid_w>/vision.ncnn.param` and `.bin` after image
-preprocessing computes `image_grid_thw`. You can still override this selection
-with `--vision-param` and `--vision-bin` for diagnostics.
+The package contains only runtime files. PyTorch checkpoints, `.pt`, `.npy`,
+`.npz`, conversion logs, and intermediate export artifacts stay outside the
+repository and outside the packaged runtime directory.
 
-Use `tools/package_model.py` to build that directory from the exported artifacts
-in the outer project workspace. The default mode creates symlinks, so the
-packaged directory is cheap to recreate and should still stay outside git:
+## Run
 
-```bash
-python tools/package_model.py \
-  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
-  --output /tmp/hunyuanocr_ncnn_model_packaged \
-  --force
-```
-
-Use `--copy` instead of symlinks when creating a portable bundle or when
-symlink creation is unavailable:
-
-```bash
-python tools/package_model.py \
-  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
-  --output /tmp/hunyuanocr_ncnn_model_packaged \
-  --copy \
-  --force
-```
-
-The generated directory contains only runtime files: tokenizer assets,
-`text_embed`, `text_decoder`, `lm_head`, fixed-grid vision packages, and
-`model.json`. It intentionally excludes PyTorch checkpoints, `.pt`, `.npy`,
-`.npz`, logs, and conversion scripts.
-
-After packaging, the raw-image path can run without explicit vision network
-arguments:
+Run the current raw-image path with a packaged model:
 
 ```bash
 ./build/hunyuan_ocr_cli \
@@ -139,128 +144,74 @@ arguments:
   --prompt-mode spotting
 ```
 
-The local five-sample regression can package the model and run all current
-golden cases with one command:
+For document parsing style output:
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model /tmp/hunyuanocr_ncnn_model_packaged \
+  --image /path/to/document.png \
+  --prompt-mode document
+```
+
+The image must preprocess to a grid that exists in the packaged model directory.
+If no matching `vision/grid_<grid_h>x<grid_w>/` package exists, the CLI reports
+the missing grid explicitly.
+
+## Regression
+
+The local five-sample regression can rebuild the packaged model and run all
+current golden cases with one command:
 
 ```bash
 python tools/run_5sample_regression.py --package
 ```
 
-For local development, the packaged model directory normally points to the
-validated artifacts under the project workspace:
+Expected summary:
 
 ```text
-tokenizer -> /root/hpf/workspace/ncnn_hunyuanocr/models/tokenizer
-text_embed -> /root/hpf/workspace/ncnn_hunyuanocr/models/export/text_embed
-text_decoder -> /root/hpf/workspace/ncnn_hunyuanocr/models/export/text_decoder
-lm_head -> /root/hpf/workspace/ncnn_hunyuanocr/models/export/lm_head
+summary: 5/5 passed
 ```
 
-## Text Fixture Format
+Per-case logs are written to `/tmp/hunyuanocr_5sample_regression/`.
 
-`--text-fixture` is a development smoke-test path. It expects a directory with
-raw little-endian tensors:
+## Conversion Layout
 
-```text
-meta.txt              # seq_len=<N>, expected_token_count=<M>
-inputs_embeds.f32     # float32 [seq_len, 1024], image features already injected
-input_ids.i32         # int32 [seq_len]
-position_ids.i32      # int32 [4, seq_len]
-expected_tokens.i32   # int32 [expected_token_count]
-```
+The runtime is assembled from these pnnx/ncnn conversion outputs:
 
-This keeps the C++ runtime free of `.npz`/zip dependencies while still allowing
-the Phase 4 Python baseline artifacts to be converted into deterministic smoke
-fixtures.
+| Component | Runtime path | Notes |
+| --- | --- | --- |
+| tokenizer | `tokenizer/` | decode path implemented in C++; encode for arbitrary prompt is pending |
+| text embedding | `text_embed/text_embed.ncnn.*` | token id to hidden embedding |
+| text decoder | `text_decoder/text_decoder_kv.ncnn.*` | external RoPE and KV cache path |
+| lm head | `lm_head/lm_head.ncnn.*` | tied embedding weight exported explicitly |
+| vision | `vision/grid_<h>x<w>/vision.ncnn.*` | fixed-grid flattened patch input |
 
-`--vlm-fixture` is one step closer to the final runtime. It lets C++ run
-`input_ids -> text_embed -> inject vision_features -> decoder loop -> decode
-text` while image preprocessing and vision ncnn inference are still external:
+The validated conversion baseline is fp32. ncnn fp16/bf16 runtime options are
+not used for the current correctness target.
 
-```text
-meta.txt              # seq_len=<N>, expected_token_count=<M>, image_token_id=<ID>, vision_token_count=<K>
-input_ids.i32         # int32 [seq_len]
-position_ids.i32      # int32 [4, seq_len]
-vision_features.f32   # float32 [vision_token_count, 1024]
-expected_tokens.i32   # int32 [expected_token_count]
-expected_text.txt     # optional text oracle for detokenized output
-```
+## Known Limitations
 
-`--vision-fixture` validates the current fixed-grid vision artifacts. It runs
-`pixel_values -> vision_features` in ncnn. When combined with `--vlm-fixture`,
-the generated vision features are injected into the text path instead of using
-`vision_features.f32` from the VLM fixture:
-
-```text
-meta.txt                         # patch_count=<N>, vision_token_count=<K>
-pixel_values.f32                 # float32 [patch_count, 768]
-expected_vision_features.f32     # optional float32 [vision_token_count, 1024]
-```
-
-This is still a development fixture path. Prompt assembly and dynamic-grid
-vision packaging remain to be wired before the repository can expose a general
-image OCR CLI.
-
-`--image-preprocess-fixture` validates the C++ preprocessing path from resized
-RGB bytes to HunyuanOCR flattened patches. When combined with `--vision-param`,
-`--vision-bin`, and `--vlm-fixture`, the CLI runs:
-
-```text
-resized_rgb.u8 -> pixel_values -> ncnn vision -> text_embed injection -> decoder -> tokenizer
-```
-
-Fixture format:
-
-```text
-meta.txt                     # original/resized size, grid_t/grid_h/grid_w, patch_count
-resized_rgb.u8               # uint8 RGB [resized_height, resized_width, 3]
-expected_pixel_values.f32    # optional float32 [patch_count, 768]
-```
-
-The p512k deployment baseline uses `min_pixels=262144`,
-`max_pixels=524288`, `patch_size=16`, and `merge_size=2`.
-
-`--image-file-fixture` validates one step earlier, from original RGB bytes:
-
-```text
-meta.txt                     # original/resized size, grid_t/grid_h/grid_w, patch_count
-original_rgb.u8              # uint8 RGB [original_height, original_width, 3]
-expected_pixel_values.f32    # optional float32 [patch_count, 768]
-```
-
-`--image` decodes a PNG/JPEG file with vendored `stb_image`, resizes it with the
-PIL-compatible bicubic path, and then runs the same preprocessing. Add
-`--prompt-mode spotting` or `--prompt-mode document` to build the fixed
-HunyuanOCR prompt tensors in C++. The CLI automatically selects a packaged
-fixed-grid vision artifact under the model directory. When combined with
-optional `--vlm-fixture`, the CLI can validate the current fixed-grid raw-image
-development chain:
-
-```text
-PNG/JPEG image
--> RGB decode
--> PIL-compatible bicubic resize
--> pixel_values
--> ncnn fixed-grid vision
--> C++ built-in prompt + image token expansion + position_ids
--> text_embed injection
--> decoder
--> tokenizer
-```
-
-When `--prompt-mode` and `--vlm-fixture` are both passed, the fixture is used as
-an oracle for expected `input_ids`, `position_ids`, generated tokens, and text.
-The runtime path itself uses the C++ generated prompt tensors.
+- Current vision packaging is fixed-grid. Images whose preprocessed grid is not
+  packaged will not run until that grid is exported and added.
+- Arbitrary user prompts are not yet supported because general C++ BPE
+  encode/chat-template assembly is still pending. Use `--prompt-mode spotting`
+  or `--prompt-mode document`.
+- The default high-resolution HunyuanOCR route is not part of the current
+  package; the validated route uses `max_pixels=524288`.
+- Windows has compile-only coverage. Loading the model and running OCR on a
+  Windows machine is a separate validation step.
+- HunyuanOCR model files are governed by the Tencent Hunyuan Community License
+  Agreement and are not included here.
 
 ## Repository Layout
 
 ```text
 include/hunyuan_ocr/   Public C++ headers
-src/                   Runtime scaffold and CLI
+src/                   Runtime and CLI implementation
 third_party/           Vendored single-header dependencies such as stb_image
 export/                Export script landing area
-tools/                 Model packaging and verification tool landing area
-examples/              Example usage notes
+tools/                 Model packaging and regression helpers
+examples/              Usage examples and development validation notes
 models/                Only example config is tracked; real models are ignored
 ```
 
