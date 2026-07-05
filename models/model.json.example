@@ -1,0 +1,58 @@
+{
+  "name": "HunyuanOCR-ncnn",
+  "schema_version": 1,
+  "baseline": {
+    "precision": "fp32",
+    "max_pixels": 524288,
+    "vocab_size": 120818,
+    "repetition_penalty": 1.03,
+    "eos_ids": [120007, 120020]
+  },
+  "tokenizer": {
+    "vocab": "tokenizer/vocab.txt",
+    "merges": "tokenizer/merges.txt",
+    "special_tokens": "tokenizer/special_tokens.json",
+    "eos_ids": "tokenizer/eos_ids.json"
+  },
+  "networks": {
+    "text_embed": {
+      "param": "text_embed/text_embed.ncnn.param",
+      "bin": "text_embed/text_embed.ncnn.bin"
+    },
+    "text_decoder": {
+      "param": "text_decoder/text_decoder_kv.ncnn.param",
+      "bin": "text_decoder/text_decoder_kv.ncnn.bin",
+      "kv_cache": true
+    },
+    "lm_head": {
+      "param": "lm_head/lm_head.ncnn.param",
+      "bin": "lm_head/lm_head.ncnn.bin"
+    },
+    "vision": {
+      "status": "fixed_grid_packages",
+      "directory_pattern": "vision/grid_<grid_h>x<grid_w>/",
+      "param_name": "vision.ncnn.param",
+      "bin_name": "vision.ncnn.bin",
+      "available_grids": [
+        {
+          "grid_h": 38,
+          "grid_w": 52,
+          "param": "vision/grid_38x52/vision.ncnn.param",
+          "bin": "vision/grid_38x52/vision.ncnn.bin"
+        },
+        {
+          "grid_h": 54,
+          "grid_w": 36,
+          "param": "vision/grid_54x36/vision.ncnn.param",
+          "bin": "vision/grid_54x36/vision.ncnn.bin"
+        },
+        {
+          "grid_h": 58,
+          "grid_w": 34,
+          "param": "vision/grid_58x34/vision.ncnn.param",
+          "bin": "vision/grid_58x34/vision.ncnn.bin"
+        }
+      ]
+    }
+  }
+}

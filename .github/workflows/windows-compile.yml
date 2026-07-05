@@ -1,0 +1,62 @@
+name: Windows Compile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  msvc-2022:
+    name: MSVC 2022 compile-only
+    runs-on: windows-2022
+    env:
+      NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout HunyuanOCR-ncnn
+        uses: actions/checkout@v4
+
+      - name: Checkout ncnn
+        uses: actions/checkout@v4
+        with:
+          repository: Tencent/ncnn
+          path: _deps/ncnn
+          ref: ${{ env.NCNN_REF }}
+
+      - name: Configure ncnn
+        run: >
+          cmake -S _deps/ncnn -B _deps/ncnn-build
+          -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DNCNN_VULKAN=OFF
+          -DNCNN_OPENMP=OFF
+          -DNCNN_BUILD_TOOLS=OFF
+          -DNCNN_BUILD_EXAMPLES=OFF
+          -DNCNN_BUILD_BENCHMARK=OFF
+          -DNCNN_BUILD_TESTS=OFF
+          -DNCNN_INSTALL_SDK=ON
+
+      - name: Build ncnn
+        run: cmake --build _deps/ncnn-build --config Release --target ncnn --parallel
+
+      - name: Install ncnn SDK
+        run: cmake --install _deps/ncnn-build --config Release --prefix _deps/ncnn-install
+
+      - name: Configure HunyuanOCR-ncnn
+        run: >
+          cmake -S . -B build
+          -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -Dncnn_DIR="${{ github.workspace }}\_deps\ncnn-install\lib\cmake\ncnn"
+          -DHUNYUAN_OCR_USE_NCNN_PACKAGE=ON
+          -DHUNYUAN_OCR_BUILD_CLI=ON
+          -DHUNYUAN_OCR_STRICT_WARNINGS=ON
+
+      - name: Build HunyuanOCR-ncnn
+        run: cmake --build build --config Release --parallel

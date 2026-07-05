@@ -1,0 +1,45 @@
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+
+# Model weights and converted artifacts
+models/*
+!models/
+!models/model.json.example
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.bin
+*.param
+*.ncnn.bin
+*.ncnn.param
+
+# Runtime outputs and large logs
+outputs/
+*.log
+*.trace
+*.tmp
+
+# Python/cache files from export experiments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor/OS files
+.DS_Store
+.vscode/
+.idea/
+
