@@ -4,6 +4,8 @@ C++/ncnn runtime for Tencent HunyuanOCR.
 
 [中文说明](README_zh.md)
 
+Technical report: [Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
+
 This project converts the HunyuanOCR inference path into ncnn modules with
 pnnx, then connects image preprocessing, fixed-grid vision inference, KV-cache
 text decoding, lm head, and tokenizer decode in C++.

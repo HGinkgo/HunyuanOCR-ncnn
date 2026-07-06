@@ -2,6 +2,8 @@
 
 Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
+技术报告：[Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
+
 本项目使用 pnnx 将 HunyuanOCR 拆分为 ncnn 子模块，并在 C++17 中串起图片解码、图像预处理、固定 grid 的 vision 推理、KV cache 文本解码、lm head 和 tokenizer decode。
 
 ## 当前状态
