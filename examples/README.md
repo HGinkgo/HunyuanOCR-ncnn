@@ -1,7 +1,8 @@
 # Examples
 
 This directory contains a small set of public images used to exercise the
-runtime OCR path. Image provenance is listed in `IMAGE_SOURCES.md`.
+runtime OCR path. Image provenance is listed in `IMAGE_SOURCES.md`; short
+reference output excerpts are listed in `EXPECTED_OUTPUTS.md`.
 
 ## Cases
 
