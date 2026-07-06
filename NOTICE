@@ -1,9 +1,7 @@
 HunyuanOCR-ncnn
 ================
 
-This repository contains a C++/ncnn deployment scaffold for Tencent
-HunyuanOCR. Model weights, converted ncnn models, and generated runtime
-artifacts are not included in this repository.
+This repository contains a C++/ncnn runtime for Tencent HunyuanOCR.
 
 Project license
 ---------------
@@ -21,16 +19,7 @@ Third-party software and model notices
 
    Upstream: https://github.com/Tencent/ncnn
 
-2. ncnn_llm
-
-   The runtime design is informed by ncnn_llm, which is licensed under the
-   Apache License 2.0. Source files copied or adapted from ncnn_llm must keep
-   their original copyright headers and must include a prominent modification
-   notice at the top of the changed file.
-
-   Upstream: https://github.com/futz12/ncnn_llm
-
-3. Tencent HunyuanOCR
+2. Tencent HunyuanOCR
 
    Tencent HunyuanOCR model files are not included in this repository. Users
    must download and use HunyuanOCR under the upstream Tencent Hunyuan
@@ -45,7 +34,7 @@ Third-party software and model notices
    Agreement, Copyright (C) 2025 Tencent. All Rights Reserved. The trademark
    rights of Tencent Hunyuan are owned by Tencent or its affiliate."
 
-4. stb_image
+3. stb_image
 
    This project vendors stb_image.h for lightweight PNG/JPEG decoding.
    stb_image is available under the MIT License or Public Domain.

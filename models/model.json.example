@@ -29,7 +29,7 @@
       "bin": "lm_head/lm_head.ncnn.bin"
     },
     "vision": {
-      "status": "fixed_grid_packages",
+      "status": "fixed_grid_vision_exports",
       "directory_pattern": "vision/grid_<grid_h>x<grid_w>/",
       "param_name": "vision.ncnn.param",
       "bin_name": "vision.ncnn.bin",

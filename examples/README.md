@@ -1,129 +1,61 @@
 # Examples
 
-These examples assume:
+This directory contains a small set of public images used to exercise the
+runtime OCR path. Image provenance is listed in `IMAGE_SOURCES.md`.
 
-- `hunyuan_ocr_cli` has been built under `build/`.
-- Runtime artifacts have been packaged with `tools/package_model.py`.
-- Model files, fixtures, and outputs remain outside git.
+## Cases
 
-## Package The Runtime Model
+| Case | Prompt mode | Image |
+| --- | --- | --- |
+| `hf_demo` | `spotting` | `hf_demo_tools-dark.png` |
+| `chinese_doc` | `spotting` | `omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067.png` |
+| `en_book` | `document` | `omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg` |
+| `formula` | `document` | `omnidoc_formula_harmonic_analysis_page_119.png` |
+| `table` | `document` | `omnidoc_table_pyomo_page_188.png` |
 
-```bash
-python tools/package_model.py \
-  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
-  --output /tmp/hunyuanocr_ncnn_model_packaged \
-  --force
-```
+## Run
 
-Use `--copy` if you need a portable model directory instead of symlinks.
+These commands assume `hunyuan_ocr_cli` has been built under `build/` and the
+runtime model has been packaged as `./hunyuan_ocr_ncnn_model`.
 
-## Run A PNG/JPEG Image
-
-Spot text and coordinates:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image /root/hpf/workspace/ncnn_hunyuanocr/datasets/test_images/hf_demo_tools-dark.png \
-  --prompt-mode spotting
-```
-
-Parse a document-style image into markdown-like text:
+List the bundled examples:
 
 ```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image /path/to/document.png \
-  --prompt-mode document
+python tools/run_example.py --list
 ```
 
-The image must match a packaged fixed-grid vision directory:
+Run one example:
 
-```text
-vision/grid_<grid_h>x<grid_w>/vision.ncnn.param
-vision/grid_<grid_h>x<grid_w>/vision.ncnn.bin
+```bash
+python tools/run_example.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --case hf_demo
 ```
 
-## Run The Five-Sample Regression
+Run all bundled examples:
+
+```bash
+python tools/run_examples.py \
+  --model ./hunyuan_ocr_ncnn_model
+```
+
+`run_examples.py` writes per-case logs to `outputs/examples/`.
+
+The image must preprocess to a supported grid. Runtime vision directories use
+the `grid_<h>x<w>` naming convention, for example `image_grid_thw=[1,38,52]`
+uses `vision/grid_38x52/`.
+
+## Full Regression
+
+After preparing exported fixtures, the five-sample regression additionally
+compares prompt ids, position ids, generated token ids, and decoded text:
 
 ```bash
 python tools/run_5sample_regression.py --package
 ```
-
-This rebuilds `/tmp/hunyuanocr_ncnn_model_packaged`, runs the five local golden
-images, compares prompt ids, position ids, generated token ids, and decoded
-text, then writes logs to `/tmp/hunyuanocr_5sample_regression/`.
 
 Expected summary:
 
 ```text
 summary: 5/5 passed
 ```
-
-## Development Validation Commands
-
-These commands are for debugging individual runtime stages. They require
-fixtures produced from the Python baseline/export workflow.
-
-Decode generated token ids:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --decode-ids-file generated_ids.txt
-```
-
-Run decoder prefill/KV decode from raw tensors:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --text-fixture /tmp/text_fixture \
-  --max-tokens 16
-```
-
-Run text embedding, vision feature injection, decoder, and tokenizer decode:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --vlm-fixture /tmp/vlm_fixture
-```
-
-Validate a fixed-grid vision artifact from flattened patch tensors, then feed
-the resulting vision features into the VLM fixture:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --vision-param /path/to/vision_fixed_grid.ncnn.param \
-  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
-  --vision-fixture /tmp/vision_fixture \
-  --vlm-fixture /tmp/vlm_fixture
-```
-
-Validate resized RGB preprocessing before vision and decode:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image-preprocess-fixture /tmp/image_preprocess_fixture \
-  --vision-param /path/to/vision_fixed_grid.ncnn.param \
-  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
-  --vlm-fixture /tmp/vlm_fixture
-```
-
-Validate original RGB resize, preprocessing, vision, and decode:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image-file-fixture /tmp/image_file_fixture \
-  --vision-param /path/to/vision_fixed_grid.ncnn.param \
-  --vision-bin /path/to/vision_fixed_grid.ncnn.bin \
-  --vlm-fixture /tmp/vlm_fixture
-```
-
-When `--vlm-fixture` is passed with image or vision commands, the fixture is
-used as an oracle for expected ids/tokens/text. The runtime path still uses the
-C++ generated tensors for the stages under test.

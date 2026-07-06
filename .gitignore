@@ -18,10 +18,13 @@ compile_commands.json
 models/*
 !models/
 !models/model.json.example
+hunyuan_ocr_ncnn_model/
 *.safetensors
 *.pt
 *.pth
 *.onnx
+*.npy
+*.npz
 *.bin
 *.param
 *.ncnn.bin
@@ -42,4 +45,3 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
-

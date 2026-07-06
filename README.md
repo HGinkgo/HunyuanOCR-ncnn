@@ -1,48 +1,37 @@
 # HunyuanOCR-ncnn
 
-C++/ncnn deployment scaffold for Tencent HunyuanOCR.
+C++/ncnn runtime for Tencent HunyuanOCR.
 
-This repository converts the HunyuanOCR inference path into ncnn submodules and
-connects them with a small C++ runtime. The current validated path targets a
-deterministic fp32 deployment baseline and compares final generated tokens/text
-against a PyTorch fp32 golden run.
+[中文说明](README_zh.md)
 
-Model weights and converted ncnn artifacts are not redistributed in this
-repository.
+This project converts the HunyuanOCR inference path into ncnn modules with
+pnnx, then connects image preprocessing, fixed-grid vision inference, KV-cache
+text decoding, lm head, and tokenizer decode in C++.
 
-## Current Status
+## Status
 
-- Linux CMake build passes with a local ncnn build.
-- Windows compile-only passes in GitHub Actions with MSVC 2022.
-- The current fp32 `max_pixels=524288` route matches the PyTorch fp32 golden
-  output on the five local regression images.
-- The CLI can run PNG/JPEG input through C++ image decode, PIL-compatible
-  resize, patch flattening, fixed-grid ncnn vision, built-in prompt assembly,
-  text decoding, and tokenizer decode.
-- Supported prompt modes are currently `spotting` and `document`.
-
-The implementation is intentionally conservative: fixed-grid vision packages
-are used first so model conversion, runtime wiring, and token alignment can be
-verified before general dynamic-grid packaging is added.
-
-## Supported Baseline
-
-| Item | Current value |
+| Item | Status |
 | --- | --- |
-| Precision | fp32 ncnn runtime path |
-| Image processor bounds | `min_pixels=262144`, `max_pixels=524288` |
-| Vision input boundary | flattened patches `[patch_count, 768]` |
-| Vision packages | fixed grid directories under `vision/grid_<h>x<w>/` |
-| Current regression grids | `38x52`, `54x36`, `58x34` |
-| Text decoder | KV cache greedy decode |
-| Repetition penalty | `1.03` |
-| EOS ids | `120007`, `120020` |
-| Prompts | built-in `spotting` and `document` templates |
+| Linux | CMake build and 5-image runtime regression validated locally |
+| Windows CI | MSVC compile-only in GitHub Actions |
+| Windows runtime | 5-image packaged-model run validated on a real Windows machine |
+| Runtime | PNG/JPEG input to final OCR text |
+| Validation | 5 bundled regression images match PyTorch fp32 reference token/text |
+| Precision | fp32 ncnn path |
+| Prompts | built-in `spotting` and `document` modes |
+| Vision grids | currently covers grid `38x52`, grid `54x36`, and grid `58x34` |
 
-The default high-resolution HunyuanOCR route and arbitrary user prompt encoding
-are not part of the current validated package.
+The current verified configuration uses `max_pixels=524288`. `image_grid_thw`
+is the `[t,h,w]` patch grid produced by the HunyuanOCR image processor; with
+the current image path, `t=1`, so `image_grid_thw=[1,38,52]` maps to the runtime
+directory `vision/grid_38x52/`.
 
-## Build
+The current delivery scope does not include the original high-resolution route,
+arbitrary user prompt encoding, or dynamic vision grids.
+
+## Quick Start
+
+### 1. Build
 
 Requirements:
 
@@ -68,99 +57,82 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
-Basic CLI checks:
+Basic checks:
 
 ```bash
 ./build/hunyuan_ocr_cli --help
 ./build/hunyuan_ocr_cli --version
-./build/hunyuan_ocr_cli --model /path/to/hunyuan_ocr_ncnn_model
 ```
 
-Windows compile-only is covered by `.github/workflows/windows-compile.yml`.
-The workflow builds ncnn with MSVC 2022, installs the ncnn SDK into the Actions
-workspace, configures this project through `ncnn_DIR`, and builds the CLI. It
-does not download models or run OCR inference.
+Windows coverage is split into two checks:
+`.github/workflows/windows-compile.yml` runs MSVC compile-only in CI, and a
+separate real Windows machine was used for the 5-image packaged-model runtime
+validation.
 
-## Model Packaging
+### 2. Package Model Files
 
-`tools/package_model.py` creates the standard runtime model directory from
-exported artifacts in the outer project workspace:
+`tools/package_model.py` creates the runtime model directory from exported
+artifacts. Here `<workspace>` means the directory that contains
+`models/tokenizer/` and `models/export/`.
 
 ```bash
 python tools/package_model.py \
-  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
-  --output /tmp/hunyuanocr_ncnn_model_packaged \
-  --force
-```
-
-The default mode creates symlinks. Use `--copy` when creating a portable bundle
-or when symlink creation is unavailable:
-
-```bash
-python tools/package_model.py \
-  --workspace /root/hpf/workspace/ncnn_hunyuanocr \
-  --output /tmp/hunyuanocr_ncnn_model_packaged \
+  --workspace <workspace> \
+  --output ./hunyuan_ocr_ncnn_model \
   --copy \
   --force
 ```
 
-Packaged layout:
+Use symlinks instead of copies by omitting `--copy`.
+
+### 3. Run Examples
+
+List bundled images:
+
+```bash
+python tools/run_example.py --list
+```
+
+Run one image:
+
+```bash
+python tools/run_example.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --case hf_demo
+```
+
+Run all bundled images:
+
+```bash
+python tools/run_examples.py \
+  --model ./hunyuan_ocr_ncnn_model
+```
+
+The image must preprocess to a supported grid. Runtime vision directories use
+the `grid_<h>x<w>` naming convention, for example `image_grid_thw=[1,38,52]`
+uses `vision/grid_38x52/`.
+
+## Model Package
+
+Expected runtime layout:
 
 ```text
 hunyuan_ocr_ncnn_model/
   model.json
   tokenizer/
-    vocab.txt
-    merges.txt
-    special_tokens.json
-    eos_ids.json
   text_embed/
-    text_embed.ncnn.param
-    text_embed.ncnn.bin
   text_decoder/
-    text_decoder_kv.ncnn.param
-    text_decoder_kv.ncnn.bin
   lm_head/
-    lm_head.ncnn.param
-    lm_head.ncnn.bin
   vision/
     grid_<grid_h>x<grid_w>/
-      vision.ncnn.param
-      vision.ncnn.bin
 ```
 
-The package contains only runtime files. PyTorch checkpoints, `.pt`, `.npy`,
-`.npz`, conversion logs, and intermediate export artifacts stay outside the
-repository and outside the packaged runtime directory.
-
-## Run
-
-Run the current raw-image path with a packaged model:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image /root/hpf/workspace/ncnn_hunyuanocr/datasets/test_images/hf_demo_tools-dark.png \
-  --prompt-mode spotting
-```
-
-For document parsing style output:
-
-```bash
-./build/hunyuan_ocr_cli \
-  --model /tmp/hunyuanocr_ncnn_model_packaged \
-  --image /path/to/document.png \
-  --prompt-mode document
-```
-
-The image must preprocess to a grid that exists in the packaged model directory.
-If no matching `vision/grid_<grid_h>x<grid_w>/` package exists, the CLI reports
-the missing grid explicitly.
+The repository tracks source code, scripts, example images, and metadata. The
+runtime model package is generated separately from converted artifacts.
 
 ## Regression
 
-The local five-sample regression can rebuild the packaged model and run all
-current golden cases with one command:
+For full token/text regression after preparing fixtures:
 
 ```bash
 python tools/run_5sample_regression.py --package
@@ -172,48 +144,30 @@ Expected summary:
 summary: 5/5 passed
 ```
 
-Per-case logs are written to `/tmp/hunyuanocr_5sample_regression/`.
-
-## Conversion Layout
-
-The runtime is assembled from these pnnx/ncnn conversion outputs:
-
-| Component | Runtime path | Notes |
-| --- | --- | --- |
-| tokenizer | `tokenizer/` | decode path implemented in C++; encode for arbitrary prompt is pending |
-| text embedding | `text_embed/text_embed.ncnn.*` | token id to hidden embedding |
-| text decoder | `text_decoder/text_decoder_kv.ncnn.*` | external RoPE and KV cache path |
-| lm head | `lm_head/lm_head.ncnn.*` | tied embedding weight exported explicitly |
-| vision | `vision/grid_<h>x<w>/vision.ncnn.*` | fixed-grid flattened patch input |
-
-The validated conversion baseline is fp32. ncnn fp16/bf16 runtime options are
-not used for the current correctness target.
-
-## Known Limitations
-
-- Current vision packaging is fixed-grid. Images whose preprocessed grid is not
-  packaged will not run until that grid is exported and added.
-- Arbitrary user prompts are not yet supported because general C++ BPE
-  encode/chat-template assembly is still pending. Use `--prompt-mode spotting`
-  or `--prompt-mode document`.
-- The default high-resolution HunyuanOCR route is not part of the current
-  package; the validated route uses `max_pixels=524288`.
-- Windows has compile-only coverage. Loading the model and running OCR on a
-  Windows machine is a separate validation step.
-- HunyuanOCR model files are governed by the Tencent Hunyuan Community License
-  Agreement and are not included here.
+This regression compares prompt ids, position ids, generated token ids, and
+decoded text.
 
 ## Repository Layout
 
 ```text
 include/hunyuan_ocr/   Public C++ headers
 src/                   Runtime and CLI implementation
-third_party/           Vendored single-header dependencies such as stb_image
-export/                Export script landing area
+third_party/           Vendored single-header dependencies
+export/                Export workflow notes
 tools/                 Model packaging and regression helpers
-examples/              Usage examples and development validation notes
-models/                Only example config is tracked; real models are ignored
+examples/              Example images and usage notes
+models/                Tracked config template only
 ```
+
+## Limitations
+
+- Vision export is currently fixed-grid. New grids need matching vision ncnn
+  artifacts.
+- Runtime prompt selection is limited to `spotting` and `document`.
+- The current delivery scope uses `max_pixels=524288`; it does not include the
+  original high-resolution route.
+- The public example runner checks runtime execution. Fixture regression is
+  used for token/text equality.
 
 ## License
 
@@ -222,4 +176,4 @@ and `NOTICE`. Vendored `stb_image.h` keeps its upstream MIT/Public Domain
 license notice.
 
 HunyuanOCR model files are governed by the Tencent Hunyuan Community License
-Agreement and are not redistributed here.
+Agreement.

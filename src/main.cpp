@@ -32,8 +32,8 @@ void print_usage(const char* program)
         << "  --smoke-text TOKEN_ID  Load text ncnn nets and run text_embed + lm_head smoke.\n"
         << "  --text-fixture PATH    Run decoder prefill/KV greedy decode from a raw tensor fixture.\n"
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
-        << "  --vision-param PATH    Load a per-shape vision ncnn param file for fixture validation.\n"
-        << "  --vision-bin PATH      Load a per-shape vision ncnn bin file for fixture validation.\n"
+        << "  --vision-param PATH    Load a per-grid vision ncnn param file for fixture validation.\n"
+        << "  --vision-bin PATH      Load a per-grid vision ncnn bin file for fixture validation.\n"
         << "  --vision-fixture PATH  Run pixel_values -> vision_features fixture.\n"
         << "  --vision-tolerance F   Max absolute diff tolerance for expected_vision_features.f32.\n"
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
@@ -538,7 +538,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    std::cout << "Model layout check passed for the current text-runtime scaffold.\n";
+    std::cout << "Model layout check passed for the current runtime files.\n";
 
     if (!decode_ids_text.empty())
     {
@@ -656,11 +656,11 @@ int main(int argc, char** argv)
         {
             if (vision_param_path.empty() && vision_bin_path.empty())
             {
-                std::cerr << "No fixed-grid vision artifact found for grid "
-                          << image.grid_h << "x" << image.grid_w
+                std::cerr << "No fixed-grid vision artifact found for image_grid_thw=["
+                          << image.grid_t << "," << image.grid_h << "," << image.grid_w << "]"
                           << " under " << model_root << "/vision/grid_"
                           << image.grid_h << "x" << image.grid_w
-                          << ". Pass --vision-param and --vision-bin or package that grid.\n";
+                          << ". Pass --vision-param and --vision-bin or export that grid.\n";
             }
             else
             {
