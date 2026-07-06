@@ -1,9 +1,10 @@
 # Example Output Excerpts
 
 These are short excerpts from the PyTorch fp32 reference outputs used by the
-current `max_pixels=524288` validation. The C++/ncnn regression compares the
-full generated token sequence and decoded text through fixture files; this
-document is only a lightweight preview for the bundled example images.
+current `max_pixels=524288` validation. They are model reference outputs, not
+manually corrected OCR ground truth. The C++/ncnn regression compares the full
+generated token sequence and decoded text through fixture files; this document
+is only a lightweight preview for the bundled example images.
 
 | Case | Prompt mode | Grid | New tokens | Output chars |
 | --- | --- | --- | ---: | ---: |
@@ -23,8 +24,8 @@ Generate the portrait of a scientific mouse in its laboratory.(151,176),(557,199
 ## chinese_doc
 
 ```text
-304(143,37),(185,50)求医不求求已家庭医学全书(143,50),(307,62)7.脾虚呕吐(126,106),(246,123)【表现】...
-脾胃虚弱，神疲乏力。(171,162),(385,180)【家庭复方调理法】...
+7.脾虚呕吐(126,106),(246,123)【表现】(171,137),(242,154)脾胃虚弱，神疲乏力。
+【家庭复方调理法】(171,202),(353,219)推拿法：每天做一次。
 ```
 
 ## en_book
