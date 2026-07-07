@@ -374,11 +374,7 @@ std::string Tokenizer::decode(const std::vector<int>& ids, bool skip_special_tok
             continue;
         }
 
-        const std::string& token = id_to_token_[id];
-        if (token == "\\t") packed.push_back('\t');
-        else if (token == "\\n") packed.push_back('\n');
-        else if (token == "\\r") packed.push_back('\r');
-        else packed += token;
+        packed += id_to_token_[id];
     }
     return byte_decode(packed);
 }
