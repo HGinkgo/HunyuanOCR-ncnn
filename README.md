@@ -14,13 +14,13 @@ text decoding, lm head, and tokenizer decode in C++.
 
 | Item | Status |
 | --- | --- |
-| Linux | CMake build and 5-image runtime regression validated locally |
+| Linux | CMake build and 10-image runtime regression validated locally |
 | Windows CI | MSVC compile-only in GitHub Actions |
-| Windows runtime | 5-image packaged-model run validated on a real Windows machine |
+| Windows runtime | Packaged-model run validated on a real Windows machine |
 | Runtime | PNG/JPEG input to final OCR text |
-| Validation | 5 bundled regression images match PyTorch fp32 reference token/text |
+| Validation | 10 bundled regression images match PyTorch fp32 reference token/text |
 | Precision | fp32 ncnn path |
-| Prompts | built-in `spotting` and `document` modes |
+| Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
 | Vision | dynamic vision backend, with fixed-grid fallback |
 
 The current verified configuration uses `max_pixels=524288`. `image_grid_thw`
@@ -29,8 +29,7 @@ dynamic vision package uses one `vision/vision.ncnn.param/bin` pair plus
 `vision/pos_embed.bin`; fixed-grid packages use directories such as
 `vision/grid_38x52/`.
 
-The current delivery scope does not include the original high-resolution route
-or arbitrary user prompt encoding.
+The current delivery scope does not include the original high-resolution route.
 
 ## Quick Start
 
@@ -69,8 +68,7 @@ Basic checks:
 
 Windows coverage is split into two checks:
 `.github/workflows/windows-compile.yml` runs MSVC compile-only in CI, and a
-separate real Windows machine was used for the 5-image packaged-model runtime
-validation.
+separate real Windows machine was used for packaged-model runtime validation.
 
 ### 2. Package Model Files
 
@@ -105,6 +103,15 @@ Run one image:
 python tools/run_example.py \
   --model ./hunyuan_ocr_ncnn_model \
   --case hf_demo
+```
+
+Run one bundled image with a custom prompt:
+
+```bash
+python tools/run_example.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --case hf_demo \
+  --prompt "Describe the visible UI text."
 ```
 
 Run all bundled images:
@@ -144,7 +151,7 @@ runtime model package is generated separately from converted artifacts.
 For full token/text regression after preparing fixtures:
 
 ```bash
-python tools/run_5sample_regression.py \
+python tools/run_regression.py \
   --package \
   --package-vision-backend dynamic
 ```
@@ -152,7 +159,7 @@ python tools/run_5sample_regression.py \
 Expected summary:
 
 ```text
-summary: 5/5 passed
+summary: 10/10 passed
 ```
 
 This regression compares prompt ids, position ids, generated token ids, and
@@ -172,9 +179,10 @@ models/                Tracked config template only
 
 ## Limitations
 
-- The dynamic vision backend is verified on the bundled 5-image regression set
+- The dynamic vision backend is verified on the bundled 10-image regression set
   under `max_pixels=524288`.
-- Runtime prompt selection is limited to `spotting` and `document`.
+- Custom prompt text is supported through the C++ tokenizer encode path; broader
+  tokenizer edge cases still need more HF parity tests.
 - The current delivery scope uses `max_pixels=524288`; it does not include the
   original high-resolution route.
 - The public example runner checks runtime execution. Fixture regression is

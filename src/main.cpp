@@ -20,7 +20,7 @@ void print_usage(const char* program)
         << "Usage: " << program << " [--help] [--version] [--model PATH]\n"
         << "\n"
         << "HunyuanOCR-ncnn CLI. It validates model layout, runs development\n"
-        << "fixtures, and executes the fixed-grid PNG/JPEG image path.\n"
+        << "fixtures, and executes the PNG/JPEG image path.\n"
         << "\n"
         << "Options:\n"
         << "  --help          Show this help message.\n"
@@ -38,6 +38,7 @@ void print_usage(const char* program)
         << "  --vision-tolerance F   Max absolute diff tolerance for expected_vision_features.f32.\n"
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
         << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
+        << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
         << "  --image-preprocess-fixture PATH Run resized RGB -> flattened pixel_values fixture.\n"
         << "  --image-preprocess-tolerance F  Max absolute diff tolerance for expected_pixel_values.f32.\n"
         << "  --image-file-fixture PATH Run original RGB -> resize -> flattened pixel_values fixture.\n"
@@ -315,6 +316,7 @@ int main(int argc, char** argv)
     float vision_tolerance = 0.002f;
     std::string image_path;
     std::string prompt_mode_text;
+    std::string prompt_text;
     std::string image_preprocess_fixture_dir;
     std::string image_file_fixture_dir;
     float image_preprocess_tolerance = 0.000001f;
@@ -476,6 +478,16 @@ int main(int argc, char** argv)
             prompt_mode_text = argv[++i];
             continue;
         }
+        if (arg == "--prompt")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--prompt requires text\n";
+                return 1;
+            }
+            prompt_text = argv[++i];
+            continue;
+        }
         if (arg == "--image-preprocess-fixture")
         {
             if (i + 1 >= argc)
@@ -551,6 +563,11 @@ int main(int argc, char** argv)
             std::cerr << "Failed to read token id file: " << decode_ids_file << "\n";
             return 1;
         }
+    }
+    if (!prompt_text.empty() && !prompt_mode_text.empty())
+    {
+        std::cerr << "--prompt and --prompt-mode are mutually exclusive\n";
+        return 1;
     }
 
     hunyuan_ocr::HunyuanOCR runtime;
@@ -678,7 +695,7 @@ int main(int argc, char** argv)
         bool use_dynamic_vision = false;
         const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
         const bool wants_image_decode =
-            !prompt_mode_text.empty() || !vlm_fixture_dir.empty() ||
+            !prompt_mode_text.empty() || !prompt_text.empty() || !vlm_fixture_dir.empty() ||
             !resolved_vision_param_path.empty() || !resolved_vision_bin_path.empty();
         if (wants_image_decode && !explicit_vision_paths)
         {
@@ -772,29 +789,62 @@ int main(int argc, char** argv)
             std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
             std::cout << "  feature_values: " << vision.feature_values << "\n";
 
-            if (!prompt_mode_text.empty())
+            if (!prompt_mode_text.empty() || !prompt_text.empty())
             {
-                hunyuan_ocr::PromptMode prompt_mode = hunyuan_ocr::PromptMode::Spotting;
-                if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text, &prompt_mode, &error))
-                {
-                    std::cerr << "Prompt mode failed: " << error << "\n";
-                    return 1;
-                }
-
                 hunyuan_ocr::PromptBuildResult prompt;
-                if (!hunyuan_ocr::build_hunyuan_ocr_prompt(prompt_mode,
-                                                           image.grid_h,
-                                                           image.grid_w,
-                                                           preprocessor.config().merge_size,
-                                                           &prompt,
-                                                           &error))
+                std::string prompt_label;
+                if (!prompt_text.empty())
                 {
-                    std::cerr << "Prompt build failed: " << error << "\n";
-                    return 1;
+                    hunyuan_ocr::Tokenizer tokenizer;
+                    if (!tokenizer.load(model_root + "/tokenizer/vocab.txt",
+                                        model_root + "/tokenizer/merges.txt",
+                                        model_root + "/tokenizer/special_tokens.json",
+                                        &error))
+                    {
+                        std::cerr << "Failed to load tokenizer for prompt encode: " << error << "\n";
+                        return 1;
+                    }
+                    const std::vector<int> prompt_token_ids = tokenizer.encode(prompt_text, &error);
+                    if (!error.empty())
+                    {
+                        std::cerr << "Prompt encode failed: " << error << "\n";
+                        return 1;
+                    }
+                    if (!hunyuan_ocr::build_hunyuan_ocr_prompt_from_tokens(prompt_token_ids,
+                                                                           image.grid_h,
+                                                                           image.grid_w,
+                                                                           preprocessor.config().merge_size,
+                                                                           &prompt,
+                                                                           &error))
+                    {
+                        std::cerr << "Prompt build failed: " << error << "\n";
+                        return 1;
+                    }
+                    prompt_label = "custom";
+                }
+                else
+                {
+                    hunyuan_ocr::PromptMode prompt_mode = hunyuan_ocr::PromptMode::Spotting;
+                    if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text, &prompt_mode, &error))
+                    {
+                        std::cerr << "Prompt mode failed: " << error << "\n";
+                        return 1;
+                    }
+                    if (!hunyuan_ocr::build_hunyuan_ocr_prompt(prompt_mode,
+                                                               image.grid_h,
+                                                               image.grid_w,
+                                                               preprocessor.config().merge_size,
+                                                               &prompt,
+                                                               &error))
+                    {
+                        std::cerr << "Prompt build failed: " << error << "\n";
+                        return 1;
+                    }
+                    prompt_label = hunyuan_ocr::prompt_mode_name(prompt_mode);
                 }
 
                 std::cout << "Prompt:\n";
-                std::cout << "  mode: " << hunyuan_ocr::prompt_mode_name(prompt_mode) << "\n";
+                std::cout << "  mode: " << prompt_label << "\n";
                 std::cout << "  chat_template_token_count: " << prompt.chat_template_ids.size() << "\n";
                 std::cout << "  seq_len: " << prompt.seq_len << "\n";
                 std::cout << "  vision_token_count: " << prompt.vision_token_count << "\n";

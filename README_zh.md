@@ -10,19 +10,19 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
 | 项目 | 状态 |
 | --- | --- |
-| Linux | 本地完成 CMake 构建和 5 图运行回归 |
+| Linux | 本地完成 CMake 构建和 10 图运行回归 |
 | Windows CI | GitHub Actions 只做 MSVC 编译验证 |
-| Windows 实机 | 本地 Windows 机器完成 5 图带模型运行验证 |
+| Windows 实机 | 本地 Windows 机器完成带模型运行验证 |
 | 输入 | PNG/JPEG 图片 |
 | 输出 | OCR 文本 |
-| 验证 | 5 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
+| 验证 | 10 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
 | 精度 | fp32 ncnn 路径 |
-| Prompt | 内置 `spotting` 和 `document` 两种模式 |
+| Prompt | 内置 `spotting` / `document` 模式，也支持自定义 `--prompt` 文本 |
 | Vision | dynamic vision backend，并保留 fixed-grid fallback |
 
 当前已验证配置使用 `max_pixels=524288`。`image_grid_thw` 是 HunyuanOCR 图像预处理后得到的 `[t,h,w]` patch grid。dynamic vision 包使用一份 `vision/vision.ncnn.param/bin` 和 `vision/pos_embed.bin`；fixed-grid 包使用 `vision/grid_38x52/` 这类目录。
 
-当前交付范围不包含原版高分辨率路径和任意用户 prompt 编码。
+当前交付范围不包含原版高分辨率路径。
 
 ## 构建
 
@@ -57,7 +57,7 @@ cmake --build build -j
 ./build/hunyuan_ocr_cli --version
 ```
 
-Windows 验证分成两类：`.github/workflows/windows-compile.yml` 在 CI 中只做 MSVC 编译验证；5 图带模型运行是在一台真实 Windows 机器上手动完成。
+Windows 验证分成两类：`.github/workflows/windows-compile.yml` 在 CI 中只做 MSVC 编译验证；带模型运行是在一台真实 Windows 机器上手动完成。
 
 ## 准备模型目录
 
@@ -103,6 +103,15 @@ python tools/run_example.py \
   --case hf_demo
 ```
 
+运行单张图片并传入自定义 prompt：
+
+```bash
+python tools/run_example.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --case hf_demo \
+  --prompt "只输出图片中的可见文字"
+```
+
 运行全部示例图：
 
 ```bash
@@ -117,7 +126,7 @@ python tools/run_examples.py \
 准备好 baseline/export 产生的 fixture 后，可以运行完整 token/text 回归：
 
 ```bash
-python tools/run_5sample_regression.py \
+python tools/run_regression.py \
   --package \
   --package-vision-backend dynamic
 ```
@@ -125,15 +134,15 @@ python tools/run_5sample_regression.py \
 期望摘要：
 
 ```text
-summary: 5/5 passed
+summary: 10/10 passed
 ```
 
 该回归会比较 prompt ids、position ids、generated token ids 和最终 decode 文本。
 
 ## 当前限制
 
-- dynamic vision backend 已在 5 张示例图上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
-- Runtime prompt 目前只支持 `spotting` 和 `document`。
+- dynamic vision backend 已在 10 张示例图上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
+- 自定义 prompt 已接入 C++ tokenizer encode；更多 tokenizer 边界还需要继续补充 HF 对齐测试。
 - 当前交付范围使用 `max_pixels=524288`，不包含原版高分辨率路径。
 - 公开示例脚本只验证端到端运行；严格 token/text 对齐由 fixture 回归验证。
 

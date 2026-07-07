@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Run the five-sample HunyuanOCR-ncnn fixture regression."""
+"""Run the HunyuanOCR-ncnn fixture regression cases."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -19,30 +20,6 @@ class Case:
     prompt_mode: str
 
 
-CASES = [
-    Case("hf_demo_tools-dark", "hf_demo_tools-dark.png", "spotting"),
-    Case(
-        "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067",
-        "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067.png",
-        "spotting",
-    ),
-    Case(
-        "omnidoc_document_book_docstructbench_enbook_19221575_1173",
-        "omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg",
-        "document",
-    ),
-    Case(
-        "omnidoc_formula_harmonic_analysis_page_119",
-        "omnidoc_formula_harmonic_analysis_page_119.png",
-        "document",
-    ),
-    Case(
-        "omnidoc_table_pyomo_page_188",
-        "omnidoc_table_pyomo_page_188.png",
-        "document",
-    ),
-]
-
 REQUIRED_MARKERS = [
     "match_fixture_input_ids: true",
     "match_fixture_position_ids: true",
@@ -56,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     workspace_root = repo_root.parent
     temp_root = Path(tempfile.gettempdir())
 
-    parser = argparse.ArgumentParser(description="Run the fixed five-sample HunyuanOCR-ncnn regression.")
+    parser = argparse.ArgumentParser(description="Run the HunyuanOCR-ncnn fixture regression.")
     parser.add_argument(
         "--binary",
         type=Path,
@@ -73,19 +50,25 @@ def parse_args() -> argparse.Namespace:
         "--image-root",
         type=Path,
         default=workspace_root / "datasets/test_images",
-        help="Directory containing the five test images.",
+        help="Directory containing the bundled test images.",
     )
     parser.add_argument(
         "--fixture-root",
         type=Path,
-        default=temp_root / "hunyuanocr_phase53_vlm_fixtures",
+        default=temp_root / "hunyuanocr_regression_fixtures",
         help="Directory containing VLM oracle fixtures.",
     )
     parser.add_argument(
         "--log-dir",
         type=Path,
-        default=temp_root / "hunyuanocr_5sample_regression",
+        default=temp_root / "hunyuanocr_regression",
         help="Directory for per-case CLI logs.",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=repo_root / "examples/regression_cases.json",
+        help="Regression case manifest JSON.",
     )
     parser.add_argument(
         "--package",
@@ -131,6 +114,15 @@ def require_file(path: Path, label: str) -> None:
 def require_dir(path: Path, label: str) -> None:
     if not path.is_dir():
         fail(f"{label} not found: {path}")
+
+
+def load_cases(manifest: Path) -> list[Case]:
+    require_file(manifest, "regression manifest")
+    items = json.loads(manifest.read_text(encoding="utf-8"))
+    cases: list[Case] = []
+    for item in items:
+        cases.append(Case(item["name"], item["image"], item["prompt_mode"]))
+    return cases
 
 
 def run_packager(repo_root: Path, args: argparse.Namespace) -> None:
@@ -225,6 +217,7 @@ def main() -> int:
     args.fixture_root = args.fixture_root.resolve()
     args.log_dir = args.log_dir.resolve()
     args.workspace = args.workspace.resolve()
+    args.manifest = args.manifest.resolve()
 
     require_file(args.binary, "hunyuan_ocr_cli")
     if args.package:
@@ -232,18 +225,19 @@ def main() -> int:
     require_dir(args.model, "packaged model")
     require_dir(args.image_root, "image root")
     require_dir(args.fixture_root, "fixture root")
+    cases = load_cases(args.manifest)
 
     if args.log_dir.exists():
         shutil.rmtree(args.log_dir)
     args.log_dir.mkdir(parents=True)
 
     passed = 0
-    for case in CASES:
+    for case in cases:
         if run_case(repo_root, args, case):
             passed += 1
 
-    print(f"summary: {passed}/{len(CASES)} passed")
-    return 0 if passed == len(CASES) else 1
+    print(f"summary: {passed}/{len(cases)} passed")
+    return 0 if passed == len(cases) else 1
 
 
 if __name__ == "__main__":

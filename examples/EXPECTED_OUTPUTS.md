@@ -13,6 +13,11 @@ is only a lightweight preview for the bundled example images.
 | `en_book` | `document` | `58x34` | 1024 | 3437 |
 | `formula` | `document` | `58x34` | 979 | 2961 |
 | `table` | `document` | `54x36` | 325 | 1770 |
+| `hunyuan_subtitle_2` | `spotting` | `20x94` | 172 | 257 |
+| `hunyuan_table` | `document` | `52x38` | 1024 | 1907 |
+| `hunyuan_figure` | `document` | `32x60` | 24 | 67 |
+| `hunyuan_subtitle` | `spotting` | `24x84` | 130 | 219 |
+| `hunyuan_spotting` | `spotting` | `34x56` | 188 | 324 |
 
 ## hf_demo
 
@@ -50,4 +55,46 @@ Fig. 10.3 Solved sudoku puzzle.
 ## 10.4 Hybrid Optimization
 
 Hybrid methods may be required to solve particularly difficult real-world optimization problems...
+```
+
+## hunyuan_subtitle_2
+
+```text
+再(136,214),(166,357)动(193,329),(230,486)有试图了解对方的近况吗...
+HunyuanOCR: 知道一点近况也不奇怪...
+```
+
+## hunyuan_table
+
+```text
+Input image
+
+## Visualization of HunyuanOCR output
+
+第一课时下学期课表（2025年2月17日执行）
+<table><caption>Prompt: 提取文档图片中正文的所有信息...
+```
+
+## hunyuan_figure
+
+```text
+(3,69),(180,999)
+
+## Input image Visualization of HunyuanOCR output
+```
+
+## hunyuan_subtitle
+
+```text
+Prompt: 提取图中的字幕。
+HunyuanOCR: 对不起我是诺曼.斯佩...
+Sorry, I'm Norm. Spellman.
+```
+
+## hunyuan_spotting
+
+```text
+Input image(172,4),(305,49)Visualization of HunyuanOCR output...
+亲爱的...
+Prompt:检测并识别图片中的文字，将文本坐标格式化输出。
 ```

@@ -13,6 +13,11 @@ reference output excerpts are listed in `EXPECTED_OUTPUTS.md`.
 | `en_book` | `document` | `omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg` |
 | `formula` | `document` | `omnidoc_formula_harmonic_analysis_page_119.png` |
 | `table` | `document` | `omnidoc_table_pyomo_page_188.png` |
+| `hunyuan_subtitle_2` | `spotting` | `hunyuan_vis_subtitle2.png` |
+| `hunyuan_table` | `document` | `hunyuan_vis_parsing_table.png` |
+| `hunyuan_figure` | `document` | `hunyuan_vis_parsing_fig.png` |
+| `hunyuan_subtitle` | `spotting` | `hunyuan_vis_subtitle1.png` |
+| `hunyuan_spotting` | `spotting` | `hunyuan_spotting1_cropped.png` |
 
 ## Run
 
@@ -48,15 +53,15 @@ uses `vision/grid_38x52/`.
 
 ## Full Regression
 
-After preparing exported fixtures, the five-sample regression additionally
+After preparing exported fixtures, the full regression additionally
 compares prompt ids, position ids, generated token ids, and decoded text:
 
 ```bash
-python tools/run_5sample_regression.py --package
+python tools/run_regression.py --package --package-vision-backend dynamic
 ```
 
 Expected summary:
 
 ```text
-summary: 5/5 passed
+summary: 10/10 passed
 ```

@@ -10,6 +10,11 @@ the current fp32 `max_pixels=524288` validation.
 | `omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg` | `document` | OmniDocBench sample. Source project: https://github.com/opendatalab/OmniDocBench |
 | `omnidoc_formula_harmonic_analysis_page_119.png` | `document` | OmniDocBench sample. Source project: https://github.com/opendatalab/OmniDocBench |
 | `omnidoc_table_pyomo_page_188.png` | `document` | OmniDocBench sample. Source project: https://github.com/opendatalab/OmniDocBench |
+| `hunyuan_vis_subtitle2.png` | `spotting` | HunyuanOCR upstream asset `assets/vis_subtitle2.png`. Source project: https://github.com/Tencent-Hunyuan/HunyuanOCR |
+| `hunyuan_vis_parsing_table.png` | `document` | HunyuanOCR upstream asset `assets/vis_parsing_table.png`. Source project: https://github.com/Tencent-Hunyuan/HunyuanOCR |
+| `hunyuan_vis_parsing_fig.png` | `document` | HunyuanOCR upstream asset `assets/vis_parsing_fig.png`. Source project: https://github.com/Tencent-Hunyuan/HunyuanOCR |
+| `hunyuan_vis_subtitle1.png` | `spotting` | HunyuanOCR upstream asset `assets/vis_subtitle1.png`. Source project: https://github.com/Tencent-Hunyuan/HunyuanOCR |
+| `hunyuan_spotting1_cropped.png` | `spotting` | HunyuanOCR upstream asset `assets/spotting1_cropped.png`. Source project: https://github.com/Tencent-Hunyuan/HunyuanOCR |
 
 OmniDocBench is used here only as a small public document-image regression
 source. Follow the original dataset terms for any use beyond local validation

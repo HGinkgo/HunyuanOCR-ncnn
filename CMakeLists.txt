@@ -6,6 +6,7 @@ project(HunyuanOCR_ncnn
 )
 
 option(HUNYUAN_OCR_BUILD_CLI "Build the hunyuan_ocr_cli executable" ON)
+option(HUNYUAN_OCR_BUILD_TESTS "Build HunyuanOCR-ncnn test executables" OFF)
 option(HUNYUAN_OCR_STRICT_WARNINGS "Enable compiler warnings for project sources" ON)
 option(HUNYUAN_OCR_USE_NCNN_PACKAGE "Try find_package(ncnn CONFIG) before manual ncnn paths" ON)
 
@@ -76,6 +77,40 @@ if(HUNYUAN_OCR_STRICT_WARNINGS)
     else()
         target_compile_options(hunyuan_ocr PRIVATE -Wall -Wextra -Wpedantic)
     endif()
+endif()
+
+if(HUNYUAN_OCR_BUILD_TESTS)
+    enable_testing()
+    set(HUNYUAN_OCR_TEST_TOKENIZER_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/../models/tokenizer"
+        CACHE PATH "Directory containing exported HunyuanOCR tokenizer files for tests"
+    )
+
+    add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
+    target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_tokenizer_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_prompt_builder_test tests/prompt_builder_test.cpp)
+    target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_prompt_builder_test PRIVATE cxx_std_17)
+
+    if(HUNYUAN_OCR_STRICT_WARNINGS)
+        if(MSVC)
+            target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
+            target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE /W4)
+        else()
+            target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
+            target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+    endif()
+
+    add_test(NAME tokenizer_encode
+        COMMAND hunyuan_ocr_tokenizer_test
+                "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}"
+    )
+    add_test(NAME prompt_builder
+        COMMAND hunyuan_ocr_prompt_builder_test
+    )
 endif()
 
 if(HUNYUAN_OCR_BUILD_CLI)

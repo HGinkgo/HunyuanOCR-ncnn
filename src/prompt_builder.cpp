@@ -6,6 +6,11 @@ namespace hunyuan_ocr {
 namespace {
 
 constexpr int kImageTokenId = 120120;
+constexpr int kBeginTokenId = 120000;
+constexpr int kSystemSeparatorTokenId = 120021;
+constexpr int kImageStartTokenId = 120118;
+constexpr int kImageEndTokenId = 120119;
+constexpr int kUserTokenId = 120006;
 
 const int kSpottingTemplateIds[] = {
     120000, 120021, 120118, 120120, 120119, 5055, 951, 9977, 12858, 1843,
@@ -29,40 +34,12 @@ std::vector<int> template_ids_for_mode(PromptMode mode)
     return std::vector<int>(std::begin(kDocumentTemplateIds), std::end(kDocumentTemplateIds));
 }
 
-} // namespace
-
-bool parse_prompt_mode(const std::string& text, PromptMode* mode, std::string* error)
-{
-    if (mode == nullptr)
-    {
-        if (error) *error = "prompt mode pointer is null";
-        return false;
-    }
-    if (text == "spotting")
-    {
-        *mode = PromptMode::Spotting;
-        return true;
-    }
-    if (text == "document")
-    {
-        *mode = PromptMode::Document;
-        return true;
-    }
-    if (error) *error = "unsupported prompt mode: " + text + " (expected spotting or document)";
-    return false;
-}
-
-const char* prompt_mode_name(PromptMode mode)
-{
-    return mode == PromptMode::Spotting ? "spotting" : "document";
-}
-
-bool build_hunyuan_ocr_prompt(PromptMode mode,
-                              int grid_h,
-                              int grid_w,
-                              int merge_size,
-                              PromptBuildResult* result,
-                              std::string* error)
+bool build_prompt_from_template(const std::vector<int>& chat_template_ids,
+                                int grid_h,
+                                int grid_w,
+                                int merge_size,
+                                PromptBuildResult* result,
+                                std::string* error)
 {
     if (result == nullptr)
     {
@@ -86,7 +63,7 @@ bool build_hunyuan_ocr_prompt(PromptMode mode,
     const int vision_token_count = spatial_token_count + 2;
 
     PromptBuildResult local;
-    local.chat_template_ids = template_ids_for_mode(mode);
+    local.chat_template_ids = chat_template_ids;
     local.vision_token_count = vision_token_count;
     local.image_token_id = kImageTokenId;
 
@@ -94,7 +71,7 @@ bool build_hunyuan_ocr_prompt(PromptMode mode,
         std::count(local.chat_template_ids.begin(), local.chat_template_ids.end(), kImageTokenId));
     if (image_token_templates != 1)
     {
-        if (error) *error = "built-in prompt template must contain exactly one image token";
+        if (error) *error = "prompt template must contain exactly one image token";
         return false;
     }
 
@@ -144,6 +121,63 @@ bool build_hunyuan_ocr_prompt(PromptMode mode,
 
     *result = std::move(local);
     return true;
+}
+
+} // namespace
+
+bool parse_prompt_mode(const std::string& text, PromptMode* mode, std::string* error)
+{
+    if (mode == nullptr)
+    {
+        if (error) *error = "prompt mode pointer is null";
+        return false;
+    }
+    if (text == "spotting")
+    {
+        *mode = PromptMode::Spotting;
+        return true;
+    }
+    if (text == "document")
+    {
+        *mode = PromptMode::Document;
+        return true;
+    }
+    if (error) *error = "unsupported prompt mode: " + text + " (expected spotting or document)";
+    return false;
+}
+
+const char* prompt_mode_name(PromptMode mode)
+{
+    return mode == PromptMode::Spotting ? "spotting" : "document";
+}
+
+bool build_hunyuan_ocr_prompt(PromptMode mode,
+                              int grid_h,
+                              int grid_w,
+                              int merge_size,
+                              PromptBuildResult* result,
+                              std::string* error)
+{
+    return build_prompt_from_template(template_ids_for_mode(mode), grid_h, grid_w, merge_size, result, error);
+}
+
+bool build_hunyuan_ocr_prompt_from_tokens(const std::vector<int>& prompt_token_ids,
+                                          int grid_h,
+                                          int grid_w,
+                                          int merge_size,
+                                          PromptBuildResult* result,
+                                          std::string* error)
+{
+    std::vector<int> chat_template_ids;
+    chat_template_ids.reserve(prompt_token_ids.size() + 6);
+    chat_template_ids.push_back(kBeginTokenId);
+    chat_template_ids.push_back(kSystemSeparatorTokenId);
+    chat_template_ids.push_back(kImageStartTokenId);
+    chat_template_ids.push_back(kImageTokenId);
+    chat_template_ids.push_back(kImageEndTokenId);
+    chat_template_ids.insert(chat_template_ids.end(), prompt_token_ids.begin(), prompt_token_ids.end());
+    chat_template_ids.push_back(kUserTokenId);
+    return build_prompt_from_template(chat_template_ids, grid_h, grid_w, merge_size, result, error);
 }
 
 } // namespace hunyuan_ocr

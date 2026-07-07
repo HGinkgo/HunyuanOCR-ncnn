@@ -29,4 +29,11 @@ bool build_hunyuan_ocr_prompt(PromptMode mode,
                               PromptBuildResult* result,
                               std::string* error);
 
+bool build_hunyuan_ocr_prompt_from_tokens(const std::vector<int>& prompt_token_ids,
+                                          int grid_h,
+                                          int grid_w,
+                                          int merge_size,
+                                          PromptBuildResult* result,
+                                          std::string* error);
+
 } // namespace hunyuan_ocr

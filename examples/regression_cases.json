@@ -1,0 +1,72 @@
+[
+  {
+    "key": "hf_demo",
+    "name": "hf_demo_tools-dark",
+    "image": "hf_demo_tools-dark.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR README demo image"
+  },
+  {
+    "key": "chinese_doc",
+    "name": "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067",
+    "image": "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067.png",
+    "prompt_mode": "spotting",
+    "description": "OmniDocBench Chinese document page"
+  },
+  {
+    "key": "en_book",
+    "name": "omnidoc_document_book_docstructbench_enbook_19221575_1173",
+    "image": "omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg",
+    "prompt_mode": "document",
+    "description": "OmniDocBench English book page"
+  },
+  {
+    "key": "formula",
+    "name": "omnidoc_formula_harmonic_analysis_page_119",
+    "image": "omnidoc_formula_harmonic_analysis_page_119.png",
+    "prompt_mode": "document",
+    "description": "OmniDocBench formula page"
+  },
+  {
+    "key": "table",
+    "name": "omnidoc_table_pyomo_page_188",
+    "image": "omnidoc_table_pyomo_page_188.png",
+    "prompt_mode": "document",
+    "description": "OmniDocBench table page"
+  },
+  {
+    "key": "hunyuan_subtitle_2",
+    "name": "hunyuan_vis_subtitle2",
+    "image": "hunyuan_vis_subtitle2.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream subtitle spotting asset"
+  },
+  {
+    "key": "hunyuan_table",
+    "name": "hunyuan_vis_parsing_table",
+    "image": "hunyuan_vis_parsing_table.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream table parsing asset"
+  },
+  {
+    "key": "hunyuan_figure",
+    "name": "hunyuan_vis_parsing_fig",
+    "image": "hunyuan_vis_parsing_fig.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream figure/document parsing asset"
+  },
+  {
+    "key": "hunyuan_subtitle",
+    "name": "hunyuan_vis_subtitle1",
+    "image": "hunyuan_vis_subtitle1.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream subtitle spotting asset"
+  },
+  {
+    "key": "hunyuan_spotting",
+    "name": "hunyuan_spotting1_cropped",
+    "image": "hunyuan_spotting1_cropped.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream text spotting asset"
+  }
+]
