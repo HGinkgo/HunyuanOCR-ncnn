@@ -19,4 +19,5 @@ custom image prompt instead of the case's built-in prompt mode.
 packaged model directory. It requires exported fixture directories from the
 baseline/export workflow. Pass `--package` to rebuild the packaged model first;
 `--package-vision-backend dynamic` runs the same regression through the dynamic
-vision package.
+vision package. Manifest cases may use either a built-in `prompt_mode` or a
+literal custom `prompt`.

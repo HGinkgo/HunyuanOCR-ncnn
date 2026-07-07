@@ -16,7 +16,8 @@ import numpy as np
 class Case:
     name: str
     image: str
-    prompt_mode: str
+    prompt_mode: str | None = None
+    prompt: str | None = None
 
 
 def repo_root() -> Path:
@@ -61,7 +62,14 @@ def require_file(path: Path, label: str) -> None:
 def load_cases(manifest: Path) -> list[Case]:
     require_file(manifest, "manifest")
     items = json.loads(manifest.read_text(encoding="utf-8"))
-    return [Case(item["name"], item["image"], item["prompt_mode"]) for item in items]
+    cases: list[Case] = []
+    for item in items:
+        prompt_mode = item.get("prompt_mode")
+        prompt = item.get("prompt")
+        if (prompt_mode is None) == (prompt is None):
+            fail(f"{item.get('name', '<unnamed>')}: manifest case must contain exactly one of prompt_mode or prompt")
+        cases.append(Case(item["name"], item["image"], prompt_mode, prompt))
+    return cases
 
 
 def write_i32(path: Path, values: np.ndarray) -> None:

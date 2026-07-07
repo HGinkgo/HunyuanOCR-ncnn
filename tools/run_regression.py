@@ -17,7 +17,12 @@ from pathlib import Path
 class Case:
     name: str
     image: str
-    prompt_mode: str
+    prompt_mode: str | None = None
+    prompt: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.prompt_mode if self.prompt_mode is not None else "custom"
 
 
 REQUIRED_MARKERS = [
@@ -121,7 +126,11 @@ def load_cases(manifest: Path) -> list[Case]:
     items = json.loads(manifest.read_text(encoding="utf-8"))
     cases: list[Case] = []
     for item in items:
-        cases.append(Case(item["name"], item["image"], item["prompt_mode"]))
+        prompt_mode = item.get("prompt_mode")
+        prompt = item.get("prompt")
+        if (prompt_mode is None) == (prompt is None):
+            fail(f"{item.get('name', '<unnamed>')}: manifest case must contain exactly one of prompt_mode or prompt")
+        cases.append(Case(item["name"], item["image"], prompt_mode, prompt))
     return cases
 
 
@@ -176,11 +185,12 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
         str(args.model),
         "--image",
         str(image),
-        "--prompt-mode",
-        case.prompt_mode,
-        "--vlm-fixture",
-        str(fixture),
     ]
+    if case.prompt is not None:
+        cmd.extend(["--prompt", case.prompt])
+    else:
+        cmd.extend(["--prompt-mode", case.prompt_mode or ""])
+    cmd.extend(["--vlm-fixture", str(fixture)])
 
     completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True)
     log_path.write_text(
@@ -197,7 +207,7 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
     ok = completed.returncode == 0 and not missing
 
     status = "PASS" if ok else "FAIL"
-    print(f"{status} {case.name} ({case.prompt_mode})")
+    print(f"{status} {case.name} ({case.label})")
     for line in relevant_lines(combined):
         print(f"  {line.strip()}")
     if missing:

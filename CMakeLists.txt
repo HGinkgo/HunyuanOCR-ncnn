@@ -81,6 +81,7 @@ endif()
 
 if(HUNYUAN_OCR_BUILD_TESTS)
     enable_testing()
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(HUNYUAN_OCR_TEST_TOKENIZER_DIR
         "${CMAKE_CURRENT_SOURCE_DIR}/../models/tokenizer"
         CACHE PATH "Directory containing exported HunyuanOCR tokenizer files for tests"
@@ -110,6 +111,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
+    )
+    add_test(NAME run_regression_prompt_manifest
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_regression_manifest_test.py"
     )
 endif()
 
