@@ -29,7 +29,18 @@
       "bin": "lm_head/lm_head.ncnn.bin"
     },
     "vision": {
-      "status": "fixed_grid_vision_exports",
+      "status": "dynamic_vision_with_fixed_grid_fallback",
+      "backend": "dynamic",
+      "param": "vision/vision.ncnn.param",
+      "bin": "vision/vision.ncnn.bin",
+      "pos_embed": "vision/pos_embed.bin",
+      "pos_embed_shape": [1152, 128, 128],
+      "pos_embed_interpolation": {
+        "mode": "bilinear",
+        "align_corners": false,
+        "scale_factor": "((grid_h + 0.1) / 128, (grid_w + 0.1) / 128)"
+      },
+      "fallback_backend": "fixed_grid",
       "directory_pattern": "vision/grid_<grid_h>x<grid_w>/",
       "param_name": "vision.ncnn.param",
       "bin_name": "vision.ncnn.bin",

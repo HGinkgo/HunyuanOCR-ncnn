@@ -114,6 +114,36 @@ bool resolve_fixed_grid_vision_paths(const std::string& model_root,
     return true;
 }
 
+bool resolve_dynamic_vision_paths(const std::string& model_root,
+                                  std::string& param_path,
+                                  std::string& bin_path,
+                                  std::string& pos_embed_path)
+{
+    const std::filesystem::path vision_dir = std::filesystem::path(model_root) / "vision";
+    const std::filesystem::path pos_path = vision_dir / "pos_embed.bin";
+    const std::filesystem::path candidate_param = vision_dir / "vision.ncnn.param";
+    const std::filesystem::path candidate_bin = vision_dir / "vision.ncnn.bin";
+    if (file_exists(candidate_param) && file_exists(candidate_bin) && file_exists(pos_path))
+    {
+        param_path = candidate_param.string();
+        bin_path = candidate_bin.string();
+        pos_embed_path = pos_path.string();
+        return true;
+    }
+
+    const std::filesystem::path legacy_param = vision_dir / "vision_dynamic.ncnn.param";
+    const std::filesystem::path legacy_bin = vision_dir / "vision_dynamic.ncnn.bin";
+    if (file_exists(legacy_param) && file_exists(legacy_bin) && file_exists(pos_path))
+    {
+        param_path = legacy_param.string();
+        bin_path = legacy_bin.string();
+        pos_embed_path = pos_path.string();
+        return true;
+    }
+
+    return false;
+}
+
 template <typename T>
 bool read_binary_vector_file(const std::string& path, std::vector<T>& out, std::string& error)
 {
@@ -644,10 +674,21 @@ int main(int argc, char** argv)
 
         std::string resolved_vision_param_path = vision_param_path;
         std::string resolved_vision_bin_path = vision_bin_path;
+        std::string resolved_pos_embed_path;
+        bool use_dynamic_vision = false;
+        const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
         const bool wants_image_decode =
             !prompt_mode_text.empty() || !vlm_fixture_dir.empty() ||
             !resolved_vision_param_path.empty() || !resolved_vision_bin_path.empty();
+        if (wants_image_decode && !explicit_vision_paths)
+        {
+            use_dynamic_vision = resolve_dynamic_vision_paths(model_root,
+                                                              resolved_vision_param_path,
+                                                              resolved_vision_bin_path,
+                                                              resolved_pos_embed_path);
+        }
         if (wants_image_decode &&
+            !use_dynamic_vision &&
             !resolve_fixed_grid_vision_paths(model_root,
                                              image.grid_h,
                                              image.grid_w,
@@ -656,11 +697,12 @@ int main(int argc, char** argv)
         {
             if (vision_param_path.empty() && vision_bin_path.empty())
             {
-                std::cerr << "No fixed-grid vision artifact found for image_grid_thw=["
+                std::cerr << "No dynamic or fixed-grid vision artifact found for image_grid_thw=["
                           << image.grid_t << "," << image.grid_h << "," << image.grid_w << "]"
-                          << " under " << model_root << "/vision/grid_"
+                          << " under " << model_root << "/vision. Expected either vision/vision.ncnn.param,"
+                          << " vision/vision.ncnn.bin, vision/pos_embed.bin, or vision/grid_"
                           << image.grid_h << "x" << image.grid_w
-                          << ". Pass --vision-param and --vision-bin or export that grid.\n";
+                          << "/vision.ncnn.param/bin. Pass --vision-param and --vision-bin or package a supported vision backend.\n";
             }
             else
             {
@@ -678,7 +720,18 @@ int main(int argc, char** argv)
             }
 
             hunyuan_ocr::VisionRuntime vision_runtime;
-            if (!vision_runtime.load(resolved_vision_param_path, resolved_vision_bin_path, &error))
+            if (use_dynamic_vision)
+            {
+                if (!vision_runtime.load_dynamic(resolved_vision_param_path,
+                                                 resolved_vision_bin_path,
+                                                 resolved_pos_embed_path,
+                                                 &error))
+                {
+                    std::cerr << "Failed to load dynamic vision runtime: " << error << "\n";
+                    return 1;
+                }
+            }
+            else if (!vision_runtime.load(resolved_vision_param_path, resolved_vision_bin_path, &error))
             {
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
                 return 1;
@@ -689,19 +742,32 @@ int main(int argc, char** argv)
             const int vision_token_count = patch_h * (patch_w + 1) + 2;
 
             hunyuan_ocr::VisionRuntimeResult vision;
-            if (!vision_runtime.run_pixel_values(image.pixel_values,
-                                                 image.patch_count,
-                                                 vision_token_count,
-                                                 &vision,
-                                                 &error))
+            const bool vision_ok = use_dynamic_vision
+                ? vision_runtime.run_dynamic_pixel_values(image.pixel_values,
+                                                          image.grid_h,
+                                                          image.grid_w,
+                                                          preprocessor.config().merge_size,
+                                                          &vision,
+                                                          &error)
+                : vision_runtime.run_pixel_values(image.pixel_values,
+                                                  image.patch_count,
+                                                  vision_token_count,
+                                                  &vision,
+                                                  &error);
+            if (!vision_ok)
             {
                 std::cerr << "Image + vision failed: " << error << "\n";
                 return 1;
             }
 
             std::cout << "Image + vision:\n";
+            std::cout << "  backend: " << (use_dynamic_vision ? "dynamic" : "fixed-grid") << "\n";
             std::cout << "  param: " << resolved_vision_param_path << "\n";
             std::cout << "  bin: " << resolved_vision_bin_path << "\n";
+            if (use_dynamic_vision)
+            {
+                std::cout << "  pos_embed: " << resolved_pos_embed_path << "\n";
+            }
             std::cout << "  patch_count: " << vision.patch_count << "\n";
             std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
             std::cout << "  feature_values: " << vision.feature_values << "\n";

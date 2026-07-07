@@ -7,7 +7,7 @@ C++/ncnn runtime for Tencent HunyuanOCR.
 Technical report: [Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
 
 This project converts the HunyuanOCR inference path into ncnn modules with
-pnnx, then connects image preprocessing, fixed-grid vision inference, KV-cache
+pnnx, then connects image preprocessing, dynamic/fixed-grid vision inference, KV-cache
 text decoding, lm head, and tokenizer decode in C++.
 
 ## Status
@@ -21,15 +21,16 @@ text decoding, lm head, and tokenizer decode in C++.
 | Validation | 5 bundled regression images match PyTorch fp32 reference token/text |
 | Precision | fp32 ncnn path |
 | Prompts | built-in `spotting` and `document` modes |
-| Vision grids | currently covers grid `38x52`, grid `54x36`, and grid `58x34` |
+| Vision | dynamic vision backend, with fixed-grid fallback |
 
 The current verified configuration uses `max_pixels=524288`. `image_grid_thw`
-is the `[t,h,w]` patch grid produced by the HunyuanOCR image processor; with
-the current image path, `t=1`, so `image_grid_thw=[1,38,52]` maps to the runtime
-directory `vision/grid_38x52/`.
+is the `[t,h,w]` patch grid produced by the HunyuanOCR image processor. The
+dynamic vision package uses one `vision/vision.ncnn.param/bin` pair plus
+`vision/pos_embed.bin`; fixed-grid packages use directories such as
+`vision/grid_38x52/`.
 
-The current delivery scope does not include the original high-resolution route,
-arbitrary user prompt encoding, or dynamic vision grids.
+The current delivery scope does not include the original high-resolution route
+or arbitrary user prompt encoding.
 
 ## Quick Start
 
@@ -81,11 +82,14 @@ artifacts. Here `<workspace>` means the directory that contains
 python tools/package_model.py \
   --workspace <workspace> \
   --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
   --copy \
   --force
 ```
 
-Use symlinks instead of copies by omitting `--copy`.
+Use symlinks instead of copies by omitting `--copy`. Use
+`--vision-backend fixed` for the v0.1 fixed-grid package, or `both` to include
+dynamic vision and fixed-grid fallback files in one model directory.
 
 ### 3. Run Examples
 
@@ -126,6 +130,9 @@ hunyuan_ocr_ncnn_model/
   text_decoder/
   lm_head/
   vision/
+    vision.ncnn.param
+    vision.ncnn.bin
+    pos_embed.bin
     grid_<grid_h>x<grid_w>/
 ```
 
@@ -137,7 +144,9 @@ runtime model package is generated separately from converted artifacts.
 For full token/text regression after preparing fixtures:
 
 ```bash
-python tools/run_5sample_regression.py --package
+python tools/run_5sample_regression.py \
+  --package \
+  --package-vision-backend dynamic
 ```
 
 Expected summary:
@@ -163,8 +172,8 @@ models/                Tracked config template only
 
 ## Limitations
 
-- Vision export is currently fixed-grid. New grids need matching vision ncnn
-  artifacts.
+- The dynamic vision backend is verified on the bundled 5-image regression set
+  under `max_pixels=524288`.
 - Runtime prompt selection is limited to `spotting` and `document`.
 - The current delivery scope uses `max_pixels=524288`; it does not include the
   original high-resolution route.

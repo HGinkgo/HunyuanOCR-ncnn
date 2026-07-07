@@ -27,6 +27,11 @@ layout:
       lm_head/
         lm_head.ncnn.param
         lm_head.ncnn.bin
+      vision_dynamic_probe/
+        ncnn/
+          vision_dynamic.ncnn.param
+          vision_dynamic.ncnn.bin
+          pos_embed.bin
       vision/
         fp32_p512k/
           summary.json
@@ -45,13 +50,17 @@ hunyuan_ocr_ncnn_model/
   text_decoder/
   lm_head/
   vision/
+    vision.ncnn.param
+    vision.ncnn.bin
+    pos_embed.bin
     grid_<h>x<w>/
       vision.ncnn.param
       vision.ncnn.bin
 ```
 
-For example, a vision export case with `image_grid_thw=[1,38,52]` becomes
-`vision/grid_38x52/` in the runtime package.
+Dynamic vision uses `vision/vision.ncnn.param`, `vision/vision.ncnn.bin`, and
+`vision/pos_embed.bin`. Fixed-grid fallback keeps directories such as
+`vision/grid_38x52/`.
 
 Create the package with:
 
@@ -59,10 +68,11 @@ Create the package with:
 python tools/package_model.py \
   --workspace <workspace> \
   --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
   --copy \
   --force
 ```
 
 Current validated exports use the fp32 path, `max_pixels=524288`, and
-fixed-grid vision modules. New grids need matching `vision/grid_<h>x<w>/` ncnn
-artifacts in the runtime package.
+dynamic vision with fixed-grid fallback available. Use `--vision-backend fixed`
+to reproduce the v0.1 fixed-grid-only package.

@@ -14,6 +14,10 @@ namespace {
 
 constexpr int kPatchDim = 768;
 constexpr int kHiddenSize = 1024;
+constexpr int kPatchSize = 16;
+constexpr int kChannelCount = 3;
+constexpr int kVisionHiddenSize = 1152;
+constexpr int kPositionEdge = 128;
 
 template <typename T>
 bool read_binary_vector(const std::filesystem::path& path, size_t expected_count, std::vector<T>* values, std::string* error)
@@ -94,6 +98,139 @@ size_t logical_value_count(const ncnn::Mat& mat)
            static_cast<size_t>(elempack);
 }
 
+bool pixel_values_to_chw(const std::vector<float>& pixel_values,
+                         int grid_h,
+                         int grid_w,
+                         int merge_size,
+                         std::vector<float>* chw,
+                         std::string* error)
+{
+    if (chw == nullptr)
+    {
+        if (error) *error = "chw pointer is null";
+        return false;
+    }
+    if (grid_h <= 0 || grid_w <= 0 || merge_size <= 0)
+    {
+        if (error) *error = "grid_h, grid_w, and merge_size must be positive";
+        return false;
+    }
+    if (grid_h % merge_size != 0 || grid_w % merge_size != 0)
+    {
+        if (error) *error = "grid_h and grid_w must be divisible by merge_size";
+        return false;
+    }
+
+    const int patch_count = grid_h * grid_w;
+    const size_t expected = static_cast<size_t>(patch_count) * kPatchDim;
+    if (pixel_values.size() != expected)
+    {
+        if (error) {
+            *error = "pixel_values size mismatch for dynamic vision: got " + std::to_string(pixel_values.size()) +
+                     ", expected " + std::to_string(expected);
+        }
+        return false;
+    }
+
+    const int height = grid_h * kPatchSize;
+    const int width = grid_w * kPatchSize;
+    chw->assign(static_cast<size_t>(kChannelCount) * height * width, 0.0f);
+
+    size_t in_index = 0;
+    for (int gh_block = 0; gh_block < grid_h / merge_size; ++gh_block)
+    {
+        for (int merge_h = 0; merge_h < merge_size; ++merge_h)
+        {
+            for (int gw_block = 0; gw_block < grid_w / merge_size; ++gw_block)
+            {
+                for (int merge_w = 0; merge_w < merge_size; ++merge_w)
+                {
+                    const int patch_y0 = (gh_block * merge_size + merge_h) * kPatchSize;
+                    const int patch_x0 = (gw_block * merge_size + merge_w) * kPatchSize;
+                    for (int channel = 0; channel < kChannelCount; ++channel)
+                    {
+                        for (int y = 0; y < kPatchSize; ++y)
+                        {
+                            for (int x = 0; x < kPatchSize; ++x)
+                            {
+                                const size_t out_index =
+                                    (static_cast<size_t>(channel) * height + patch_y0 + y) * width + patch_x0 + x;
+                                (*chw)[out_index] = pixel_values[in_index++];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+void interpolate_pos_embed(const std::vector<float>& base,
+                           int grid_h,
+                           int grid_w,
+                           std::vector<float>* out)
+{
+    out->assign(static_cast<size_t>(kVisionHiddenSize) * grid_h * grid_w, 0.0f);
+    const float scale_h = (static_cast<float>(grid_h) + 0.1f) / static_cast<float>(kPositionEdge);
+    const float scale_w = (static_cast<float>(grid_w) + 0.1f) / static_cast<float>(kPositionEdge);
+
+    for (int y = 0; y < grid_h; ++y)
+    {
+        const float in_y = (static_cast<float>(y) + 0.5f) / scale_h - 0.5f;
+        int y0 = static_cast<int>(std::floor(in_y));
+        float wy = in_y - static_cast<float>(y0);
+        if (y0 < 0)
+        {
+            y0 = 0;
+            wy = 0.0f;
+        }
+        int y1 = y0 + 1;
+        if (y1 >= kPositionEdge)
+        {
+            y1 = kPositionEdge - 1;
+            y0 = y1;
+            wy = 0.0f;
+        }
+
+        for (int x = 0; x < grid_w; ++x)
+        {
+            const float in_x = (static_cast<float>(x) + 0.5f) / scale_w - 0.5f;
+            int x0 = static_cast<int>(std::floor(in_x));
+            float wx = in_x - static_cast<float>(x0);
+            if (x0 < 0)
+            {
+                x0 = 0;
+                wx = 0.0f;
+            }
+            int x1 = x0 + 1;
+            if (x1 >= kPositionEdge)
+            {
+                x1 = kPositionEdge - 1;
+                x0 = x1;
+                wx = 0.0f;
+            }
+
+            const float w00 = (1.0f - wy) * (1.0f - wx);
+            const float w01 = (1.0f - wy) * wx;
+            const float w10 = wy * (1.0f - wx);
+            const float w11 = wy * wx;
+
+            for (int channel = 0; channel < kVisionHiddenSize; ++channel)
+            {
+                const size_t base_channel = static_cast<size_t>(channel) * kPositionEdge * kPositionEdge;
+                const float v00 = base[base_channel + static_cast<size_t>(y0) * kPositionEdge + x0];
+                const float v01 = base[base_channel + static_cast<size_t>(y0) * kPositionEdge + x1];
+                const float v10 = base[base_channel + static_cast<size_t>(y1) * kPositionEdge + x0];
+                const float v11 = base[base_channel + static_cast<size_t>(y1) * kPositionEdge + x1];
+                (*out)[(static_cast<size_t>(channel) * grid_h + y) * grid_w + x] =
+                    v00 * w00 + v01 * w01 + v10 * w10 + v11 * w11;
+            }
+        }
+    }
+}
+
 } // namespace
 
 bool VisionRuntimeResult::matches_expected(float tolerance) const
@@ -109,6 +246,8 @@ VisionRuntime::VisionRuntime()
 bool VisionRuntime::load(const std::string& param_path, const std::string& bin_path, std::string* error)
 {
     ready_ = false;
+    dynamic_ready_ = false;
+    pos_embed_base_.clear();
     vision_net_.reset(new ncnn::Net);
     vision_net_->opt = make_fp32_ncnn_option();
     vision_net_->opt.use_packing_layout = false;
@@ -124,6 +263,41 @@ bool VisionRuntime::load(const std::string& param_path, const std::string& bin_p
         return false;
     }
     ready_ = true;
+    return true;
+}
+
+bool VisionRuntime::load_dynamic(const std::string& param_path,
+                                 const std::string& bin_path,
+                                 const std::string& pos_embed_path,
+                                 std::string* error)
+{
+    ready_ = false;
+    dynamic_ready_ = false;
+    pos_embed_base_.clear();
+    vision_net_.reset(new ncnn::Net);
+    vision_net_->opt = make_fp32_ncnn_option();
+    vision_net_->opt.use_packing_layout = false;
+
+    if (vision_net_->load_param(param_path.c_str()) != 0)
+    {
+        if (error) *error = "failed to load dynamic vision param: " + param_path;
+        return false;
+    }
+    if (vision_net_->load_model(bin_path.c_str()) != 0)
+    {
+        if (error) *error = "failed to load dynamic vision bin: " + bin_path;
+        return false;
+    }
+    if (!read_binary_vector(pos_embed_path,
+                            static_cast<size_t>(kVisionHiddenSize) * kPositionEdge * kPositionEdge,
+                            &pos_embed_base_,
+                            error))
+    {
+        return false;
+    }
+
+    ready_ = true;
+    dynamic_ready_ = true;
     return true;
 }
 
@@ -191,6 +365,104 @@ bool VisionRuntime::run_pixel_values(const std::vector<float>& pixel_values,
 
     VisionRuntimeResult local;
     local.patch_count = patch_count;
+    local.vision_token_count = vision_token_count;
+    local.feature_values = actual_values;
+    local.vision_features.assign(expected_values, 0.0f);
+
+    if (output.h == vision_token_count && output.w == kHiddenSize)
+    {
+        for (int row_index = 0; row_index < vision_token_count; ++row_index)
+        {
+            const float* src = output.row(row_index);
+            std::memcpy(local.vision_features.data() + static_cast<size_t>(row_index) * kHiddenSize,
+                        src,
+                        static_cast<size_t>(kHiddenSize) * sizeof(float));
+        }
+    }
+    else
+    {
+        const float* src = output;
+        std::memcpy(local.vision_features.data(), src, expected_values * sizeof(float));
+    }
+
+    *result = std::move(local);
+    return true;
+}
+
+bool VisionRuntime::run_dynamic_pixel_values(const std::vector<float>& pixel_values,
+                                             int grid_h,
+                                             int grid_w,
+                                             int merge_size,
+                                             VisionRuntimeResult* result,
+                                             std::string* error) const
+{
+    if (!ready_ || !dynamic_ready_)
+    {
+        if (error) *error = "dynamic vision runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = "result pointer is null";
+        return false;
+    }
+    if (grid_h <= 0 || grid_w <= 0 || merge_size <= 0)
+    {
+        if (error) *error = "grid_h, grid_w, and merge_size must be positive";
+        return false;
+    }
+
+    std::vector<float> image_chw;
+    if (!pixel_values_to_chw(pixel_values, grid_h, grid_w, merge_size, &image_chw, error))
+    {
+        return false;
+    }
+
+    std::vector<float> pos_embed;
+    interpolate_pos_embed(pos_embed_base_, grid_h, grid_w, &pos_embed);
+
+    const int image_w = grid_w * kPatchSize;
+    const int image_h = grid_h * kPatchSize;
+    ncnn::Mat image_input(image_w, image_h, kChannelCount, image_chw.data());
+    image_input = image_input.clone();
+
+    ncnn::Mat pos_input(grid_w, grid_h, kVisionHiddenSize, pos_embed.data());
+    pos_input = pos_input.clone();
+
+    ncnn::Mat output;
+    ncnn::Extractor ex = vision_net_->create_extractor();
+    if (ex.input("in0", image_input) != 0)
+    {
+        if (error) *error = "dynamic vision input in0 failed";
+        return false;
+    }
+    if (ex.input("in1", pos_input) != 0)
+    {
+        if (error) *error = "dynamic vision input in1 failed";
+        return false;
+    }
+    if (ex.extract("out0", output) != 0)
+    {
+        if (error) *error = "dynamic vision extract out0 failed";
+        return false;
+    }
+
+    const int patch_h = grid_h / merge_size;
+    const int patch_w = grid_w / merge_size;
+    const int vision_token_count = patch_h * (patch_w + 1) + 2;
+    const size_t expected_values = static_cast<size_t>(vision_token_count) * kHiddenSize;
+    const size_t actual_values = logical_value_count(output);
+    if (actual_values != expected_values)
+    {
+        if (error) {
+            *error = "dynamic vision output size mismatch: got " + std::to_string(actual_values) +
+                     ", expected " + std::to_string(expected_values);
+        }
+        return false;
+    }
+
+    VisionRuntimeResult local;
+    local.patch_count = grid_h * grid_w;
     local.vision_token_count = vision_token_count;
     local.feature_values = actual_values;
     local.vision_features.assign(expected_values, 0.0f);

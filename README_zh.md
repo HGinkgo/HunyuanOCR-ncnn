@@ -4,7 +4,7 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
 技术报告：[Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
 
-本项目使用 pnnx 将 HunyuanOCR 拆分为 ncnn 子模块，并在 C++17 中串起图片解码、图像预处理、固定 grid 的 vision 推理、KV cache 文本解码、lm head 和 tokenizer decode。
+本项目使用 pnnx 将 HunyuanOCR 拆分为 ncnn 子模块，并在 C++17 中串起图片解码、图像预处理、dynamic/fixed-grid vision 推理、KV cache 文本解码、lm head 和 tokenizer decode。
 
 ## 当前状态
 
@@ -18,11 +18,11 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 | 验证 | 5 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
 | 精度 | fp32 ncnn 路径 |
 | Prompt | 内置 `spotting` 和 `document` 两种模式 |
-| Vision grid | 当前覆盖 grid `38x52`、grid `54x36` 和 grid `58x34` |
+| Vision | dynamic vision backend，并保留 fixed-grid fallback |
 
-当前已验证配置使用 `max_pixels=524288`。`image_grid_thw` 是 HunyuanOCR 图像预处理后得到的 `[t,h,w]` patch grid；当前图片路径里 `t=1`，所以 `image_grid_thw=[1,38,52]` 会对应运行时目录 `vision/grid_38x52/`。
+当前已验证配置使用 `max_pixels=524288`。`image_grid_thw` 是 HunyuanOCR 图像预处理后得到的 `[t,h,w]` patch grid。dynamic vision 包使用一份 `vision/vision.ncnn.param/bin` 和 `vision/pos_embed.bin`；fixed-grid 包使用 `vision/grid_38x52/` 这类目录。
 
-当前交付范围不包含原版高分辨率路径、任意用户 prompt 编码和动态 vision grid。
+当前交付范围不包含原版高分辨率路径和任意用户 prompt 编码。
 
 ## 构建
 
@@ -79,11 +79,13 @@ hunyuan_ocr_ncnn_model/
 python tools/package_model.py \
   --workspace <workspace> \
   --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
   --copy \
   --force
 ```
 
 这里 `<workspace>` 指包含 `models/tokenizer/` 和 `models/export/` 的工作目录。
+如果需要 v0.1 fixed-grid 包，使用 `--vision-backend fixed`；如果需要同时包含 dynamic vision 和 fixed-grid fallback，使用 `--vision-backend both`。
 
 ## 运行示例
 
@@ -115,7 +117,9 @@ python tools/run_examples.py \
 准备好 baseline/export 产生的 fixture 后，可以运行完整 token/text 回归：
 
 ```bash
-python tools/run_5sample_regression.py --package
+python tools/run_5sample_regression.py \
+  --package \
+  --package-vision-backend dynamic
 ```
 
 期望摘要：
@@ -128,7 +132,7 @@ summary: 5/5 passed
 
 ## 当前限制
 
-- Vision 当前按固定 grid 导出；新 grid 需要补对应的 ncnn 产物。
+- dynamic vision backend 已在 5 张示例图上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
 - Runtime prompt 目前只支持 `spotting` 和 `document`。
 - 当前交付范围使用 `max_pixels=524288`，不包含原版高分辨率路径。
 - 公开示例脚本只验证端到端运行；严格 token/text 对齐由 fixture 回归验证。
