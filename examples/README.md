@@ -65,3 +65,10 @@ Expected summary:
 ```text
 summary: 10/10 passed
 ```
+
+## Custom Prompt Regression
+
+`custom_prompt_cases.json` contains two small custom-prompt cases. Each case
+uses the same image path as the bundled examples, but supplies a literal
+`prompt` field instead of a built-in `prompt_mode`. See `tools/README.md` for
+the PyTorch baseline, fixture preparation, and strict ncnn regression commands.

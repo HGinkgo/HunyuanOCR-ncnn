@@ -21,3 +21,25 @@ baseline/export workflow. Pass `--package` to rebuild the packaged model first;
 `--package-vision-backend dynamic` runs the same regression through the dynamic
 vision package. Manifest cases may use either a built-in `prompt_mode` or a
 literal custom `prompt`.
+
+`run_hf_baseline.py` creates PyTorch fp32 baseline outputs for a manifest. This
+is mainly used to create strict regression fixtures for custom prompts:
+
+```bash
+python tools/run_hf_baseline.py \
+  --model-dir /path/to/HunyuanOCR-hf \
+  --manifest examples/custom_prompt_cases.json \
+  --output-dir /tmp/hunyuanocr_custom_prompt_baseline \
+  --max-new-tokens 128
+
+python tools/prepare_regression_fixtures.py \
+  --baseline-dir /tmp/hunyuanocr_custom_prompt_baseline \
+  --manifest examples/custom_prompt_cases.json \
+  --output-dir /tmp/hunyuanocr_custom_prompt_fixtures \
+  --force
+
+python tools/run_regression.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --manifest examples/custom_prompt_cases.json \
+  --fixture-root /tmp/hunyuanocr_custom_prompt_fixtures
+```

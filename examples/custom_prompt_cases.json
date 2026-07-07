@@ -1,0 +1,14 @@
+[
+  {
+    "name": "hf_demo_tools-dark",
+    "image": "hf_demo_tools-dark.png",
+    "prompt": "只输出图片中的可见文字",
+    "description": "Chinese custom prompt on the HunyuanOCR README UI demo image."
+  },
+  {
+    "name": "hunyuan_vis_subtitle1",
+    "image": "hunyuan_vis_subtitle1.png",
+    "prompt": "Extract subtitles only.",
+    "description": "English custom prompt on a HunyuanOCR upstream subtitle image."
+  }
+]
