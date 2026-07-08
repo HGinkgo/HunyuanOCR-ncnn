@@ -10,12 +10,12 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
 | 项目 | 状态 |
 | --- | --- |
-| Linux | 本地完成 CMake 构建和 10 图运行回归 |
+| Linux | 本地完成 CMake 构建和 28 图运行回归 |
 | Windows CI | GitHub Actions 只做 MSVC 编译验证 |
 | Windows 实机 | 本地 Windows 机器完成带模型运行验证 |
 | 输入 | PNG/JPEG 图片 |
 | 输出 | OCR 文本 |
-| 验证 | 10 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
+| 验证 | 28 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
 | 精度 | fp32 ncnn 路径 |
 | Prompt | 内置 `spotting` / `document` 模式，也支持自定义 `--prompt` 文本 |
 | Vision | dynamic vision backend，并保留 fixed-grid fallback |
@@ -134,14 +134,14 @@ python tools/run_regression.py \
 期望摘要：
 
 ```text
-summary: 10/10 passed
+summary: 28/28 passed
 ```
 
 该回归会比较 prompt ids、position ids、generated token ids 和最终 decode 文本。
 
 ## 当前限制
 
-- dynamic vision backend 已在 10 张示例图上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
+- dynamic vision backend 已在 28 张示例图上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
 - 自定义 prompt 已接入 C++ tokenizer encode；更多 tokenizer 边界还需要继续补充 HF 对齐测试。
 - 当前交付范围使用 `max_pixels=524288`，不包含原版高分辨率路径。
 - 公开示例脚本只验证端到端运行；严格 token/text 对齐由 fixture 回归验证。

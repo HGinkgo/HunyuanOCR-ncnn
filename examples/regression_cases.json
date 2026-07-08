@@ -68,5 +68,131 @@
     "image": "hunyuan_spotting1_cropped.png",
     "prompt_mode": "spotting",
     "description": "HunyuanOCR upstream text spotting asset"
+  },
+  {
+    "key": "hunyuan_guwan1",
+    "name": "hunyuan_guwan1",
+    "image": "hunyuan_guwan1.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream antique-text spotting asset."
+  },
+  {
+    "key": "hunyuan_qikai1",
+    "name": "hunyuan_qikai1",
+    "image": "hunyuan_qikai1.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream calligraphy spotting asset."
+  },
+  {
+    "key": "hunyuan_parsing_chart1",
+    "name": "hunyuan_parsing_chart1",
+    "image": "hunyuan_parsing_chart1.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream chart parsing asset."
+  },
+  {
+    "key": "hunyuan_parsing_rgsj",
+    "name": "hunyuan_parsing_rgsj",
+    "image": "hunyuan_parsing_rgsj.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream document parsing asset."
+  },
+  {
+    "key": "hunyuan_parsing_rgsjz_2",
+    "name": "hunyuan_parsing_rgsjz_2",
+    "image": "hunyuan_parsing_rgsjz_2.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream narrow document parsing asset."
+  },
+  {
+    "key": "hunyuan_vis_parsing_chart1",
+    "name": "hunyuan_vis_parsing_chart1",
+    "image": "hunyuan_vis_parsing_chart1.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream chart parsing asset."
+  },
+  {
+    "key": "hunyuan_vis_parsing_chart2",
+    "name": "hunyuan_vis_parsing_chart2",
+    "image": "hunyuan_vis_parsing_chart2.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream chart parsing asset."
+  },
+  {
+    "key": "hunyuan_vis_parsing_table_2",
+    "name": "hunyuan_vis_parsing_table_2",
+    "image": "hunyuan_vis_parsing_table_2.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream table parsing asset."
+  },
+  {
+    "key": "hunyuan_vis_subtitle3",
+    "name": "hunyuan_vis_subtitle3",
+    "image": "hunyuan_vis_subtitle3.png",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream dense subtitle spotting asset."
+  },
+  {
+    "key": "hunyuan_zimu2",
+    "name": "hunyuan_zimu2",
+    "image": "hunyuan_zimu2.jpg",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream subtitle spotting asset."
+  },
+  {
+    "key": "hunyuan_ie_parallel",
+    "name": "hunyuan_ie_parallel",
+    "image": "hunyuan_ie_parallel.jpg",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream information extraction example."
+  },
+  {
+    "key": "hunyuan_translation2",
+    "name": "hunyuan_translation2",
+    "image": "hunyuan_translation2.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream translation/document example."
+  },
+  {
+    "key": "hunyuan_vis_translation",
+    "name": "hunyuan_vis_translation",
+    "image": "hunyuan_vis_translation.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream translation visualization example."
+  },
+  {
+    "key": "hunyuan_vis_ie_1",
+    "name": "hunyuan_vis_ie_1",
+    "image": "hunyuan_vis_ie_1.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream information extraction visualization."
+  },
+  {
+    "key": "hunyuan_vis_parsing_chart3",
+    "name": "hunyuan_vis_parsing_chart3",
+    "image": "hunyuan_vis_parsing_chart3.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream chart parsing visualization."
+  },
+  {
+    "key": "hunyuan_vis_art_16",
+    "name": "hunyuan_vis_art_16",
+    "image": "hunyuan_vis_art_16.jpg",
+    "prompt_mode": "spotting",
+    "description": "HunyuanOCR upstream art/image spotting example."
+  },
+  {
+    "key": "hunyuan_show_res_parsing_fig",
+    "name": "hunyuan_show_res_parsing_fig",
+    "image": "hunyuan_show_res_parsing_fig.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream large parsing visualization."
+  },
+  {
+    "key": "hunyuan_vis_parsing",
+    "name": "hunyuan_vis_parsing",
+    "image": "hunyuan_vis_parsing.png",
+    "prompt_mode": "document",
+    "description": "HunyuanOCR upstream parsing overview visualization."
   }
 ]

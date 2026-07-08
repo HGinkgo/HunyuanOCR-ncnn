@@ -14,11 +14,11 @@ text decoding, lm head, and tokenizer decode in C++.
 
 | Item | Status |
 | --- | --- |
-| Linux | CMake build and 10-image runtime regression validated locally |
+| Linux | CMake build and 28-image runtime regression validated locally |
 | Windows CI | MSVC compile-only in GitHub Actions |
 | Windows runtime | Packaged-model run validated on a real Windows machine |
 | Runtime | PNG/JPEG input to final OCR text |
-| Validation | 10 bundled regression images match PyTorch fp32 reference token/text |
+| Validation | 28 bundled regression images match PyTorch fp32 reference token/text |
 | Precision | fp32 ncnn path |
 | Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
 | Vision | dynamic vision backend, with fixed-grid fallback |
@@ -159,7 +159,7 @@ python tools/run_regression.py \
 Expected summary:
 
 ```text
-summary: 10/10 passed
+summary: 28/28 passed
 ```
 
 This regression compares prompt ids, position ids, generated token ids, and
@@ -179,7 +179,7 @@ models/                Tracked config template only
 
 ## Limitations
 
-- The dynamic vision backend is verified on the bundled 10-image regression set
+- The dynamic vision backend is verified on the bundled 28-image regression set
   under `max_pixels=524288`.
 - Custom prompt text is supported through the C++ tokenizer encode path; broader
   tokenizer edge cases still need more HF parity tests.

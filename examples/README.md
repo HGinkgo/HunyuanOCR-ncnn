@@ -1,8 +1,8 @@
 # Examples
 
-This directory contains a small set of public images used to exercise the
-runtime OCR path. Image provenance is listed in `IMAGE_SOURCES.md`; short
-reference output excerpts are listed in `EXPECTED_OUTPUTS.md`.
+This directory contains 28 public images used to exercise the runtime OCR path.
+Image provenance is listed in `IMAGE_SOURCES.md`; reference output statistics
+are listed in `EXPECTED_OUTPUTS.md`.
 
 ## Cases
 
@@ -18,6 +18,24 @@ reference output excerpts are listed in `EXPECTED_OUTPUTS.md`.
 | `hunyuan_figure` | `document` | `hunyuan_vis_parsing_fig.png` |
 | `hunyuan_subtitle` | `spotting` | `hunyuan_vis_subtitle1.png` |
 | `hunyuan_spotting` | `spotting` | `hunyuan_spotting1_cropped.png` |
+| `hunyuan_guwan1` | `spotting` | `hunyuan_guwan1.png` |
+| `hunyuan_qikai1` | `spotting` | `hunyuan_qikai1.png` |
+| `hunyuan_parsing_chart1` | `document` | `hunyuan_parsing_chart1.png` |
+| `hunyuan_parsing_rgsj` | `document` | `hunyuan_parsing_rgsj.png` |
+| `hunyuan_parsing_rgsjz_2` | `document` | `hunyuan_parsing_rgsjz_2.png` |
+| `hunyuan_vis_parsing_chart1` | `document` | `hunyuan_vis_parsing_chart1.png` |
+| `hunyuan_vis_parsing_chart2` | `document` | `hunyuan_vis_parsing_chart2.png` |
+| `hunyuan_vis_parsing_table_2` | `document` | `hunyuan_vis_parsing_table_2.png` |
+| `hunyuan_vis_subtitle3` | `spotting` | `hunyuan_vis_subtitle3.png` |
+| `hunyuan_zimu2` | `spotting` | `hunyuan_zimu2.jpg` |
+| `hunyuan_ie_parallel` | `document` | `hunyuan_ie_parallel.jpg` |
+| `hunyuan_translation2` | `document` | `hunyuan_translation2.png` |
+| `hunyuan_vis_translation` | `document` | `hunyuan_vis_translation.png` |
+| `hunyuan_vis_ie_1` | `document` | `hunyuan_vis_ie_1.png` |
+| `hunyuan_vis_parsing_chart3` | `document` | `hunyuan_vis_parsing_chart3.png` |
+| `hunyuan_vis_art_16` | `spotting` | `hunyuan_vis_art_16.jpg` |
+| `hunyuan_show_res_parsing_fig` | `document` | `hunyuan_show_res_parsing_fig.png` |
+| `hunyuan_vis_parsing` | `document` | `hunyuan_vis_parsing.png` |
 
 ## Run
 
@@ -38,7 +56,7 @@ python tools/run_example.py \
   --case hf_demo
 ```
 
-Run all bundled examples:
+Run all bundled images:
 
 ```bash
 python tools/run_examples.py \
@@ -47,14 +65,14 @@ python tools/run_examples.py \
 
 `run_examples.py` writes per-case logs to `outputs/examples/`.
 
-The image must preprocess to a supported grid. Runtime vision directories use
-the `grid_<h>x<w>` naming convention, for example `image_grid_thw=[1,38,52]`
-uses `vision/grid_38x52/`.
+The image must preprocess to a supported grid. Dynamic vision packages support
+the bundled grids with one `vision/vision.ncnn.param/bin` pair plus
+`vision/pos_embed.bin`; fixed-grid fallback packages use `grid_<h>x<w>` names.
 
 ## Full Regression
 
-After preparing exported fixtures, the full regression additionally
-compares prompt ids, position ids, generated token ids, and decoded text:
+After preparing exported fixtures, the full regression additionally compares
+prompt ids, position ids, generated token ids, and decoded text:
 
 ```bash
 python tools/run_regression.py --package --package-vision-backend dynamic
@@ -63,7 +81,7 @@ python tools/run_regression.py --package --package-vision-backend dynamic
 Expected summary:
 
 ```text
-summary: 10/10 passed
+summary: 28/28 passed
 ```
 
 ## Custom Prompt Regression
