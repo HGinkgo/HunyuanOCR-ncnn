@@ -1,5 +1,7 @@
 # HunyuanOCR-ncnn
 
+[![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
+
 C++/ncnn runtime for Tencent HunyuanOCR.
 
 [中文说明](README_zh.md)
@@ -32,6 +34,21 @@ dynamic vision package uses one `vision/vision.ncnn.param/bin` pair plus
 The current delivery scope does not include the original high-resolution route.
 
 ## Quick Start
+
+If you already have a packaged `hunyuan_ocr_ncnn_model/` directory, the shortest
+path is:
+
+```bash
+scripts/quickstart_existing_model.sh \
+  --model ./hunyuan_ocr_ncnn_model \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
+```
+
+To smoke-test one image after building:
+
+```bash
+scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
+```
 
 ### 1. Build
 
@@ -121,9 +138,10 @@ python tools/run_examples.py \
   --model ./hunyuan_ocr_ncnn_model
 ```
 
-The image must preprocess to a supported grid. Runtime vision directories use
-the `grid_<h>x<w>` naming convention, for example `image_grid_thw=[1,38,52]`
-uses `vision/grid_38x52/`.
+Dynamic vision packages support different image sizes within the exported
+processor range. Fixed-grid fallback packages use the `grid_<h>x<w>` naming
+convention, for example `image_grid_thw=[1,38,52]` maps to
+`vision/grid_38x52/`.
 
 ## Model Package
 
@@ -145,6 +163,38 @@ hunyuan_ocr_ncnn_model/
 
 The repository tracks source code, scripts, example images, and metadata. The
 runtime model package is generated separately from converted artifacts.
+
+## Export From HF Model
+
+The export scripts live in `export/`. They write tokenizer and ncnn submodule
+artifacts into a workspace layout consumed by `tools/package_model.py`.
+
+```bash
+python export/export_all.py \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --workspace .
+
+python tools/package_model.py \
+  --workspace . \
+  --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
+  --copy \
+  --force
+```
+
+For a Linux end-to-end helper:
+
+```bash
+scripts/export_and_package_linux.sh \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn \
+  --output ./hunyuan_ocr_ncnn_model \
+  --copy
+```
+
+See `export/README.md` for the module-level commands.
 
 ## Regression
 
@@ -172,6 +222,7 @@ include/hunyuan_ocr/   Public C++ headers
 src/                   Runtime and CLI implementation
 third_party/           Vendored single-header dependencies
 export/                Export workflow notes
+scripts/               Quickstart and export/package shell helpers
 tools/                 Model packaging and regression helpers
 examples/              Example images and usage notes
 models/                Tracked config template only

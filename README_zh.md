@@ -1,5 +1,7 @@
 # HunyuanOCR-ncnn
 
+[![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
+
 Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
 技术报告：[Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
@@ -25,6 +27,20 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 当前交付范围不包含原版高分辨率路径。
 
 ## 构建
+
+如果已经准备好打包后的 `hunyuan_ocr_ncnn_model/`，可以用最短路径构建并跑一张示例图：
+
+```bash
+scripts/quickstart_existing_model.sh \
+  --model ./hunyuan_ocr_ncnn_model \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
+```
+
+如果已经构建完成，只想跑一张图做 smoke test：
+
+```bash
+scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
+```
 
 依赖：
 
@@ -120,6 +136,37 @@ python tools/run_examples.py \
 ```
 
 示例图片位于 `examples/images/`，来源记录在 `examples/IMAGE_SOURCES.md`。
+
+## 从 HF 模型导出
+
+导出脚本位于 `export/`，输出目录结构与 `tools/package_model.py` 兼容：
+
+```bash
+python export/export_all.py \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --workspace .
+
+python tools/package_model.py \
+  --workspace . \
+  --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
+  --copy \
+  --force
+```
+
+Linux 下也可以使用封装脚本：
+
+```bash
+scripts/export_and_package_linux.sh \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn \
+  --output ./hunyuan_ocr_ncnn_model \
+  --copy
+```
+
+模块级命令见 `export/README.md`。
 
 ## 完整回归
 

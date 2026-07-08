@@ -65,8 +65,8 @@ python tools/run_examples.py \
 
 `run_examples.py` writes per-case logs to `outputs/examples/`.
 
-The image must preprocess to a supported grid. Dynamic vision packages support
-the bundled grids with one `vision/vision.ncnn.param/bin` pair plus
+Dynamic vision packages support different image sizes within the exported
+processor range with one `vision/vision.ncnn.param/bin` pair plus
 `vision/pos_embed.bin`; fixed-grid fallback packages use `grid_<h>x<w>` names.
 
 ## Full Regression

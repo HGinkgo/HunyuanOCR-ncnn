@@ -29,17 +29,17 @@ is mainly used to create strict regression fixtures for custom prompts:
 python tools/run_hf_baseline.py \
   --model-dir /path/to/HunyuanOCR-hf \
   --manifest examples/custom_prompt_cases.json \
-  --output-dir /tmp/hunyuanocr_custom_prompt_baseline \
+  --output-dir outputs/custom_prompt_baseline \
   --max-new-tokens 128
 
 python tools/prepare_regression_fixtures.py \
-  --baseline-dir /tmp/hunyuanocr_custom_prompt_baseline \
+  --baseline-dir outputs/custom_prompt_baseline \
   --manifest examples/custom_prompt_cases.json \
-  --output-dir /tmp/hunyuanocr_custom_prompt_fixtures \
+  --output-dir outputs/custom_prompt_fixtures \
   --force
 
 python tools/run_regression.py \
   --model ./hunyuan_ocr_ncnn_model \
   --manifest examples/custom_prompt_cases.json \
-  --fixture-root /tmp/hunyuanocr_custom_prompt_fixtures
+  --fixture-root outputs/custom_prompt_fixtures
 ```

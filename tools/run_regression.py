@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--image-root",
         type=Path,
-        default=workspace_root / "datasets/test_images",
+        default=repo_root / "examples/images",
         help="Directory containing the bundled test images.",
     )
     parser.add_argument(

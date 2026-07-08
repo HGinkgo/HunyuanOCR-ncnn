@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/tmp/hunyuanocr_regression_fixtures"),
+        default=root / "outputs/regression_fixtures",
         help="Fixture output directory.",
     )
     parser.add_argument("--force", action="store_true", help="Remove output directory if it exists.")
