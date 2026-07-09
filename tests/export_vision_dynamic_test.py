@@ -10,10 +10,6 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
-import torch
-import torch.nn as nn
-
 
 class _DummyTraced:
     def __init__(self, path: Path) -> None:
@@ -23,19 +19,25 @@ class _DummyTraced:
         Path(destination).write_bytes(b"dummy traced module")
 
 
-class _DummyWrapper(nn.Module):
-    def forward(self, pixels: torch.Tensor, pos_embed: torch.Tensor) -> torch.Tensor:
-        return pixels.mean() + pos_embed.mean()
-
-
-class _FakeVit(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        weight = torch.arange((4 * 4 + 1) * 8, dtype=torch.float32).reshape(17, 8)
-        self.embeddings = SimpleNamespace(position_embedding=SimpleNamespace(weight=weight))
-
-
 def main() -> int:
+    try:
+        import numpy as np
+        import torch
+        import torch.nn as nn
+    except ModuleNotFoundError as exc:
+        print(f"SKIP export_vision_dynamic_test: missing optional export dependency: {exc.name}")
+        return 0
+
+    class _DummyWrapper(nn.Module):
+        def forward(self, pixels: torch.Tensor, pos_embed: torch.Tensor) -> torch.Tensor:
+            return pixels.mean() + pos_embed.mean()
+
+    class _FakeVit(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            weight = torch.arange((4 * 4 + 1) * 8, dtype=torch.float32).reshape(17, 8)
+            self.embeddings = SimpleNamespace(position_embedding=SimpleNamespace(weight=weight))
+
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root))
     pil_module = types.ModuleType("PIL")
