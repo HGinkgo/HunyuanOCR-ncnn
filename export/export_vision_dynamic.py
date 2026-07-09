@@ -450,6 +450,7 @@ def run_export(args: argparse.Namespace) -> dict[str, Any]:
     pt_path = export_dir / "vision_dynamic.pt"
     param_path = export_dir / "vision_dynamic.ncnn.param"
     bin_path = export_dir / "vision_dynamic.ncnn.bin"
+    pos_embed_path = export_dir / "pos_embed.bin"
 
     pos1 = torch.zeros(1, 1152, args.export_h1 // 16, args.export_w1 // 16, dtype=torch.float32)
     pos2 = torch.zeros(1, 1152, args.export_h2 // 16, args.export_w2 // 16, dtype=torch.float32)
@@ -471,11 +472,14 @@ def run_export(args: argparse.Namespace) -> dict[str, Any]:
     ]
     print("[run]", " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=export_dir, check=True)
+    pos_embed = base_pos_embed(vit).cpu().numpy().astype(np.float32, copy=False)
+    pos_embed_path.write_bytes(pos_embed.tobytes())
     summary = {
         "mode": "export",
         "pt": str(pt_path),
         "param": str(param_path),
         "bin": str(bin_path),
+        "pos_embed": str(pos_embed_path),
         "inputshape": [[1, 3, args.export_h1, args.export_w1], [1, 1152, args.export_h1 // 16, args.export_w1 // 16]],
         "inputshape2": [[1, 3, args.export_h2, args.export_w2], [1, 1152, args.export_h2 // 16, args.export_w2 // 16]],
         "elapsed_sec": round(time.time() - started, 3),

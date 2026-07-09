@@ -161,6 +161,14 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_regression_manifest_test.py"
     )
+    add_test(NAME extract_tokenizer
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_tokenizer_test.py"
+    )
+    add_test(NAME export_vision_dynamic
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_vision_dynamic_test.py"
+    )
 endif()
 
 if(HUNYUAN_OCR_BUILD_CLI)

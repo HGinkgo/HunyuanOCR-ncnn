@@ -60,10 +60,13 @@ def main() -> int:
             merge_lines.append(merge)
     (out_dir / "merges.txt").write_text("\n".join(merge_lines) + "\n", encoding="utf-8")
 
-    special_tokens = {
-        "additional_special_tokens": tokenizer_config.get("additional_special_tokens", []),
-        "added_tokens_decoder": added_tokens,
-    }
+    special_tokens = [
+        spec["content"]
+        for token_id, spec in sorted(added_tokens.items(), key=lambda item: int(item[0]))
+    ]
+    for token in tokenizer_config.get("additional_special_tokens", []):
+        if token not in special_tokens:
+            special_tokens.append(token)
     (out_dir / "special_tokens.json").write_text(
         json.dumps(special_tokens, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
