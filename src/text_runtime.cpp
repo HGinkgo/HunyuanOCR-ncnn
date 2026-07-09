@@ -3,6 +3,7 @@
 #include "hunyuan_ocr/hunyuan_ocr.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -15,6 +16,13 @@
 
 namespace hunyuan_ocr {
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double elapsed_ms(Clock::time_point start, Clock::time_point end)
+{
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
 
 constexpr int kHiddenSize = 1024;
 constexpr int kHeadDim = 128;
@@ -501,8 +509,10 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
                             const std::vector<int>& position_ids,
                             const std::vector<int>& expected_tokens,
                             TextDecodeResult* result,
+                            TextDecodeTiming* timing,
                             std::string* error)
 {
+    const auto total_start = Clock::now();
     if (seq_len <= 0)
     {
         if (error) *error = "seq_len must be positive";
@@ -540,10 +550,16 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
     ncnn::Mat prefill_hidden;
     KVCache caches;
+    const auto prefill_start = Clock::now();
     if (!run_decoder_prefill(decoder_net, input_mat, prefill_mask, xd_cos, xd_sin, rope_cos, rope_sin,
                              &prefill_hidden, &caches, error))
     {
         return false;
+    }
+    const auto prefill_end = Clock::now();
+    if (timing)
+    {
+        timing->prefill_ms += elapsed_ms(prefill_start, prefill_end);
     }
 
     ncnn::Mat logits;
@@ -566,6 +582,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
     int raw_top1 = -1;
     int current_token = select_next_token(logits, history, local.repetition_penalty, &raw_top1);
 
+    const auto decode_start = Clock::now();
     for (int out_index = 0; out_index < max_tokens; ++out_index)
     {
         local.generated_tokens.push_back(current_token);
@@ -607,6 +624,13 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         }
         current_token = select_next_token(logits, history, local.repetition_penalty, &raw_top1);
     }
+    const auto decode_end = Clock::now();
+    if (timing)
+    {
+        timing->decode_ms += elapsed_ms(decode_start, decode_end);
+        timing->total_ms += elapsed_ms(total_start, decode_end);
+        local.timing = *timing;
+    }
 
     if (!local.expected_tokens.empty())
     {
@@ -624,10 +648,11 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                int image_token_id,
                                const std::vector<float>& vision_features,
                                int vision_token_count,
-                               const std::vector<int>& expected_tokens,
-                               int max_tokens,
-                               TextDecodeResult* result,
-                               std::string* error)
+                              const std::vector<int>& expected_tokens,
+                              int max_tokens,
+                              TextDecodeResult* result,
+                              TextDecodeTiming* timing,
+                              std::string* error)
 {
     const int seq_len = static_cast<int>(input_ids.size());
     if (seq_len <= 0)
@@ -648,9 +673,14 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
     }
 
     std::vector<float> inputs_embeds;
+    const auto text_embed_start = Clock::now();
     if (!run_text_embed_tokens(text_embed_net, input_ids, seq_len, &inputs_embeds, error))
     {
         return false;
+    }
+    if (timing)
+    {
+        timing->text_embed_ms += elapsed_ms(text_embed_start, Clock::now());
     }
 
     int injected = 0;
@@ -689,6 +719,7 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                   position_ids,
                                   expected_tokens,
                                   result,
+                                  timing,
                                   error);
 }
 
@@ -865,6 +896,7 @@ bool TextRuntime::run_fixture_decode(const std::string& fixture_dir,
                                   position_ids,
                                   expected_tokens,
                                   result,
+                                  nullptr,
                                   error);
 }
 
@@ -945,6 +977,7 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
                                   position_ids,
                                   expected_tokens,
                                   result,
+                                  nullptr,
                                   error);
 }
 
@@ -1041,6 +1074,7 @@ bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixtur
                                   position_ids,
                                   expected_tokens,
                                   result,
+                                  nullptr,
                                   error);
 }
 
@@ -1065,18 +1099,27 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
         return false;
     }
 
-    return decode_from_prompt_tokens(*text_embed_net_,
-                                     *text_decoder_net_,
-                                     *lm_head_net_,
-                                     input_ids,
-                                     position_ids,
-                                     image_token_id,
-                                     vision_features,
-                                     vision_token_count,
-                                     expected_tokens,
-                                     max_tokens,
-                                     result,
-                                     error);
+    TextDecodeTiming timing;
+    const auto total_start = Clock::now();
+    const bool ok = decode_from_prompt_tokens(*text_embed_net_,
+                                              *text_decoder_net_,
+                                              *lm_head_net_,
+                                              input_ids,
+                                              position_ids,
+                                              image_token_id,
+                                              vision_features,
+                                              vision_token_count,
+                                              expected_tokens,
+                                              max_tokens,
+                                              result,
+                                              &timing,
+                                              error);
+    if (ok)
+    {
+        timing.total_ms = elapsed_ms(total_start, Clock::now());
+        result->timing = timing;
+    }
+    return ok;
 }
 
 } // namespace hunyuan_ocr

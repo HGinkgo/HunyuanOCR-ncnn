@@ -13,6 +13,27 @@ This project converts the HunyuanOCR inference path into ncnn modules with
 pnnx, then connects image preprocessing, dynamic/fixed-grid vision inference, KV-cache
 text decoding, lm head, and tokenizer decode in C++.
 
+## Highlights
+
+- End-to-end PNG/JPEG input to OCR text in C++17.
+- Dynamic vision backend with fixed-grid fallback.
+- KV-cache text decoder, greedy decoding, and repetition penalty.
+- Built-in `spotting` / `document` prompts plus custom `--prompt` text.
+- CMake build on Linux and Windows; no Python at runtime.
+- 28 bundled regression images match the PyTorch fp32 reference token/text.
+
+## Quick Links
+
+| Need | Entry |
+| --- | --- |
+| Build and run one image | `scripts/quickstart_existing_model.sh` |
+| Package converted artifacts | `tools/package_model.py` |
+| Export from HF weights | `export/README.md` |
+| Run examples | `tools/run_example.py`, `tools/run_examples.py` |
+| Run strict regression | `tools/run_regression.py` |
+| Benchmark runtime | `tools/benchmark.py`, `benchmark/README.md` |
+| Model layout | `models/README.md`, `models/model.json.example` |
+
 ## Status
 
 | Item | Status |
@@ -164,6 +185,8 @@ hunyuan_ocr_ncnn_model/
 
 The repository tracks source code, scripts, example images, and metadata. The
 runtime model package is generated separately from converted artifacts.
+See `models/README.md` for the `model.json` schema and dynamic/fixed vision
+backend selection.
 
 ## Export From HF Model
 
@@ -216,6 +239,23 @@ summary: 28/28 passed
 This regression compares prompt ids, position ids, generated token ids, and
 decoded text.
 
+## Benchmark
+
+After building the CLI and preparing a packaged model:
+
+```bash
+python tools/benchmark.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --cases hf_demo \
+  --repeat 3 \
+  --warmup 1 \
+  --max-tokens 64
+```
+
+The benchmark reports image preprocess, vision, prompt assembly, text embedding,
+prefill, incremental decode, total runtime, and decode token/s. See
+`benchmark/README.md`.
+
 ## Repository Layout
 
 ```text
@@ -226,6 +266,7 @@ export/                Export workflow notes
 scripts/               Quickstart and export/package shell helpers
 tools/                 Model packaging and regression helpers
 examples/              Example images and usage notes
+benchmark/             Runtime benchmark notes
 models/                Tracked config template only
 ```
 

@@ -17,6 +17,7 @@ compile_commands.json
 # Model weights and converted artifacts
 models/*
 !models/
+!models/README.md
 !models/model.json.example
 hunyuan_ocr_ncnn_model/
 *.safetensors

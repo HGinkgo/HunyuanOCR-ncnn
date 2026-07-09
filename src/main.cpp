@@ -7,12 +7,21 @@
 
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double elapsed_ms(Clock::time_point start, Clock::time_point end)
+{
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
 
 void print_usage(const char* program)
 {
@@ -39,6 +48,7 @@ void print_usage(const char* program)
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
         << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
         << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
+        << "  --benchmark            Print stage timing for image + vision + prompt decode.\n"
         << "  --image-preprocess-fixture PATH Run resized RGB -> flattened pixel_values fixture.\n"
         << "  --image-preprocess-tolerance F  Max absolute diff tolerance for expected_pixel_values.f32.\n"
         << "  --image-file-fixture PATH Run original RGB -> resize -> flattened pixel_values fixture.\n"
@@ -321,6 +331,7 @@ int main(int argc, char** argv)
     std::string image_file_fixture_dir;
     float image_preprocess_tolerance = 0.000001f;
     int max_tokens = 0;
+    bool benchmark = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -486,6 +497,11 @@ int main(int argc, char** argv)
                 return 1;
             }
             prompt_text = argv[++i];
+            continue;
+        }
+        if (arg == "--benchmark")
+        {
+            benchmark = true;
             continue;
         }
         if (arg == "--image-preprocess-fixture")
@@ -673,13 +689,22 @@ int main(int argc, char** argv)
     if (!image_path.empty())
     {
         std::string error;
+        const auto benchmark_total_start = Clock::now();
+        double preprocess_ms = 0.0;
+        double vision_ms = 0.0;
+        double prompt_ms = 0.0;
+        double text_load_ms = 0.0;
+        hunyuan_ocr::TextDecodeTiming text_timing;
+        size_t benchmark_generated_tokens = 0;
         hunyuan_ocr::ImagePreprocessor preprocessor;
         hunyuan_ocr::ImagePreprocessResult image;
+        const auto preprocess_start = Clock::now();
         if (!preprocessor.preprocess_image_file(image_path, &image, &error))
         {
             std::cerr << "Image preprocess failed: " << error << "\n";
             return 1;
         }
+        preprocess_ms = elapsed_ms(preprocess_start, Clock::now());
 
         std::cout << "Image:\n";
         std::cout << "  path: " << image_path << "\n";
@@ -737,6 +762,7 @@ int main(int argc, char** argv)
             }
 
             hunyuan_ocr::VisionRuntime vision_runtime;
+            const auto vision_start = Clock::now();
             if (use_dynamic_vision)
             {
                 if (!vision_runtime.load_dynamic(resolved_vision_param_path,
@@ -776,6 +802,7 @@ int main(int argc, char** argv)
                 std::cerr << "Image + vision failed: " << error << "\n";
                 return 1;
             }
+            vision_ms = elapsed_ms(vision_start, Clock::now());
 
             std::cout << "Image + vision:\n";
             std::cout << "  backend: " << (use_dynamic_vision ? "dynamic" : "fixed-grid") << "\n";
@@ -793,6 +820,7 @@ int main(int argc, char** argv)
             {
                 hunyuan_ocr::PromptBuildResult prompt;
                 std::string prompt_label;
+                const auto prompt_start = Clock::now();
                 if (!prompt_text.empty())
                 {
                     hunyuan_ocr::Tokenizer tokenizer;
@@ -842,6 +870,7 @@ int main(int argc, char** argv)
                     }
                     prompt_label = hunyuan_ocr::prompt_mode_name(prompt_mode);
                 }
+                prompt_ms = elapsed_ms(prompt_start, Clock::now());
 
                 std::cout << "Prompt:\n";
                 std::cout << "  mode: " << prompt_label << "\n";
@@ -872,11 +901,13 @@ int main(int argc, char** argv)
                 }
 
                 hunyuan_ocr::TextRuntime text_runtime;
+                const auto text_load_start = Clock::now();
                 if (!text_runtime.load(model_root, &error))
                 {
                     std::cerr << "Failed to load text runtime: " << error << "\n";
                     return 1;
                 }
+                text_load_ms = elapsed_ms(text_load_start, Clock::now());
 
                 hunyuan_ocr::TextDecodeResult decode;
                 if (!text_runtime.run_vlm_decode_with_prompt(prompt.input_ids,
@@ -892,6 +923,8 @@ int main(int argc, char** argv)
                     std::cerr << "Image + prompt + vision decode failed: " << error << "\n";
                     return 1;
                 }
+                text_timing = decode.timing;
+                benchmark_generated_tokens = decode.generated_tokens.size();
 
                 const int rc = print_prompt_decode_result("Image + prompt + vision decode",
                                                           model_root,
@@ -900,6 +933,35 @@ int main(int argc, char** argv)
                 if (rc != 0)
                 {
                     return rc;
+                }
+
+                if (benchmark)
+                {
+                    const double total_ms = elapsed_ms(benchmark_total_start, Clock::now());
+                    const double generated_per_s = total_ms > 0.0
+                        ? static_cast<double>(benchmark_generated_tokens) * 1000.0 / total_ms
+                        : 0.0;
+                    const int decode_steps = benchmark_generated_tokens > 0
+                        ? static_cast<int>(benchmark_generated_tokens) - 1
+                        : 0;
+                    const double decode_token_per_s = text_timing.decode_ms > 0.0
+                        ? static_cast<double>(decode_steps) * 1000.0 / text_timing.decode_ms
+                        : 0.0;
+
+                    std::cout << std::fixed << std::setprecision(3);
+                    std::cout << "Benchmark:\n";
+                    std::cout << "  preprocess_ms: " << preprocess_ms << "\n";
+                    std::cout << "  vision_ms: " << vision_ms << "\n";
+                    std::cout << "  prompt_ms: " << prompt_ms << "\n";
+                    std::cout << "  text_load_ms: " << text_load_ms << "\n";
+                    std::cout << "  text_embed_ms: " << text_timing.text_embed_ms << "\n";
+                    std::cout << "  prefill_ms: " << text_timing.prefill_ms << "\n";
+                    std::cout << "  decode_ms: " << text_timing.decode_ms << "\n";
+                    std::cout << "  text_total_ms: " << text_timing.total_ms << "\n";
+                    std::cout << "  total_ms: " << total_ms << "\n";
+                    std::cout << "  generated_token_count: " << benchmark_generated_tokens << "\n";
+                    std::cout << "  generated_token_per_s: " << generated_per_s << "\n";
+                    std::cout << "  decode_token_per_s: " << decode_token_per_s << "\n";
                 }
             }
             else if (!vlm_fixture_dir.empty())

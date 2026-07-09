@@ -25,10 +25,18 @@ struct TextRuntimeSmokeResult {
     float raw_top1_score = 0.0f;
 };
 
+struct TextDecodeTiming {
+    double text_embed_ms = 0.0;
+    double prefill_ms = 0.0;
+    double decode_ms = 0.0;
+    double total_ms = 0.0;
+};
+
 struct TextDecodeResult {
     int seq_len = 0;
     int checked_tokens = 0;
     float repetition_penalty = 1.03f;
+    TextDecodeTiming timing;
     std::vector<int> generated_tokens;
     std::vector<int> raw_top1_tokens;
     std::vector<int> expected_tokens;

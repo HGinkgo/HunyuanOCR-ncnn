@@ -9,6 +9,27 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 
 本项目使用 pnnx 将 HunyuanOCR 拆分为 ncnn 子模块，并在 C++17 中串起图片解码、图像预处理、dynamic/fixed-grid vision 推理、KV cache 文本解码、lm head 和 tokenizer decode。
 
+## 当前交付能力
+
+- C++17 端到端完成 PNG/JPEG 图片输入到 OCR 文本输出。
+- dynamic vision backend，并保留 fixed-grid fallback。
+- KV cache text decoder、greedy decode 和 repetition penalty。
+- 内置 `spotting` / `document` prompt，也支持自定义 `--prompt` 文本。
+- CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
+- 28 张示例图与 PyTorch fp32 reference 的 token/text 一致。
+
+## 常用入口
+
+| 需求 | 入口 |
+| --- | --- |
+| 构建并跑一张图 | `scripts/quickstart_existing_model.sh` |
+| 打包转换产物 | `tools/package_model.py` |
+| 从 HF 权重导出 | `export/README.md` |
+| 运行示例图 | `tools/run_example.py`, `tools/run_examples.py` |
+| strict regression | `tools/run_regression.py` |
+| 性能测试 | `tools/benchmark.py`, `benchmark/README.md` |
+| 模型目录协议 | `models/README.md`, `models/model.json.example` |
+
 ## 当前状态
 
 | 项目 | 状态 |
@@ -103,6 +124,7 @@ python tools/package_model.py \
 
 这里 `<workspace>` 指包含 `models/tokenizer/` 和 `models/export/` 的工作目录。
 如果需要 v0.1 fixed-grid 包，使用 `--vision-backend fixed`；如果需要同时包含 dynamic vision 和 fixed-grid fallback，使用 `--vision-backend both`。
+`models/README.md` 说明了 `model.json` 字段和 dynamic/fixed vision backend 的选择规则。
 
 ## 运行示例
 
@@ -186,6 +208,21 @@ summary: 28/28 passed
 ```
 
 该回归会比较 prompt ids、position ids、generated token ids 和最终 decode 文本。
+
+## 性能测试
+
+构建 CLI 并准备好打包模型后：
+
+```bash
+python tools/benchmark.py \
+  --model ./hunyuan_ocr_ncnn_model \
+  --cases hf_demo \
+  --repeat 3 \
+  --warmup 1 \
+  --max-tokens 64
+```
+
+输出包含图片预处理、vision、prompt 组装、text embedding、prefill、增量 decode、总耗时和 decode token/s。更多说明见 `benchmark/README.md`。
 
 ## 当前限制
 

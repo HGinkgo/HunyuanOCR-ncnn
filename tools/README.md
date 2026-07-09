@@ -15,6 +15,10 @@ custom image prompt instead of the case's built-in prompt mode.
 `run_examples.py` runs all bundled example images and writes logs to
 `outputs/examples/` by default.
 
+`benchmark.py` runs one or more bundled image cases with `--benchmark`
+enabled and reports stage timing such as preprocess, vision, prefill, decode,
+and total runtime.
+
 `run_regression.py` runs the bundled regression image cases against a
 packaged model directory. It requires exported fixture directories from the
 baseline/export workflow. Pass `--package` to rebuild the packaged model first;
