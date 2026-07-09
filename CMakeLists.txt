@@ -9,6 +9,8 @@ option(HUNYUAN_OCR_BUILD_CLI "Build the hunyuan_ocr_cli executable" ON)
 option(HUNYUAN_OCR_BUILD_TESTS "Build HunyuanOCR-ncnn test executables" OFF)
 option(HUNYUAN_OCR_STRICT_WARNINGS "Enable compiler warnings for project sources" ON)
 option(HUNYUAN_OCR_USE_NCNN_PACKAGE "Try find_package(ncnn CONFIG) before manual ncnn paths" ON)
+set(HUNYUAN_OCR_BUILD_TOKENIZER_TEST "AUTO" CACHE STRING "Build tokenizer file parity test: AUTO, ON, or OFF")
+set_property(CACHE HUNYUAN_OCR_BUILD_TOKENIZER_TEST PROPERTY STRINGS AUTO ON OFF)
 
 if(HUNYUAN_OCR_USE_NCNN_PACKAGE)
     if(DEFINED ENV{ncnn_DIR} AND NOT ncnn_DIR)
@@ -86,29 +88,72 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/../models/tokenizer"
         CACHE PATH "Directory containing exported HunyuanOCR tokenizer files for tests"
     )
+    string(TOUPPER "${HUNYUAN_OCR_BUILD_TOKENIZER_TEST}" _hunyuan_ocr_build_tokenizer_test)
+    if(NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "AUTO"
+       AND NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "ON"
+       AND NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "OFF")
+        message(FATAL_ERROR
+            "HUNYUAN_OCR_BUILD_TOKENIZER_TEST must be AUTO, ON, or OFF; "
+            "got '${HUNYUAN_OCR_BUILD_TOKENIZER_TEST}'"
+        )
+    endif()
 
-    add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
-    target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
-    target_compile_features(hunyuan_ocr_tokenizer_test PRIVATE cxx_std_17)
+    set(_hunyuan_ocr_tokenizer_files
+        "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}/vocab.txt"
+        "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}/merges.txt"
+        "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}/special_tokens.json"
+    )
+    set(_hunyuan_ocr_tokenizer_files_exist TRUE)
+    foreach(_hunyuan_ocr_tokenizer_file IN LISTS _hunyuan_ocr_tokenizer_files)
+        if(NOT EXISTS "${_hunyuan_ocr_tokenizer_file}")
+            set(_hunyuan_ocr_tokenizer_files_exist FALSE)
+        endif()
+    endforeach()
+    set(_hunyuan_ocr_enable_tokenizer_test FALSE)
+    if(_hunyuan_ocr_build_tokenizer_test STREQUAL "ON")
+        if(NOT _hunyuan_ocr_tokenizer_files_exist)
+            message(FATAL_ERROR
+                "HUNYUAN_OCR_BUILD_TOKENIZER_TEST=ON but tokenizer files were not found in "
+                "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}"
+            )
+        endif()
+        set(_hunyuan_ocr_enable_tokenizer_test TRUE)
+    elseif(_hunyuan_ocr_build_tokenizer_test STREQUAL "AUTO" AND _hunyuan_ocr_tokenizer_files_exist)
+        set(_hunyuan_ocr_enable_tokenizer_test TRUE)
+    endif()
 
     add_executable(hunyuan_ocr_prompt_builder_test tests/prompt_builder_test.cpp)
     target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_prompt_builder_test PRIVATE cxx_std_17)
 
+    if(_hunyuan_ocr_enable_tokenizer_test)
+        add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
+        target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
+        target_compile_features(hunyuan_ocr_tokenizer_test PRIVATE cxx_std_17)
+    else()
+        message(STATUS "Tokenizer file parity test disabled; tokenizer files not available.")
+    endif()
+
     if(HUNYUAN_OCR_STRICT_WARNINGS)
         if(MSVC)
-            target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE /W4)
+            if(_hunyuan_ocr_enable_tokenizer_test)
+                target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
+            endif()
         else()
-            target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE -Wall -Wextra -Wpedantic)
+            if(_hunyuan_ocr_enable_tokenizer_test)
+                target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
+            endif()
         endif()
     endif()
 
-    add_test(NAME tokenizer_encode
-        COMMAND hunyuan_ocr_tokenizer_test
-                "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}"
-    )
+    if(_hunyuan_ocr_enable_tokenizer_test)
+        add_test(NAME tokenizer_encode
+            COMMAND hunyuan_ocr_tokenizer_test
+                    "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}"
+        )
+    endif()
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
     )

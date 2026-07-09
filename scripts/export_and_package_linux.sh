@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -26,9 +29,9 @@ EOF
 HF_DIR=""
 PNNX=""
 NCNN_DIR=""
-WORKSPACE="$(pwd)"
+WORKSPACE="$REPO_ROOT"
 OUTPUT="./hunyuan_ocr_ncnn_model"
-BUILD_DIR="build"
+BUILD_DIR="$REPO_ROOT/build"
 CASE="hf_demo"
 COPY_FLAG=""
 SKIP_RUN=0
@@ -54,15 +57,15 @@ if [[ -z "$HF_DIR" || -z "$PNNX" || -z "$NCNN_DIR" ]]; then
   exit 1
 fi
 
-cmake -S . -B "$BUILD_DIR" -Dncnn_DIR="$NCNN_DIR"
+cmake -S "$REPO_ROOT" -B "$BUILD_DIR" -Dncnn_DIR="$NCNN_DIR"
 cmake --build "$BUILD_DIR" -j
 
-python export/export_all.py \
+python "$REPO_ROOT/export/export_all.py" \
   --hf-dir "$HF_DIR" \
   --pnnx "$PNNX" \
   --workspace "$WORKSPACE"
 
-python tools/package_model.py \
+python "$REPO_ROOT/tools/package_model.py" \
   --workspace "$WORKSPACE" \
   --output "$OUTPUT" \
   --vision-backend dynamic \
@@ -70,5 +73,5 @@ python tools/package_model.py \
   --force
 
 if [[ "$SKIP_RUN" -eq 0 ]]; then
-  python tools/run_example.py --model "$OUTPUT" --case "$CASE"
+  python "$REPO_ROOT/tools/run_example.py" --model "$OUTPUT" --case "$CASE"
 fi

@@ -28,8 +28,6 @@ RUNTIME_FILES = [
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[1]
     workspace_root = repo_root.parent
-    default_summary = workspace_root / "models/export/vision/fp32_p512k/summary.json"
-    default_dynamic_vision_dir = workspace_root / "models/export/vision_dynamic_probe/ncnn"
 
     parser = argparse.ArgumentParser(
         description="Create a standard HunyuanOCR-ncnn model directory from exported artifacts."
@@ -49,8 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--vision-summary",
         type=Path,
-        default=default_summary,
-        help=f"Vision export summary JSON. Default: {default_summary}",
+        default=None,
+        help="Vision export summary JSON. Default: <workspace>/models/export/vision/fp32_p512k/summary.json",
     )
     parser.add_argument(
         "--vision-backend",
@@ -61,8 +59,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dynamic-vision-dir",
         type=Path,
-        default=default_dynamic_vision_dir,
-        help=f"Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: {default_dynamic_vision_dir}",
+        default=None,
+        help="Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic_probe/ncnn",
     )
     parser.add_argument(
         "--copy",
@@ -260,8 +258,16 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
     output = args.output.resolve()
-    vision_summary = args.vision_summary.resolve()
-    dynamic_vision_dir = args.dynamic_vision_dir.resolve()
+    vision_summary = (
+        args.vision_summary.resolve()
+        if args.vision_summary is not None
+        else workspace / "models/export/vision/fp32_p512k/summary.json"
+    )
+    dynamic_vision_dir = (
+        args.dynamic_vision_dir.resolve()
+        if args.dynamic_vision_dir is not None
+        else workspace / "models/export/vision_dynamic_probe/ncnn"
+    )
 
     if args.vision_backend in ("fixed", "both"):
         require_file(vision_summary)

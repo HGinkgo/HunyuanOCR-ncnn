@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -16,7 +19,7 @@ EOF
 
 MODEL=""
 NCNN_DIR=""
-BUILD_DIR="build"
+BUILD_DIR="$REPO_ROOT/build"
 CASE="hf_demo"
 
 while [[ $# -gt 0 ]]; do
@@ -35,6 +38,6 @@ if [[ -z "$MODEL" || -z "$NCNN_DIR" ]]; then
   exit 1
 fi
 
-cmake -S . -B "$BUILD_DIR" -Dncnn_DIR="$NCNN_DIR"
+cmake -S "$REPO_ROOT" -B "$BUILD_DIR" -Dncnn_DIR="$NCNN_DIR"
 cmake --build "$BUILD_DIR" -j
-scripts/smoke_test.sh --model "$MODEL" --binary "$BUILD_DIR/hunyuan_ocr_cli" --case "$CASE"
+"$SCRIPT_DIR/smoke_test.sh" --model "$MODEL" --binary "$BUILD_DIR/hunyuan_ocr_cli" --case "$CASE"

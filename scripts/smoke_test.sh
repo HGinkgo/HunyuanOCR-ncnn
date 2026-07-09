@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -15,7 +18,7 @@ EOF
 }
 
 MODEL=""
-BINARY="build/hunyuan_ocr_cli"
+BINARY="$REPO_ROOT/build/hunyuan_ocr_cli"
 CASE="hf_demo"
 MAX_TOKENS=()
 
@@ -35,7 +38,7 @@ if [[ -z "$MODEL" ]]; then
   exit 1
 fi
 
-python tools/run_example.py \
+python "$REPO_ROOT/tools/run_example.py" \
   --model "$MODEL" \
   --binary "$BINARY" \
   --case "$CASE" \
