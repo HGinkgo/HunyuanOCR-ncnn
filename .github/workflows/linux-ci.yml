@@ -31,6 +31,11 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DNCNN_VULKAN=OFF
           -DNCNN_OPENMP=OFF
+          -DNCNN_RUNTIME_CPU=OFF
+          -DNCNN_AVX=OFF
+          -DNCNN_AVX2=OFF
+          -DNCNN_AVX512=OFF
+          -DNCNN_FMA=OFF
           -DNCNN_BUILD_TOOLS=OFF
           -DNCNN_BUILD_EXAMPLES=OFF
           -DNCNN_BUILD_BENCHMARK=OFF
@@ -38,7 +43,7 @@ jobs:
           -DNCNN_INSTALL_SDK=ON
 
       - name: Build ncnn
-        run: cmake --build _deps/ncnn-build --target ncnn --parallel
+        run: cmake --build _deps/ncnn-build --target ncnn --parallel 2
 
       - name: Install ncnn SDK
         run: cmake --install _deps/ncnn-build --prefix _deps/ncnn-install
@@ -53,7 +58,7 @@ jobs:
           -DHUNYUAN_OCR_STRICT_WARNINGS=ON
 
       - name: Build HunyuanOCR-ncnn
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel 2
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
