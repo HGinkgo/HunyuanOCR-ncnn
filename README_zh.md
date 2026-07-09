@@ -3,18 +3,18 @@
 [![Linux CI](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml)
 [![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
 
-Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
+Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 
 技术报告：[Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
 
-本项目使用 pnnx 将 HunyuanOCR 拆分为 ncnn 子模块，并在 C++17 中串起图片解码、图像预处理、dynamic/fixed-grid vision 推理、KV cache 文本解码、lm head 和 tokenizer decode。
+本仓库使用 pnnx 将 Hugging Face 版 HunyuanOCR 导出为 ncnn 子模块，并在 C++ 中跑通完整 OCR 推理链路。
 
 ## 当前交付能力
 
 - C++17 端到端完成 PNG/JPEG 图片输入到 OCR 文本输出。
-- dynamic vision backend，并保留 fixed-grid fallback。
-- KV cache text decoder、greedy decode 和 repetition penalty。
-- 内置 `spotting` / `document` prompt，也支持自定义 `--prompt` 文本。
+- 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包。
+- 带 KV cache 的文本解码、贪心解码和重复惩罚。
+- 内置 `spotting` / `document` 两种模式，也支持自定义 `--prompt` 文本。
 - CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
 - 28 张示例图与 PyTorch fp32 reference 的 token/text 一致。
 
@@ -26,7 +26,7 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 | 打包转换产物 | `tools/package_model.py` |
 | 从 HF 权重导出 | `export/README.md` |
 | 运行示例图 | `tools/run_example.py`, `tools/run_examples.py` |
-| strict regression | `tools/run_regression.py` |
+| 严格回归 | `tools/run_regression.py` |
 | 性能测试 | `tools/benchmark.py`, `benchmark/README.md` |
 | 模型目录协议 | `models/README.md`, `models/model.json.example` |
 
@@ -42,11 +42,11 @@ Tencent HunyuanOCR 的 C++/ncnn 推理运行时。
 | 验证 | 28 张示例图与 PyTorch fp32 参考输出的 token/text 一致 |
 | 精度 | fp32 ncnn 路径 |
 | Prompt | 内置 `spotting` / `document` 模式，也支持自定义 `--prompt` 文本 |
-| Vision | dynamic vision backend，并保留 fixed-grid fallback |
+| Vision | 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包 |
 
-当前已验证配置使用 `max_pixels=524288`。`image_grid_thw` 是 HunyuanOCR 图像预处理后得到的 `[t,h,w]` patch grid。dynamic vision 包使用一份 `vision/vision.ncnn.param/bin` 和 `vision/pos_embed.bin`；fixed-grid 包使用 `vision/grid_38x52/` 这类目录。
+当前已验证配置使用 `max_pixels=524288`。就运行方式而言，dynamic vision 包可覆盖已导出范围内的不同图片尺寸；fixed-grid 包主要作为兼容回退。模型目录和字段说明见 `models/README.md`。
 
-当前交付范围不包含原版高分辨率路径。
+当前版本暂不覆盖原版高分辨率路径。
 
 ## 构建
 

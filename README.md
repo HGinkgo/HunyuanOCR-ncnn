@@ -3,20 +3,19 @@
 [![Linux CI](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml)
 [![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
 
-C++/ncnn runtime for Tencent HunyuanOCR.
+C++17/ncnn runtime for Tencent HunyuanOCR.
 
 [中文说明](README_zh.md)
 
 Technical report: [Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
 
-This project converts the HunyuanOCR inference path into ncnn modules with
-pnnx, then connects image preprocessing, dynamic/fixed-grid vision inference, KV-cache
-text decoding, lm head, and tokenizer decode in C++.
+This repository exports the Hugging Face HunyuanOCR model into ncnn submodules
+with pnnx and runs the full OCR path in C++.
 
 ## Highlights
 
 - End-to-end PNG/JPEG input to OCR text in C++17.
-- Dynamic vision backend with fixed-grid fallback.
+- One dynamic vision package for exported image sizes, with fixed-grid fallback.
 - KV-cache text decoder, greedy decoding, and repetition penalty.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
 - CMake build on Linux and Windows; no Python at runtime.
@@ -45,15 +44,14 @@ text decoding, lm head, and tokenizer decode in C++.
 | Validation | 28 bundled regression images match PyTorch fp32 reference token/text |
 | Precision | fp32 ncnn path |
 | Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
-| Vision | dynamic vision backend, with fixed-grid fallback |
+| Vision | one dynamic package for exported image sizes, with fixed-grid fallback |
 
-The current verified configuration uses `max_pixels=524288`. `image_grid_thw`
-is the `[t,h,w]` patch grid produced by the HunyuanOCR image processor. The
-dynamic vision package uses one `vision/vision.ncnn.param/bin` pair plus
-`vision/pos_embed.bin`; fixed-grid packages use directories such as
-`vision/grid_38x52/`.
+The current verified configuration uses `max_pixels=524288`. In practice, the
+dynamic vision package covers image sizes inside the exported processor range,
+and fixed-grid packages are kept as a compatibility fallback. See
+`models/README.md` for package layout details.
 
-The current delivery scope does not include the original high-resolution route.
+This version does not cover the original high-resolution route.
 
 ## Quick Start
 
@@ -162,8 +160,7 @@ python tools/run_examples.py \
 
 Dynamic vision packages support different image sizes within the exported
 processor range. Fixed-grid fallback packages use the `grid_<h>x<w>` naming
-convention, for example `image_grid_thw=[1,38,52]` maps to
-`vision/grid_38x52/`.
+convention, for example `vision/grid_38x52/`.
 
 ## Model Package
 
@@ -183,8 +180,8 @@ hunyuan_ocr_ncnn_model/
     grid_<grid_h>x<grid_w>/
 ```
 
-The repository tracks source code, scripts, example images, and metadata. The
-runtime model package is generated separately from converted artifacts.
+The runtime model package is generated separately from converted artifacts. The
+repository itself tracks source code, scripts, metadata, and example images.
 See `models/README.md` for the `model.json` schema and dynamic/fixed vision
 backend selection.
 

@@ -1,12 +1,14 @@
 # Export Workflow
 
-This directory contains the scripts used to export HunyuanOCR HuggingFace
+This directory contains the scripts used to export HunyuanOCR Hugging Face
 weights into ncnn modules consumed by `hunyuan_ocr_cli`.
 
-The scripts are intentionally parameterized. Do not rely on author-local paths;
-pass your HF model directory and pnnx executable explicitly.
+All commands use explicit paths. Pass your HF model directory and pnnx
+executable explicitly; nothing depends on author-local directories.
 
 ## One Command Export
+
+For most users, this is the only export command you need:
 
 ```bash
 python export/export_all.py \
@@ -48,6 +50,9 @@ scripts/export_and_package_linux.sh \
 ```
 
 ## Module Commands
+
+The commands below are the module-level equivalents of `export_all.py`. Most
+users can skip this section unless they want to re-export a single submodule.
 
 Tokenizer:
 
@@ -94,8 +99,11 @@ python export/export_vision_dynamic.py \
   --out-dir models/export/vision_dynamic_probe
 ```
 
-`export_vision_dynamic.py` also keeps the original validation modes used during
-development:
+## Development Validation Modes
+
+`export_vision_dynamic.py` also keeps the validation modes used during
+development. They are for debugging and parity checks, not for normal model
+export:
 
 ```bash
 python export/export_vision_dynamic.py --mode torch ...
@@ -133,11 +141,11 @@ layout:
           vision_dynamic.ncnn.param
           vision_dynamic.ncnn.bin
           pos_embed.bin
-      vision/
-        fp32_p512k/
-          summary.json
-          ...
 ```
+
+Optional fixed-grid artifacts from older regression/export workflows may also
+appear under `models/export/vision/`. They are only needed when packaging
+`--vision-backend fixed` or `--vision-backend both`.
 
 ## Runtime Package Layout
 
@@ -160,8 +168,8 @@ hunyuan_ocr_ncnn_model/
 ```
 
 Dynamic vision uses `vision/vision.ncnn.param`, `vision/vision.ncnn.bin`, and
-`vision/pos_embed.bin`. Fixed-grid fallback keeps directories such as
-`vision/grid_38x52/`.
+`vision/pos_embed.bin`. If fixed-grid artifacts are available, fallback
+directories such as `vision/grid_38x52/` can be packaged alongside them.
 
 Create the package with:
 
@@ -174,6 +182,7 @@ python tools/package_model.py \
   --force
 ```
 
-Current validated exports use the fp32 path, `max_pixels=524288`, and
-dynamic vision with fixed-grid fallback available. Use `--vision-backend fixed`
-to reproduce the v0.1 fixed-grid-only package.
+Current validated exports use the fp32 path, `max_pixels=524288`, and dynamic
+vision by default. Fixed-grid packaging is optional and mainly kept as a
+compatibility fallback. Use `--vision-backend fixed` to reproduce the v0.1
+fixed-grid-only package.
