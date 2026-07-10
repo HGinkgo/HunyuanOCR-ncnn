@@ -34,9 +34,13 @@ constexpr float kMaskNegInf = -1.0e38f;
 const int kXdRopeSection[4] = {16, 16, 16, 16};
 const int kEosIds[2] = {120007, 120020};
 
-bool load_net(ncnn::Net& net, const std::filesystem::path& param, const std::filesystem::path& bin, std::string* error)
+bool load_net(ncnn::Net& net,
+              const std::filesystem::path& param,
+              const std::filesystem::path& bin,
+              int num_threads,
+              std::string* error)
 {
-    net.opt = make_fp32_ncnn_option();
+    net.opt = make_fp32_ncnn_option(num_threads);
     net.opt.use_packing_layout = false;
 
     if (net.load_param(param.string().c_str()) != 0)
@@ -564,9 +568,14 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
     ncnn::Mat logits;
     ncnn::Mat last_hidden = prefill_hidden.row_range(seq_len - 1, 1).clone();
+    const auto first_lm_head_start = Clock::now();
     if (!run_lm_head(lm_head_net, last_hidden, &logits, error))
     {
         return false;
+    }
+    if (timing)
+    {
+        timing->lm_head_ms += elapsed_ms(first_lm_head_start, Clock::now());
     }
 
     TextDecodeResult local;
@@ -580,9 +589,13 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
     std::vector<int> history = input_ids;
     int raw_top1 = -1;
+    const auto first_token_select_start = Clock::now();
     int current_token = select_next_token(logits, history, local.repetition_penalty, &raw_top1);
+    if (timing)
+    {
+        timing->token_select_ms += elapsed_ms(first_token_select_start, Clock::now());
+    }
 
-    const auto decode_start = Clock::now();
     for (int out_index = 0; out_index < max_tokens; ++out_index)
     {
         local.generated_tokens.push_back(current_token);
@@ -595,11 +608,17 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         }
 
         ncnn::Mat current_embed;
+        const auto decode_text_embed_start = Clock::now();
         if (!run_text_embed(text_embed_net, current_token, &current_embed, error))
         {
             return false;
         }
+        if (timing)
+        {
+            timing->text_embed_ms += elapsed_ms(decode_text_embed_start, Clock::now());
+        }
 
+        const auto decoder_step_start = Clock::now();
         const int position_value = seq_len + out_index;
         const ncnn::Mat decode_mask = make_decode_mask(position_value);
         const std::vector<float> decode_cos_data = build_decode_rope(position_value, true);
@@ -617,18 +636,30 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
             return false;
         }
         caches = std::move(updated);
+        if (timing)
+        {
+            timing->decode_ms += elapsed_ms(decoder_step_start, Clock::now());
+        }
 
+        const auto lm_head_start = Clock::now();
         if (!run_lm_head(lm_head_net, decode_hidden, &logits, error))
         {
             return false;
         }
+        if (timing)
+        {
+            timing->lm_head_ms += elapsed_ms(lm_head_start, Clock::now());
+        }
+        const auto token_select_start = Clock::now();
         current_token = select_next_token(logits, history, local.repetition_penalty, &raw_top1);
+        if (timing)
+        {
+            timing->token_select_ms += elapsed_ms(token_select_start, Clock::now());
+        }
     }
-    const auto decode_end = Clock::now();
     if (timing)
     {
-        timing->decode_ms += elapsed_ms(decode_start, decode_end);
-        timing->total_ms += elapsed_ms(total_start, decode_end);
+        timing->total_ms += elapsed_ms(total_start, Clock::now());
         local.timing = *timing;
     }
 
@@ -678,11 +709,6 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
     {
         return false;
     }
-    if (timing)
-    {
-        timing->text_embed_ms += elapsed_ms(text_embed_start, Clock::now());
-    }
-
     int injected = 0;
     for (int i = 0; i < seq_len; ++i)
     {
@@ -708,6 +734,10 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
         }
         return false;
     }
+    if (timing)
+    {
+        timing->text_embed_ms += elapsed_ms(text_embed_start, Clock::now());
+    }
 
     return decode_from_embeddings(text_embed_net,
                                   decoder_net,
@@ -725,10 +755,11 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
 
 } // namespace
 
-TextRuntime::TextRuntime()
+TextRuntime::TextRuntime(int num_threads)
     : text_embed_net_(new ncnn::Net),
       text_decoder_net_(new ncnn::Net),
-      lm_head_net_(new ncnn::Net)
+      lm_head_net_(new ncnn::Net),
+      num_threads_(num_threads)
 {
 }
 
@@ -740,6 +771,7 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     if (!load_net(*text_embed_net_,
                   root / "text_embed" / "text_embed.ncnn.param",
                   root / "text_embed" / "text_embed.ncnn.bin",
+                  num_threads_,
                   error))
     {
         return false;
@@ -747,6 +779,7 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     if (!load_net(*text_decoder_net_,
                   root / "text_decoder" / "text_decoder_kv.ncnn.param",
                   root / "text_decoder" / "text_decoder_kv.ncnn.bin",
+                  num_threads_,
                   error))
     {
         return false;
@@ -754,6 +787,7 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     if (!load_net(*lm_head_net_,
                   root / "lm_head" / "lm_head.ncnn.param",
                   root / "lm_head" / "lm_head.ncnn.bin",
+                  num_threads_,
                   error))
     {
         return false;

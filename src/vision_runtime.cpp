@@ -238,8 +238,9 @@ bool VisionRuntimeResult::matches_expected(float tolerance) const
     return has_expected_features && max_abs_diff_expected <= tolerance;
 }
 
-VisionRuntime::VisionRuntime()
-    : vision_net_(new ncnn::Net)
+VisionRuntime::VisionRuntime(int num_threads)
+    : vision_net_(new ncnn::Net),
+      num_threads_(num_threads)
 {
 }
 
@@ -249,7 +250,7 @@ bool VisionRuntime::load(const std::string& param_path, const std::string& bin_p
     dynamic_ready_ = false;
     pos_embed_base_.clear();
     vision_net_.reset(new ncnn::Net);
-    vision_net_->opt = make_fp32_ncnn_option();
+    vision_net_->opt = make_fp32_ncnn_option(num_threads_);
     vision_net_->opt.use_packing_layout = false;
 
     if (vision_net_->load_param(param_path.c_str()) != 0)
@@ -275,7 +276,7 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
     dynamic_ready_ = false;
     pos_embed_base_.clear();
     vision_net_.reset(new ncnn::Net);
-    vision_net_->opt = make_fp32_ncnn_option();
+    vision_net_->opt = make_fp32_ncnn_option(num_threads_);
     vision_net_->opt.use_packing_layout = false;
 
     if (vision_net_->load_param(param_path.c_str()) != 0)

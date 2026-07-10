@@ -29,6 +29,8 @@ struct TextDecodeTiming {
     double text_embed_ms = 0.0;
     double prefill_ms = 0.0;
     double decode_ms = 0.0;
+    double lm_head_ms = 0.0;
+    double token_select_ms = 0.0;
     double total_ms = 0.0;
 };
 
@@ -46,7 +48,7 @@ struct TextDecodeResult {
 
 class TextRuntime {
 public:
-    TextRuntime();
+    explicit TextRuntime(int num_threads = 0);
 
     bool load(const std::string& model_root, std::string* error);
     bool ready() const;
@@ -79,6 +81,7 @@ private:
     std::unique_ptr<ncnn::Net> text_embed_net_;
     std::unique_ptr<ncnn::Net> text_decoder_net_;
     std::unique_ptr<ncnn::Net> lm_head_net_;
+    int num_threads_ = 0;
     bool ready_ = false;
 };
 

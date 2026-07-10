@@ -5,6 +5,15 @@
 
 namespace hunyuan_ocr {
 
+std::string project_version()
+{
+#ifdef HUNYUAN_OCR_VERSION
+    return HUNYUAN_OCR_VERSION;
+#else
+    return "unknown";
+#endif
+}
+
 std::string ncnn_version()
 {
 #ifdef NCNN_VERSION_STRING
@@ -14,9 +23,13 @@ std::string ncnn_version()
 #endif
 }
 
-ncnn::Option make_fp32_ncnn_option()
+ncnn::Option make_fp32_ncnn_option(int num_threads)
 {
     ncnn::Option option;
+    if (num_threads > 0)
+    {
+        option.num_threads = num_threads;
+    }
     option.use_vulkan_compute = false;
     option.use_fp16_packed = false;
     option.use_fp16_storage = false;
@@ -44,4 +57,3 @@ const ModelLayoutReport& HunyuanOCR::layout_report() const
 }
 
 } // namespace hunyuan_ocr
-

@@ -249,8 +249,8 @@ python tools/benchmark.py \
   --max-tokens 64
 ```
 
-The benchmark reports image preprocess, vision, prompt assembly, text embedding,
-prefill, incremental decode, total runtime, and decode token/s. See
+The benchmark separates cold start from same-process warm inference, supports
+CPU thread sweeps, and reports stage timing plus decode throughput. See
 `benchmark/README.md`.
 
 ## Repository Layout

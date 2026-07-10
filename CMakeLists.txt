@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(HunyuanOCR_ncnn
-    VERSION 0.1.0
+    VERSION 0.2.0
     LANGUAGES CXX
 )
 
@@ -72,6 +72,7 @@ target_include_directories(hunyuan_ocr
 )
 target_link_libraries(hunyuan_ocr PUBLIC ncnn)
 target_compile_features(hunyuan_ocr PUBLIC cxx_std_17)
+target_compile_definitions(hunyuan_ocr PUBLIC HUNYUAN_OCR_VERSION="${PROJECT_VERSION}")
 
 if(HUNYUAN_OCR_STRICT_WARNINGS)
     if(MSVC)
@@ -168,6 +169,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME export_vision_dynamic
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_vision_dynamic_test.py"
+    )
+    add_test(NAME benchmark_parser
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_parser_test.py"
     )
 endif()
 

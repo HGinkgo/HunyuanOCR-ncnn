@@ -48,7 +48,10 @@ void print_usage(const char* program)
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
         << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
         << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
-        << "  --benchmark            Print stage timing for image + vision + prompt decode.\n"
+        << "  --benchmark            Run cold-start and same-process warm inference timing.\n"
+        << "  --benchmark-warmup N   Same-process warmup iterations. Default: 0.\n"
+        << "  --benchmark-repeat N   Same-process measured iterations. Default: 1.\n"
+        << "  --num-threads N        ncnn thread count for all submodels.\n"
         << "  --image-preprocess-fixture PATH Run resized RGB -> flattened pixel_values fixture.\n"
         << "  --image-preprocess-tolerance F  Max absolute diff tolerance for expected_pixel_values.f32.\n"
         << "  --image-file-fixture PATH Run original RGB -> resize -> flattened pixel_values fixture.\n"
@@ -198,10 +201,11 @@ int run_vlm_decode_with_features(const std::string& label,
                                  const std::string& vlm_fixture_dir,
                                  const std::vector<float>& vision_features,
                                  int vision_token_count,
-                                 int max_tokens)
+                                 int max_tokens,
+                                 int num_threads)
 {
     std::string error;
-    hunyuan_ocr::TextRuntime text_runtime;
+    hunyuan_ocr::TextRuntime text_runtime(num_threads);
     if (!text_runtime.load(model_root, &error))
     {
         std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -308,10 +312,400 @@ int print_prompt_decode_result(const std::string& label,
     return 0;
 }
 
+struct BenchmarkTiming {
+    double preprocess_ms = 0.0;
+    double vision_infer_ms = 0.0;
+    double prompt_ms = 0.0;
+    double text_embed_ms = 0.0;
+    double prefill_ms = 0.0;
+    double decode_ms = 0.0;
+    double lm_head_ms = 0.0;
+    double token_select_ms = 0.0;
+    double tokenizer_decode_ms = 0.0;
+    double text_total_ms = 0.0;
+    double warm_inference_total_ms = 0.0;
+};
+
+struct BenchmarkIteration {
+    BenchmarkTiming timing;
+    std::vector<int> generated_tokens;
+    std::string generated_text;
+};
+
+void add_benchmark_timing(BenchmarkTiming* total, const BenchmarkTiming& value)
+{
+    total->preprocess_ms += value.preprocess_ms;
+    total->vision_infer_ms += value.vision_infer_ms;
+    total->prompt_ms += value.prompt_ms;
+    total->text_embed_ms += value.text_embed_ms;
+    total->prefill_ms += value.prefill_ms;
+    total->decode_ms += value.decode_ms;
+    total->lm_head_ms += value.lm_head_ms;
+    total->token_select_ms += value.token_select_ms;
+    total->tokenizer_decode_ms += value.tokenizer_decode_ms;
+    total->text_total_ms += value.text_total_ms;
+    total->warm_inference_total_ms += value.warm_inference_total_ms;
+}
+
+void divide_benchmark_timing(BenchmarkTiming* value, double divisor)
+{
+    value->preprocess_ms /= divisor;
+    value->vision_infer_ms /= divisor;
+    value->prompt_ms /= divisor;
+    value->text_embed_ms /= divisor;
+    value->prefill_ms /= divisor;
+    value->decode_ms /= divisor;
+    value->lm_head_ms /= divisor;
+    value->token_select_ms /= divisor;
+    value->tokenizer_decode_ms /= divisor;
+    value->text_total_ms /= divisor;
+    value->warm_inference_total_ms /= divisor;
+}
+
+bool build_benchmark_prompt(const std::string& prompt_mode_text,
+                            const std::string& prompt_text,
+                            const hunyuan_ocr::Tokenizer& tokenizer,
+                            const hunyuan_ocr::ImagePreprocessResult& image,
+                            int merge_size,
+                            hunyuan_ocr::PromptBuildResult* prompt,
+                            std::string* error)
+{
+    if (!prompt_text.empty())
+    {
+        const std::vector<int> prompt_token_ids = tokenizer.encode(prompt_text, error);
+        if (error && !error->empty())
+        {
+            return false;
+        }
+        return hunyuan_ocr::build_hunyuan_ocr_prompt_from_tokens(prompt_token_ids,
+                                                                 image.grid_h,
+                                                                 image.grid_w,
+                                                                 merge_size,
+                                                                 prompt,
+                                                                 error);
+    }
+
+    hunyuan_ocr::PromptMode prompt_mode = hunyuan_ocr::PromptMode::Spotting;
+    if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text, &prompt_mode, error))
+    {
+        return false;
+    }
+    return hunyuan_ocr::build_hunyuan_ocr_prompt(prompt_mode,
+                                                 image.grid_h,
+                                                 image.grid_w,
+                                                 merge_size,
+                                                 prompt,
+                                                 error);
+}
+
+bool run_benchmark_iteration(const std::string& image_path,
+                             const std::string& prompt_mode_text,
+                             const std::string& prompt_text,
+                             int max_tokens,
+                             bool use_dynamic_vision,
+                             const hunyuan_ocr::ImagePreprocessor& preprocessor,
+                             const hunyuan_ocr::VisionRuntime& vision_runtime,
+                             const hunyuan_ocr::TextRuntime& text_runtime,
+                             const hunyuan_ocr::Tokenizer& tokenizer,
+                             const hunyuan_ocr::ImagePreprocessResult* prepared_image,
+                             double prepared_preprocess_ms,
+                             BenchmarkIteration* result,
+                             std::string* error)
+{
+    const auto total_start = Clock::now();
+    BenchmarkIteration local;
+
+    hunyuan_ocr::ImagePreprocessResult image_storage;
+    const hunyuan_ocr::ImagePreprocessResult* image = prepared_image;
+    if (image == nullptr)
+    {
+        const auto preprocess_start = Clock::now();
+        if (!preprocessor.preprocess_image_file(image_path, &image_storage, error))
+        {
+            return false;
+        }
+        local.timing.preprocess_ms = elapsed_ms(preprocess_start, Clock::now());
+        image = &image_storage;
+    }
+    else
+    {
+        local.timing.preprocess_ms = prepared_preprocess_ms;
+    }
+
+    const int patch_h = image->grid_h / preprocessor.config().merge_size;
+    const int patch_w = image->grid_w / preprocessor.config().merge_size;
+    const int vision_token_count = patch_h * (patch_w + 1) + 2;
+    hunyuan_ocr::VisionRuntimeResult vision;
+    const auto vision_start = Clock::now();
+    const bool vision_ok = use_dynamic_vision
+        ? vision_runtime.run_dynamic_pixel_values(image->pixel_values,
+                                                  image->grid_h,
+                                                  image->grid_w,
+                                                  preprocessor.config().merge_size,
+                                                  &vision,
+                                                  error)
+        : vision_runtime.run_pixel_values(image->pixel_values,
+                                          image->patch_count,
+                                          vision_token_count,
+                                          &vision,
+                                          error);
+    if (!vision_ok)
+    {
+        return false;
+    }
+    local.timing.vision_infer_ms = elapsed_ms(vision_start, Clock::now());
+
+    hunyuan_ocr::PromptBuildResult prompt;
+    const auto prompt_start = Clock::now();
+    if (!build_benchmark_prompt(prompt_mode_text,
+                                prompt_text,
+                                tokenizer,
+                                *image,
+                                preprocessor.config().merge_size,
+                                &prompt,
+                                error))
+    {
+        return false;
+    }
+    local.timing.prompt_ms = elapsed_ms(prompt_start, Clock::now());
+
+    hunyuan_ocr::TextDecodeResult decode;
+    if (!text_runtime.run_vlm_decode_with_prompt(prompt.input_ids,
+                                                 prompt.position_ids,
+                                                 prompt.image_token_id,
+                                                 vision.vision_features,
+                                                 vision.vision_token_count,
+                                                 {},
+                                                 max_tokens,
+                                                 &decode,
+                                                 error))
+    {
+        return false;
+    }
+    local.timing.text_embed_ms = decode.timing.text_embed_ms;
+    local.timing.prefill_ms = decode.timing.prefill_ms;
+    local.timing.decode_ms = decode.timing.decode_ms;
+    local.timing.lm_head_ms = decode.timing.lm_head_ms;
+    local.timing.token_select_ms = decode.timing.token_select_ms;
+    local.timing.text_total_ms = decode.timing.total_ms;
+    local.generated_tokens = decode.generated_tokens;
+
+    const auto tokenizer_decode_start = Clock::now();
+    local.generated_text = tokenizer.decode(local.generated_tokens, true);
+    local.timing.tokenizer_decode_ms = elapsed_ms(tokenizer_decode_start, Clock::now());
+    local.timing.warm_inference_total_ms = elapsed_ms(total_start, Clock::now());
+
+    *result = std::move(local);
+    return true;
+}
+
+int run_image_benchmark(const std::string& model_root,
+                        const std::string& image_path,
+                        const std::string& prompt_mode_text,
+                        const std::string& prompt_text,
+                        const std::string& vision_param_path,
+                        const std::string& vision_bin_path,
+                        int max_tokens,
+                        int num_threads,
+                        int warmup,
+                        int repeat,
+                        Clock::time_point process_start)
+{
+    std::string error;
+    hunyuan_ocr::ImagePreprocessor preprocessor;
+    hunyuan_ocr::ImagePreprocessResult probe_image;
+    const auto probe_preprocess_start = Clock::now();
+    if (!preprocessor.preprocess_image_file(image_path, &probe_image, &error))
+    {
+        std::cerr << "Benchmark preprocess failed: " << error << "\n";
+        return 1;
+    }
+    const double probe_preprocess_ms = elapsed_ms(probe_preprocess_start, Clock::now());
+
+    std::string resolved_vision_param_path = vision_param_path;
+    std::string resolved_vision_bin_path = vision_bin_path;
+    std::string resolved_pos_embed_path;
+    bool use_dynamic_vision = false;
+    const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
+    if (!explicit_vision_paths)
+    {
+        use_dynamic_vision = resolve_dynamic_vision_paths(model_root,
+                                                          resolved_vision_param_path,
+                                                          resolved_vision_bin_path,
+                                                          resolved_pos_embed_path);
+    }
+    if (!use_dynamic_vision &&
+        !resolve_fixed_grid_vision_paths(model_root,
+                                         probe_image.grid_h,
+                                         probe_image.grid_w,
+                                         resolved_vision_param_path,
+                                         resolved_vision_bin_path))
+    {
+        std::cerr << "Benchmark could not resolve a dynamic or fixed-grid vision model\n";
+        return 1;
+    }
+
+    hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+    const auto vision_load_start = Clock::now();
+    const bool vision_loaded = use_dynamic_vision
+        ? vision_runtime.load_dynamic(resolved_vision_param_path,
+                                      resolved_vision_bin_path,
+                                      resolved_pos_embed_path,
+                                      &error)
+        : vision_runtime.load(resolved_vision_param_path, resolved_vision_bin_path, &error);
+    if (!vision_loaded)
+    {
+        std::cerr << "Benchmark vision load failed: " << error << "\n";
+        return 1;
+    }
+    const double vision_load_ms = elapsed_ms(vision_load_start, Clock::now());
+
+    hunyuan_ocr::TextRuntime text_runtime(num_threads);
+    const auto text_load_start = Clock::now();
+    if (!text_runtime.load(model_root, &error))
+    {
+        std::cerr << "Benchmark text load failed: " << error << "\n";
+        return 1;
+    }
+    const double text_load_ms = elapsed_ms(text_load_start, Clock::now());
+
+    hunyuan_ocr::Tokenizer tokenizer;
+    const auto tokenizer_load_start = Clock::now();
+    if (!tokenizer.load(model_root + "/tokenizer/vocab.txt",
+                        model_root + "/tokenizer/merges.txt",
+                        model_root + "/tokenizer/special_tokens.json",
+                        &error))
+    {
+        std::cerr << "Benchmark tokenizer load failed: " << error << "\n";
+        return 1;
+    }
+    const double tokenizer_load_ms = elapsed_ms(tokenizer_load_start, Clock::now());
+
+    BenchmarkIteration cold;
+    if (!run_benchmark_iteration(image_path,
+                                 prompt_mode_text,
+                                 prompt_text,
+                                 max_tokens,
+                                 use_dynamic_vision,
+                                 preprocessor,
+                                 vision_runtime,
+                                 text_runtime,
+                                 tokenizer,
+                                 &probe_image,
+                                 probe_preprocess_ms,
+                                 &cold,
+                                 &error))
+    {
+        std::cerr << "Benchmark cold inference failed: " << error << "\n";
+        return 1;
+    }
+    const double cold_start_total_ms = elapsed_ms(process_start, Clock::now());
+
+    for (int i = 0; i < warmup; ++i)
+    {
+        BenchmarkIteration iteration;
+        if (!run_benchmark_iteration(image_path,
+                                     prompt_mode_text,
+                                     prompt_text,
+                                     max_tokens,
+                                     use_dynamic_vision,
+                                     preprocessor,
+                                     vision_runtime,
+                                     text_runtime,
+                                     tokenizer,
+                                     nullptr,
+                                     0.0,
+                                     &iteration,
+                                     &error))
+        {
+            std::cerr << "Benchmark warmup failed: " << error << "\n";
+            return 1;
+        }
+        if (iteration.generated_tokens != cold.generated_tokens ||
+            iteration.generated_text != cold.generated_text)
+        {
+            std::cerr << "Benchmark warmup output differs from cold inference\n";
+            return 3;
+        }
+    }
+
+    BenchmarkTiming average;
+    for (int i = 0; i < repeat; ++i)
+    {
+        BenchmarkIteration iteration;
+        if (!run_benchmark_iteration(image_path,
+                                     prompt_mode_text,
+                                     prompt_text,
+                                     max_tokens,
+                                     use_dynamic_vision,
+                                     preprocessor,
+                                     vision_runtime,
+                                     text_runtime,
+                                     tokenizer,
+                                     nullptr,
+                                     0.0,
+                                     &iteration,
+                                     &error))
+        {
+            std::cerr << "Benchmark measured inference failed: " << error << "\n";
+            return 1;
+        }
+        if (iteration.generated_tokens != cold.generated_tokens ||
+            iteration.generated_text != cold.generated_text)
+        {
+            std::cerr << "Benchmark measured output differs from cold inference\n";
+            return 3;
+        }
+        add_benchmark_timing(&average, iteration.timing);
+    }
+    divide_benchmark_timing(&average, static_cast<double>(repeat));
+
+    const size_t generated_token_count = cold.generated_tokens.size();
+    const double generated_per_s = average.warm_inference_total_ms > 0.0
+        ? static_cast<double>(generated_token_count) * 1000.0 / average.warm_inference_total_ms
+        : 0.0;
+    const int decode_steps = generated_token_count > 0
+        ? static_cast<int>(generated_token_count) - 1
+        : 0;
+    const double decode_token_per_s = average.decode_ms > 0.0
+        ? static_cast<double>(decode_steps) * 1000.0 / average.decode_ms
+        : 0.0;
+    const int effective_threads = num_threads > 0
+        ? num_threads
+        : hunyuan_ocr::make_fp32_ncnn_option().num_threads;
+
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << "Benchmark:\n";
+    std::cout << "  num_threads: " << effective_threads << "\n";
+    std::cout << "  warmup: " << warmup << "\n";
+    std::cout << "  repeat: " << repeat << "\n";
+    std::cout << "  cold_start_total_ms: " << cold_start_total_ms << "\n";
+    std::cout << "  vision_load_ms: " << vision_load_ms << "\n";
+    std::cout << "  text_load_ms: " << text_load_ms << "\n";
+    std::cout << "  tokenizer_load_ms: " << tokenizer_load_ms << "\n";
+    std::cout << "  preprocess_ms: " << average.preprocess_ms << "\n";
+    std::cout << "  vision_infer_ms: " << average.vision_infer_ms << "\n";
+    std::cout << "  prompt_ms: " << average.prompt_ms << "\n";
+    std::cout << "  text_embed_ms: " << average.text_embed_ms << "\n";
+    std::cout << "  prefill_ms: " << average.prefill_ms << "\n";
+    std::cout << "  decode_ms: " << average.decode_ms << "\n";
+    std::cout << "  lm_head_ms: " << average.lm_head_ms << "\n";
+    std::cout << "  token_select_ms: " << average.token_select_ms << "\n";
+    std::cout << "  tokenizer_decode_ms: " << average.tokenizer_decode_ms << "\n";
+    std::cout << "  text_total_ms: " << average.text_total_ms << "\n";
+    std::cout << "  warm_inference_total_ms: " << average.warm_inference_total_ms << "\n";
+    std::cout << "  generated_token_count: " << generated_token_count << "\n";
+    std::cout << "  generated_token_per_s: " << generated_per_s << "\n";
+    std::cout << "  decode_token_per_s: " << decode_token_per_s << "\n";
+    print_token_vector("Benchmark generated tokens: ", cold.generated_tokens);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
+    const auto process_start = Clock::now();
     std::string model_root;
     std::string decode_ids_text;
     std::string decode_ids_file;
@@ -332,6 +726,9 @@ int main(int argc, char** argv)
     float image_preprocess_tolerance = 0.000001f;
     int max_tokens = 0;
     bool benchmark = false;
+    int benchmark_warmup = 0;
+    int benchmark_repeat = 1;
+    int num_threads = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -343,7 +740,7 @@ int main(int argc, char** argv)
         }
         if (arg == "--version")
         {
-            std::cout << "HunyuanOCR-ncnn 0.1.0\n";
+            std::cout << "HunyuanOCR-ncnn " << hunyuan_ocr::project_version() << "\n";
             std::cout << "ncnn " << hunyuan_ocr::ncnn_version() << "\n";
             return 0;
         }
@@ -504,6 +901,60 @@ int main(int argc, char** argv)
             benchmark = true;
             continue;
         }
+        if (arg == "--benchmark-warmup")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--benchmark-warmup requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                benchmark_warmup = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--benchmark-warmup value must be an integer\n";
+                return 1;
+            }
+            continue;
+        }
+        if (arg == "--benchmark-repeat")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--benchmark-repeat requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                benchmark_repeat = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--benchmark-repeat value must be an integer\n";
+                return 1;
+            }
+            continue;
+        }
+        if (arg == "--num-threads")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--num-threads requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                num_threads = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--num-threads value must be an integer\n";
+                return 1;
+            }
+            continue;
+        }
         if (arg == "--image-preprocess-fixture")
         {
             if (i + 1 >= argc)
@@ -585,20 +1036,60 @@ int main(int argc, char** argv)
         std::cerr << "--prompt and --prompt-mode are mutually exclusive\n";
         return 1;
     }
+    if (num_threads < 0)
+    {
+        std::cerr << "--num-threads must be positive when provided\n";
+        return 1;
+    }
+    if (benchmark_warmup < 0 || benchmark_repeat <= 0)
+    {
+        std::cerr << "benchmark warmup must be non-negative and repeat must be positive\n";
+        return 1;
+    }
+    if (benchmark)
+    {
+        if (image_path.empty() || (prompt_mode_text.empty() && prompt_text.empty()))
+        {
+            std::cerr << "--benchmark requires --image and either --prompt-mode or --prompt\n";
+            return 1;
+        }
+        if (max_tokens <= 0)
+        {
+            max_tokens = 64;
+        }
+    }
 
     hunyuan_ocr::HunyuanOCR runtime;
     const bool ready = runtime.load(model_root);
     const auto& report = runtime.layout_report();
 
-    std::cout << "Model root: " << report.root << "\n";
-    print_file_group("Present files:", report.present);
-    print_file_group("Missing required files:", report.missing_required);
-    print_file_group("Missing planned files:", report.missing_planned);
+    if (!benchmark)
+    {
+        std::cout << "Model root: " << report.root << "\n";
+        print_file_group("Present files:", report.present);
+        print_file_group("Missing required files:", report.missing_required);
+        print_file_group("Missing planned files:", report.missing_planned);
+    }
 
     if (!ready)
     {
         std::cerr << "Model layout check failed: required files are missing.\n";
         return 2;
+    }
+
+    if (benchmark)
+    {
+        return run_image_benchmark(model_root,
+                                   image_path,
+                                   prompt_mode_text,
+                                   prompt_text,
+                                   vision_param_path,
+                                   vision_bin_path,
+                                   max_tokens,
+                                   num_threads,
+                                   benchmark_warmup,
+                                   benchmark_repeat,
+                                   process_start);
     }
 
     std::cout << "Model layout check passed for the current runtime files.\n";
@@ -627,7 +1118,7 @@ int main(int argc, char** argv)
     if (run_text_smoke)
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime;
+        hunyuan_ocr::TextRuntime text_runtime(num_threads);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -658,7 +1149,7 @@ int main(int argc, char** argv)
     if (!text_fixture_dir.empty())
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime;
+        hunyuan_ocr::TextRuntime text_runtime(num_threads);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -689,22 +1180,13 @@ int main(int argc, char** argv)
     if (!image_path.empty())
     {
         std::string error;
-        const auto benchmark_total_start = Clock::now();
-        double preprocess_ms = 0.0;
-        double vision_ms = 0.0;
-        double prompt_ms = 0.0;
-        double text_load_ms = 0.0;
-        hunyuan_ocr::TextDecodeTiming text_timing;
-        size_t benchmark_generated_tokens = 0;
         hunyuan_ocr::ImagePreprocessor preprocessor;
         hunyuan_ocr::ImagePreprocessResult image;
-        const auto preprocess_start = Clock::now();
         if (!preprocessor.preprocess_image_file(image_path, &image, &error))
         {
             std::cerr << "Image preprocess failed: " << error << "\n";
             return 1;
         }
-        preprocess_ms = elapsed_ms(preprocess_start, Clock::now());
 
         std::cout << "Image:\n";
         std::cout << "  path: " << image_path << "\n";
@@ -761,8 +1243,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime;
-            const auto vision_start = Clock::now();
+            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
             if (use_dynamic_vision)
             {
                 if (!vision_runtime.load_dynamic(resolved_vision_param_path,
@@ -802,7 +1283,6 @@ int main(int argc, char** argv)
                 std::cerr << "Image + vision failed: " << error << "\n";
                 return 1;
             }
-            vision_ms = elapsed_ms(vision_start, Clock::now());
 
             std::cout << "Image + vision:\n";
             std::cout << "  backend: " << (use_dynamic_vision ? "dynamic" : "fixed-grid") << "\n";
@@ -820,7 +1300,6 @@ int main(int argc, char** argv)
             {
                 hunyuan_ocr::PromptBuildResult prompt;
                 std::string prompt_label;
-                const auto prompt_start = Clock::now();
                 if (!prompt_text.empty())
                 {
                     hunyuan_ocr::Tokenizer tokenizer;
@@ -870,7 +1349,6 @@ int main(int argc, char** argv)
                     }
                     prompt_label = hunyuan_ocr::prompt_mode_name(prompt_mode);
                 }
-                prompt_ms = elapsed_ms(prompt_start, Clock::now());
 
                 std::cout << "Prompt:\n";
                 std::cout << "  mode: " << prompt_label << "\n";
@@ -900,14 +1378,12 @@ int main(int argc, char** argv)
                     }
                 }
 
-                hunyuan_ocr::TextRuntime text_runtime;
-                const auto text_load_start = Clock::now();
+                hunyuan_ocr::TextRuntime text_runtime(num_threads);
                 if (!text_runtime.load(model_root, &error))
                 {
                     std::cerr << "Failed to load text runtime: " << error << "\n";
                     return 1;
                 }
-                text_load_ms = elapsed_ms(text_load_start, Clock::now());
 
                 hunyuan_ocr::TextDecodeResult decode;
                 if (!text_runtime.run_vlm_decode_with_prompt(prompt.input_ids,
@@ -923,8 +1399,6 @@ int main(int argc, char** argv)
                     std::cerr << "Image + prompt + vision decode failed: " << error << "\n";
                     return 1;
                 }
-                text_timing = decode.timing;
-                benchmark_generated_tokens = decode.generated_tokens.size();
 
                 const int rc = print_prompt_decode_result("Image + prompt + vision decode",
                                                           model_root,
@@ -934,35 +1408,6 @@ int main(int argc, char** argv)
                 {
                     return rc;
                 }
-
-                if (benchmark)
-                {
-                    const double total_ms = elapsed_ms(benchmark_total_start, Clock::now());
-                    const double generated_per_s = total_ms > 0.0
-                        ? static_cast<double>(benchmark_generated_tokens) * 1000.0 / total_ms
-                        : 0.0;
-                    const int decode_steps = benchmark_generated_tokens > 0
-                        ? static_cast<int>(benchmark_generated_tokens) - 1
-                        : 0;
-                    const double decode_token_per_s = text_timing.decode_ms > 0.0
-                        ? static_cast<double>(decode_steps) * 1000.0 / text_timing.decode_ms
-                        : 0.0;
-
-                    std::cout << std::fixed << std::setprecision(3);
-                    std::cout << "Benchmark:\n";
-                    std::cout << "  preprocess_ms: " << preprocess_ms << "\n";
-                    std::cout << "  vision_ms: " << vision_ms << "\n";
-                    std::cout << "  prompt_ms: " << prompt_ms << "\n";
-                    std::cout << "  text_load_ms: " << text_load_ms << "\n";
-                    std::cout << "  text_embed_ms: " << text_timing.text_embed_ms << "\n";
-                    std::cout << "  prefill_ms: " << text_timing.prefill_ms << "\n";
-                    std::cout << "  decode_ms: " << text_timing.decode_ms << "\n";
-                    std::cout << "  text_total_ms: " << text_timing.total_ms << "\n";
-                    std::cout << "  total_ms: " << total_ms << "\n";
-                    std::cout << "  generated_token_count: " << benchmark_generated_tokens << "\n";
-                    std::cout << "  generated_token_per_s: " << generated_per_s << "\n";
-                    std::cout << "  decode_token_per_s: " << decode_token_per_s << "\n";
-                }
             }
             else if (!vlm_fixture_dir.empty())
             {
@@ -971,7 +1416,8 @@ int main(int argc, char** argv)
                                                             vlm_fixture_dir,
                                                             vision.vision_features,
                                                             vision.vision_token_count,
-                                                            max_tokens);
+                                                            max_tokens,
+                                                            num_threads);
                 if (rc != 0)
                 {
                     return rc;
@@ -1017,7 +1463,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime;
+            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
             if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
             {
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
@@ -1051,7 +1497,8 @@ int main(int argc, char** argv)
                                                             vlm_fixture_dir,
                                                             vision.vision_features,
                                                             vision.vision_token_count,
-                                                            max_tokens);
+                                                            max_tokens,
+                                                            num_threads);
                 if (rc != 0)
                 {
                     return rc;
@@ -1097,7 +1544,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime;
+            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
             if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
             {
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
@@ -1131,7 +1578,8 @@ int main(int argc, char** argv)
                                                             vlm_fixture_dir,
                                                             vision.vision_features,
                                                             vision.vision_token_count,
-                                                            max_tokens);
+                                                            max_tokens,
+                                                            num_threads);
                 if (rc != 0)
                 {
                     return rc;
@@ -1149,7 +1597,7 @@ int main(int argc, char** argv)
         }
 
         std::string error;
-        hunyuan_ocr::VisionRuntime vision_runtime;
+        hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
         if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
         {
             std::cerr << "Failed to load vision runtime: " << error << "\n";
@@ -1177,7 +1625,7 @@ int main(int argc, char** argv)
 
         if (!vlm_fixture_dir.empty())
         {
-            hunyuan_ocr::TextRuntime text_runtime;
+            hunyuan_ocr::TextRuntime text_runtime(num_threads);
             if (!text_runtime.load(model_root, &error))
             {
                 std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -1247,7 +1695,7 @@ int main(int argc, char** argv)
         image_file_fixture_dir.empty())
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime;
+        hunyuan_ocr::TextRuntime text_runtime(num_threads);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";

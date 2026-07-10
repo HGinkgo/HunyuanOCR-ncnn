@@ -22,7 +22,7 @@ struct VisionRuntimeResult {
 
 class VisionRuntime {
 public:
-    VisionRuntime();
+    explicit VisionRuntime(int num_threads = 0);
 
     bool load(const std::string& param_path, const std::string& bin_path, std::string* error);
     bool load_dynamic(const std::string& param_path,
@@ -46,6 +46,7 @@ public:
 private:
     std::unique_ptr<ncnn::Net> vision_net_;
     std::vector<float> pos_embed_base_;
+    int num_threads_ = 0;
     bool ready_ = false;
     bool dynamic_ready_ = false;
 };

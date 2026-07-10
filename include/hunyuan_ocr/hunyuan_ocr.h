@@ -10,8 +10,9 @@ class Option;
 
 namespace hunyuan_ocr {
 
+std::string project_version();
 std::string ncnn_version();
-ncnn::Option make_fp32_ncnn_option();
+ncnn::Option make_fp32_ncnn_option(int num_threads = 0);
 
 class HunyuanOCR {
 public:
@@ -25,4 +26,3 @@ private:
 };
 
 } // namespace hunyuan_ocr
-
