@@ -17,6 +17,49 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.cat((-x2, x1), dim=-1)
 
 
+def repeat_kv_for_attention(hidden_states: torch.Tensor, num_key_value_groups: int) -> torch.Tensor:
+    if num_key_value_groups == 1:
+        return hidden_states
+    repeated = []
+    for head_index in range(hidden_states.shape[1]):
+        head = hidden_states[:, head_index : head_index + 1]
+        repeated.extend([head] * num_key_value_groups)
+    return torch.cat(repeated, dim=1)
+
+
+def build_hunyuan_mrope_cos_sin(
+    position_ids: torch.Tensor,
+    head_dim: int,
+    mrope_section: Iterable[int],
+    rope_theta: float,
+    alpha: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build Transformers 5.13 multimodal RoPE in [batch, 1, seq, head_dim] layout."""
+    position_ids = position_ids.to(torch.int64)
+    sections = [int(section) * 2 for section in mrope_section]
+    if sum(sections) != head_dim or position_ids.shape[1] != len(sections):
+        raise ValueError(f"illegal mrope shape: position_ids={tuple(position_ids.shape)}, sections={sections}")
+
+    base = float(rope_theta) * float(alpha) ** (float(head_dim) / float(head_dim - 2))
+    inv_freq = 1.0 / (
+        base
+        ** (torch.arange(0, head_dim, 2, dtype=torch.float32, device=position_ids.device) / head_dim)
+    )
+    freqs = position_ids.to(torch.float32).unsqueeze(-1) * inv_freq.view(1, 1, 1, -1)
+    emb = torch.cat((freqs, freqs), dim=-1)
+    cos_axes = emb.cos()
+    sin_axes = emb.sin()
+    cos = torch.cat(
+        [part[:, axis, :, :] for axis, part in enumerate(cos_axes.split(sections, dim=-1))],
+        dim=-1,
+    )
+    sin = torch.cat(
+        [part[:, axis, :, :] for axis, part in enumerate(sin_axes.split(sections, dim=-1))],
+        dim=-1,
+    )
+    return cos.unsqueeze(1), sin.unsqueeze(1)
+
+
 def build_hunyuan_xdrope_cos_sin(
     position_ids: torch.Tensor,
     head_dim: int,
@@ -121,6 +164,8 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
         key_states = apply_external_rope(key_states, cos, sin)
         query_states = layer.self_attn.query_layernorm(query_states)
         key_states = layer.self_attn.key_layernorm(key_states)
+        key_states = repeat_kv_for_attention(key_states, self.num_key_value_groups)
+        value_states = repeat_kv_for_attention(value_states, self.num_key_value_groups)
         if past_k is not None and past_v is not None:
             key_states = torch.cat((past_k, key_states), dim=2)
             value_states = torch.cat((past_v, value_states), dim=2)
@@ -132,7 +177,7 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
             attn_mask=attention_mask,
             dropout_p=0.0,
             is_causal=False,
-            enable_gqa=self.num_key_value_groups != 1,
+            enable_gqa=False,
         )
         attn_output = attn_output.transpose(1, 2).contiguous().reshape(*input_shape, -1)
         attn_output = layer.self_attn.o_proj(attn_output)
@@ -168,11 +213,10 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
         rope_cos: torch.Tensor,
         rope_sin: torch.Tensor,
     ) -> tuple[torch.Tensor, KVCache]:
-        """Mimic HF generate() cache-prefill RoPE behavior.
+        """Preserve the six-input decoder protocol used by existing pnnx exports.
 
-        HunyuanVL checks the global DynamicCache length when choosing the RoPE
-        branch. During cache prefill, layer 0 sees an empty cache and uses
-        XD-RoPE; later layers see layer-0 cache length and use regular 1D RoPE.
+        Transformers 5.13 callers pass the same four-axis mRoPE through both
+        input pairs. Keeping the two slots avoids changing the packaged graph IO.
         """
         hidden_states = inputs_embeds.to(torch.float32)
         caches: KVCache = []

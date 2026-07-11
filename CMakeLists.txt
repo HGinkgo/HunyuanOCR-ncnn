@@ -56,9 +56,12 @@ add_library(hunyuan_ocr STATIC)
 target_sources(hunyuan_ocr
     PRIVATE
         src/hunyuan_ocr.cpp
+        src/generation_config.cpp
         src/image_preprocessor.cpp
         src/model_layout.cpp
+        src/multimodal_rope.cpp
         src/prompt_builder.cpp
+        src/precise_sdpa.cpp
         src/text_runtime.cpp
         src/tokenizer.cpp
         src/vision_runtime.cpp
@@ -127,6 +130,26 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_prompt_builder_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_generation_config_test tests/generation_config_test.cpp)
+    target_link_libraries(hunyuan_ocr_generation_config_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_generation_config_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_text_rope_test tests/text_rope_test.cpp)
+    target_link_libraries(hunyuan_ocr_text_rope_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_text_rope_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_vision_interpolation_test tests/vision_interpolation_test.cpp)
+    target_link_libraries(hunyuan_ocr_vision_interpolation_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_vision_interpolation_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_precise_sdpa_test tests/precise_sdpa_test.cpp)
+    target_link_libraries(hunyuan_ocr_precise_sdpa_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_precise_sdpa_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_multimodal_rope_test tests/multimodal_rope_test.cpp)
+    target_link_libraries(hunyuan_ocr_multimodal_rope_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_multimodal_rope_test PRIVATE cxx_std_17)
+
     if(_hunyuan_ocr_enable_tokenizer_test)
         add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
         target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
@@ -138,11 +161,13 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     if(HUNYUAN_OCR_STRICT_WARNINGS)
         if(MSVC)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE /W4)
+            target_compile_options(hunyuan_ocr_generation_config_test PRIVATE /W4)
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
             endif()
         else()
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE -Wall -Wextra -Wpedantic)
+            target_compile_options(hunyuan_ocr_generation_config_test PRIVATE -Wall -Wextra -Wpedantic)
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
             endif()
@@ -158,6 +183,21 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
     )
+    add_test(NAME generation_config
+        COMMAND hunyuan_ocr_generation_config_test
+    )
+    add_test(NAME text_rope
+        COMMAND hunyuan_ocr_text_rope_test
+    )
+    add_test(NAME vision_interpolation
+        COMMAND hunyuan_ocr_vision_interpolation_test
+    )
+    add_test(NAME precise_sdpa
+        COMMAND hunyuan_ocr_precise_sdpa_test
+    )
+    add_test(NAME multimodal_rope
+        COMMAND hunyuan_ocr_multimodal_rope_test
+    )
     add_test(NAME run_regression_prompt_manifest
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_regression_manifest_test.py"
@@ -170,10 +210,41 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_vision_dynamic_test.py"
     )
+    add_test(NAME export_common
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_common_test.py"
+    )
+    add_test(NAME text_decoder_kv
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/text_decoder_kv_test.py"
+    )
     add_test(NAME benchmark_parser
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_parser_test.py"
     )
+    add_test(NAME run_hf_baseline
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_hf_baseline_test.py"
+    )
+    add_test(NAME prepare_regression_fixtures
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_regression_fixtures_test.py"
+    )
+    add_test(NAME windows_workflow
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_workflow_test.py"
+    )
+    add_test(NAME atomic_output
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/atomic_output_test.py"
+    )
+    if(HUNYUAN_OCR_BUILD_CLI)
+        add_test(NAME cli_options
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_options_test.py"
+                    "$<TARGET_FILE:hunyuan_ocr_cli>"
+        )
+    endif()
 endif()
 
 if(HUNYUAN_OCR_BUILD_CLI)

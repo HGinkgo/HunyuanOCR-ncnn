@@ -56,7 +56,12 @@ jobs:
           -Dncnn_DIR="${{ github.workspace }}\_deps\ncnn-install\lib\cmake\ncnn"
           -DHUNYUAN_OCR_USE_NCNN_PACKAGE=ON
           -DHUNYUAN_OCR_BUILD_CLI=ON
+          -DHUNYUAN_OCR_BUILD_TESTS=ON
+          -DHUNYUAN_OCR_BUILD_TOKENIZER_TEST=OFF
           -DHUNYUAN_OCR_STRICT_WARNINGS=ON
 
       - name: Build HunyuanOCR-ncnn
         run: cmake --build build --config Release --parallel
+
+      - name: Test HunyuanOCR 1.5 custom layers
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope"

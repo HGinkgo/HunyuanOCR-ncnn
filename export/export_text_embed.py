@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from transformers import HunYuanVLForConditionalGeneration
 
-from _common import ensure_dir, run_pnnx
+from _common import ensure_dir, input_embedding, run_pnnx
 
 
 class TextEmbedWrapper(nn.Module):
@@ -41,7 +41,7 @@ def main() -> int:
         device_map=None,
         low_cpu_mem_usage=True,
     ).eval()
-    wrapper = TextEmbedWrapper(model.model.embed_tokens.weight).eval()
+    wrapper = TextEmbedWrapper(input_embedding(model).weight).eval()
     input_ids = torch.arange(args.seq_len, dtype=torch.int32).view(1, args.seq_len)
     pt_path = out_dir / "text_embed.pt"
     torch.jit.trace(wrapper, input_ids).save(str(pt_path))

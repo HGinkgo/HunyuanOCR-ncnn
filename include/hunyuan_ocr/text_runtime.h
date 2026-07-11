@@ -9,6 +9,12 @@
 
 namespace hunyuan_ocr {
 
+namespace detail {
+
+std::vector<float> build_mrope(const std::vector<int>& position_ids, int seq_len, bool use_cos);
+
+} // namespace detail
+
 struct TextRuntimeSmokeResult {
     int token_id = -1;
     size_t embedding_values = 0;
@@ -37,7 +43,7 @@ struct TextDecodeTiming {
 struct TextDecodeResult {
     int seq_len = 0;
     int checked_tokens = 0;
-    float repetition_penalty = 1.03f;
+    float repetition_penalty = 1.08f;
     TextDecodeTiming timing;
     std::vector<int> generated_tokens;
     std::vector<int> raw_top1_tokens;
@@ -74,6 +80,7 @@ public:
                                     int vision_token_count,
                                     const std::vector<int>& expected_tokens,
                                     int max_tokens,
+                                    float repetition_penalty,
                                     TextDecodeResult* result,
                                     std::string* error) const;
 
@@ -81,6 +88,7 @@ private:
     std::unique_ptr<ncnn::Net> text_embed_net_;
     std::unique_ptr<ncnn::Net> text_decoder_net_;
     std::unique_ptr<ncnn::Net> lm_head_net_;
+    std::vector<int> eos_ids_;
     int num_threads_ = 0;
     bool ready_ = false;
 };

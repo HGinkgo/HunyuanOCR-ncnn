@@ -5,6 +5,19 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
+
+
+def text_backbone(model: Any) -> Any:
+    return getattr(model.model, "language_model", model.model)
+
+
+def input_embedding(model: Any) -> Any:
+    return text_backbone(model).embed_tokens
+
+
+def vision_tower(model: Any) -> Any:
+    return getattr(model.model, "vision_tower", model.vit if hasattr(model, "vit") else None)
 
 
 def ensure_dir(path: Path) -> Path:

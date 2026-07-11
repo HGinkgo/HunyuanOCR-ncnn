@@ -51,6 +51,37 @@ def main() -> int:
 
     from export import export_vision_dynamic as mod
 
+    original_argv = sys.argv
+    try:
+        sys.argv = ["export_vision_dynamic.py", "--hf-dir", "/tmp/hunyuanocr-1.5"]
+        parsed = mod.parse_args()
+        if parsed.repetition_penalty != 1.08:
+            print("dynamic vision export does not default to repetition penalty 1.08", file=sys.stderr)
+            return 1
+        if parsed.pos_method != "size":
+            print("dynamic vision export does not default to Transformers 5.13 size interpolation", file=sys.stderr)
+            return 1
+    finally:
+        sys.argv = original_argv
+
+    expected_generation_options = {
+        "max_new_tokens": 128,
+        "do_sample": False,
+        "repetition_penalty": 1.08,
+    }
+    if mod.generation_options(128, 1.08) != expected_generation_options:
+        print("generation options mismatch", file=sys.stderr)
+        return 1
+
+    new_embeddings = SimpleNamespace(config=SimpleNamespace(interpolate_mode="bilinear"))
+    if mod.vision_interpolate_mode(SimpleNamespace(embeddings=new_embeddings)) != "bilinear":
+        print("failed to read Transformers 5.13 vision interpolation mode", file=sys.stderr)
+        return 1
+    legacy_embeddings = SimpleNamespace(interpolate_mode="bilinear")
+    if mod.vision_interpolate_mode(SimpleNamespace(embeddings=legacy_embeddings)) != "bilinear":
+        print("failed to keep legacy vision interpolation mode fallback", file=sys.stderr)
+        return 1
+
     with tempfile.TemporaryDirectory(prefix="hunyuanocr_export_vision_test_") as tmp_text:
         tmp = Path(tmp_text)
         out_dir = tmp / "out"

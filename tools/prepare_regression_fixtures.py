@@ -11,6 +11,21 @@ from pathlib import Path
 
 import numpy as np
 
+from atomic_output import build_directory_transactionally, lexical_absolute_path, paths_overlap, validate_case_names
+
+
+FIXED_MODEL_REVISION = "9e01f897bf8956f77a80c350dc0491d6bbbd43e6"
+FIXED_TRANSFORMERS_VERSION = "5.13.0"
+REQUIRED_PROVENANCE = {
+    "device": "cpu",
+    "attn_implementation": '"eager"',
+    "dtype": "torch.float32",
+    "repetition_penalty": "1.08",
+    "processor.min_pixels": "262144",
+    "processor.max_pixels": "524288",
+    "do_sample": "False",
+}
+
 
 @dataclass(frozen=True)
 class Case:
@@ -47,6 +62,8 @@ def parse_args() -> argparse.Namespace:
         help="Fixture output directory.",
     )
     parser.add_argument("--force", action="store_true", help="Remove output directory if it exists.")
+    parser.add_argument("--expected-revision", default=FIXED_MODEL_REVISION)
+    parser.add_argument("--expected-transformers-version", default=FIXED_TRANSFORMERS_VERSION)
     return parser.parse_args()
 
 
@@ -59,9 +76,47 @@ def require_file(path: Path, label: str) -> None:
         fail(f"{label} not found: {path}")
 
 
+def read_baseline_provenance(summary_path: Path) -> dict[str, str]:
+    if not summary_path.is_file():
+        fail(f"baseline summary not found: {summary_path}")
+    provenance: dict[str, str] = {}
+    for line in summary_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("["):
+            break
+        key, separator, value = line.partition(":")
+        if separator:
+            provenance[key.strip()] = value.strip()
+    return provenance
+
+
+def validate_baseline_provenance(
+    baseline_dir: Path,
+    expected_revision: str,
+    expected_transformers_version: str,
+) -> None:
+    provenance = read_baseline_provenance(baseline_dir / "summary.txt")
+    expected = {
+        "model_revision": expected_revision,
+        "transformers": expected_transformers_version,
+        **REQUIRED_PROVENANCE,
+    }
+    for key, expected_value in expected.items():
+        if key not in provenance:
+            fail(f"baseline provenance {key} missing")
+        actual = provenance[key]
+        if actual in ("", "unknown", "<missing>"):
+            fail(f"baseline provenance {key} missing")
+        if actual != expected_value:
+            fail(f"baseline provenance {key} mismatch: got {actual}, expected {expected_value}")
+
+
 def load_cases(manifest: Path) -> list[Case]:
     require_file(manifest, "manifest")
     items = json.loads(manifest.read_text(encoding="utf-8"))
+    try:
+        validate_case_names([item.get("name") for item in items])
+    except ValueError as exc:
+        fail(str(exc))
     cases: list[Case] = []
     for item in items:
         prompt_mode = item.get("prompt_mode")
@@ -131,18 +186,25 @@ def main() -> int:
     args = parse_args()
     baseline_dir = args.baseline_dir.resolve()
     manifest = args.manifest.resolve()
-    output_dir = args.output_dir.resolve()
+    output_dir = lexical_absolute_path(args.output_dir)
 
-    if output_dir.exists():
-        if not args.force:
-            fail(f"output directory exists; pass --force: {output_dir}")
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True)
-
+    validate_baseline_provenance(
+        baseline_dir,
+        args.expected_revision,
+        args.expected_transformers_version,
+    )
     cases = load_cases(manifest)
-    for case in cases:
-        prepare_case(baseline_dir, output_dir, case)
-        print(f"prepared {case.name}")
+    if paths_overlap(output_dir, baseline_dir) or paths_overlap(output_dir, manifest):
+        fail("output directory must not overlap baseline or manifest paths")
+    if output_dir.exists() and not args.force:
+        fail(f"output directory exists; pass --force: {output_dir}")
+
+    def build(staging: Path) -> None:
+        for case in cases:
+            prepare_case(baseline_dir, staging, case)
+            print(f"prepared {case.name}")
+
+    build_directory_transactionally(output_dir, build, replace_existing=args.force)
     print(f"fixtures: {output_dir}")
     print(f"total: {len(cases)}")
     return 0

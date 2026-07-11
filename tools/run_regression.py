@@ -103,6 +103,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Dynamic vision artifact directory passed to package_model.py when --package is set.",
     )
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.08,
+        help="Repetition penalty passed to hunyuan_ocr_cli. Default: 1.08.",
+    )
     return parser.parse_args()
 
 
@@ -185,6 +191,8 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
         str(args.model),
         "--image",
         str(image),
+        "--repetition-penalty",
+        str(args.repetition_penalty),
     ]
     if case.prompt is not None:
         cmd.extend(["--prompt", case.prompt])
@@ -228,6 +236,8 @@ def main() -> int:
     args.log_dir = args.log_dir.resolve()
     args.workspace = args.workspace.resolve()
     args.manifest = args.manifest.resolve()
+    if args.repetition_penalty <= 0:
+        fail("--repetition-penalty must be positive")
 
     require_file(args.binary, "hunyuan_ocr_cli")
     if args.package:

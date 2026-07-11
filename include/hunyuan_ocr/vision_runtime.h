@@ -8,6 +8,12 @@
 
 namespace hunyuan_ocr {
 
+namespace detail {
+
+float bilinear_source_coordinate(int output_index, int input_size, int output_size);
+
+} // namespace detail
+
 struct VisionRuntimeResult {
     int patch_count = 0;
     int vision_token_count = 0;

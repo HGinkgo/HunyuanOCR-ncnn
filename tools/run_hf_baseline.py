@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from atomic_output import build_directory_transactionally, lexical_absolute_path, paths_overlap, validate_case_names
+
 
 SPOTTING_PROMPT = "检测并识别图片中的文字，将文本坐标格式化输出。"
 DOCUMENT_PROMPT = (
@@ -23,6 +25,9 @@ transformers = None
 Image = None
 AutoProcessor = None
 HunYuanVLForConditionalGeneration = None
+
+FIXED_MODEL_REVISION = "9e01f897bf8956f77a80c350dc0491d6bbbd43e6"
+FIXED_TRANSFORMERS_VERSION = "5.13.0"
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,10 @@ def parse_args() -> argparse.Namespace:
         help="Baseline output directory.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--repetition-penalty", type=float, default=1.08)
+    parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
+    parser.add_argument("--expected-revision", default=FIXED_MODEL_REVISION)
+    parser.add_argument("--expected-transformers-version", default=FIXED_TRANSFORMERS_VERSION)
     parser.add_argument("--min-pixels", type=int, default=262144)
     parser.add_argument("--max-pixels", type=int, default=524288)
     return parser.parse_args()
@@ -69,6 +78,36 @@ def parse_args() -> argparse.Namespace:
 
 def fail(message: str) -> None:
     raise SystemExit(f"error: {message}")
+
+
+def read_model_revision(model_dir: Path) -> str:
+    metadata = model_dir / ".cache/huggingface/download/config.json.metadata"
+    if not metadata.is_file():
+        return "unknown"
+    lines = metadata.read_text(encoding="utf-8").splitlines()
+    return lines[0].strip() if lines and lines[0].strip() else "unknown"
+
+
+def validate_model_revision(actual: str, expected: str) -> None:
+    if actual in ("", "unknown", "<missing>"):
+        fail("checkpoint revision metadata missing")
+    if actual != expected:
+        fail(f"checkpoint revision mismatch: got {actual}, expected {expected}")
+
+
+def validate_transformers_version(actual: str, expected: str) -> None:
+    if actual in ("", "unknown", "<missing>"):
+        fail("Transformers version missing")
+    if actual != expected:
+        fail(f"Transformers version mismatch: got {actual}, expected {expected}")
+
+
+def generation_options(max_new_tokens: int, repetition_penalty: float) -> dict[str, Any]:
+    return {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": False,
+        "repetition_penalty": repetition_penalty,
+    }
 
 
 def load_runtime_deps() -> None:
@@ -122,11 +161,15 @@ def prompt_for_item(item: dict[str, Any]) -> tuple[str, str]:
 def load_cases(manifest: Path) -> list[BaselineCase]:
     require_file(manifest, "manifest")
     items = json.loads(manifest.read_text(encoding="utf-8"))
+    names = [str(item.get("name") or Path(item["image"]).stem) for item in items]
+    try:
+        validate_case_names(names)
+    except ValueError as exc:
+        fail(str(exc))
     cases: list[BaselineCase] = []
-    for item in items:
+    for item, name in zip(items, names):
         prompt, label = prompt_for_item(item)
-        name = item.get("name") or Path(item["image"]).stem
-        cases.append(BaselineCase(str(name), str(item["image"]), prompt, label))
+        cases.append(BaselineCase(name, str(item["image"]), prompt, label))
     return cases
 
 
@@ -157,6 +200,12 @@ def build_messages(image_path: Path, prompt: str) -> list[dict[str, Any]]:
     ]
 
 
+def normalize_chat_template_tokens(tokens: list[Any]) -> list[int]:
+    if len(tokens) == 1 and isinstance(tokens[0], list):
+        return tokens[0]
+    return tokens
+
+
 def to_numpy_int64(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().to(torch.int64).numpy()
 
@@ -169,26 +218,67 @@ def save_npz(path: Path, **arrays: np.ndarray) -> None:
     np.savez_compressed(path, **arrays)
 
 
+def build_text_embeddings(model: HunYuanVLForConditionalGeneration, input_ids: Any) -> Any:
+    return model.get_input_embeddings()(input_ids)
+
+
+def encode_image_features(model: HunYuanVLForConditionalGeneration, pixel_values: Any, image_grid_thw: Any) -> Any:
+    if hasattr(model, "get_image_features"):
+        return model.get_image_features(pixel_values, image_grid_thw, return_dict=True).pooler_output
+    return model.vit(pixel_values, image_grid_thw)
+
+
+def get_placeholder_mask(
+    model: HunYuanVLForConditionalGeneration,
+    input_ids: Any,
+    inputs_embeds: Any,
+    image_features: Any,
+) -> Any:
+    owner = model.model if hasattr(model.model, "get_placeholder_mask") else model
+    return owner.get_placeholder_mask(
+        input_ids,
+        inputs_embeds=inputs_embeds,
+        image_features=image_features,
+    )
+
+
 def build_fp32_inputs_embeds(
     model: HunYuanVLForConditionalGeneration,
     input_ids: torch.Tensor,
     pixel_values: torch.Tensor,
     image_grid_thw: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    inputs_embeds = model.model.embed_tokens(input_ids)
-    vit_device = next(model.vit.parameters()).device
-    image_embeds = model.vit(
+    inputs_embeds = build_text_embeddings(model, input_ids)
+    vision_module = model.model.vision_tower if hasattr(model.model, "vision_tower") else model.vit
+    vit_device = next(vision_module.parameters()).device
+    image_embeds = encode_image_features(
+        model,
         pixel_values.to(device=vit_device, dtype=torch.float32),
         image_grid_thw.to(device=vit_device),
     )
     image_embeds_for_llm = image_embeds.to(input_ids.device, non_blocking=True)
-    image_mask, _ = model.get_placeholder_mask(
-        input_ids,
-        inputs_embeds=inputs_embeds,
-        image_features=image_embeds_for_llm,
-    )
+    image_mask = get_placeholder_mask(model, input_ids, inputs_embeds, image_embeds_for_llm)
+    if isinstance(image_mask, tuple):
+        image_mask = image_mask[0]
     inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds_for_llm)
     return inputs_embeds, image_embeds
+
+
+def resolve_position_ids(inputs: Any, model: HunYuanVLForConditionalGeneration) -> tuple[Any, Any]:
+    position_ids = inputs.get("position_ids")
+    if position_ids is not None:
+        return position_ids, position_ids
+
+    mm_token_type_ids = inputs.get("mm_token_type_ids")
+    if mm_token_type_ids is None:
+        fail("processor returned neither position_ids nor mm_token_type_ids")
+    position_ids = model.model.compute_3d_position_ids(
+        input_ids=inputs["input_ids"],
+        image_grid_thw=inputs["image_grid_thw"],
+        attention_mask=inputs["attention_mask"],
+        mm_token_type_ids=mm_token_type_ids,
+    )
+    return position_ids, position_ids.permute(1, 0, 2)
 
 
 def run_case(
@@ -197,6 +287,7 @@ def run_case(
     model: HunYuanVLForConditionalGeneration,
     image_root: Path,
     max_new_tokens: int,
+    repetition_penalty: float,
     output_dir: Path,
 ) -> dict[str, Any]:
     image_path = image_root / case.image
@@ -208,15 +299,18 @@ def run_case(
     image = Image.open(image_path)
     messages = build_messages(image_path, case.prompt)
     chat_text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    chat_template_tokens = processor.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+    chat_template_tokens = normalize_chat_template_tokens(
+        processor.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+    )
     inputs = processor(text=[chat_text], images=image, padding=True, return_tensors="pt")
 
     image_token_id = int(model.config.image_token_id)
     input_ids_cpu = inputs["input_ids"]
     attention_mask_cpu = inputs["attention_mask"]
-    position_ids_cpu = inputs["position_ids"]
     image_grid_thw_cpu = inputs["image_grid_thw"]
     image_token_count = int((input_ids_cpu == image_token_id).sum().item())
+    model_position_ids, position_ids_cpu = resolve_position_ids(inputs, model)
+    inputs["position_ids"] = model_position_ids
 
     device = next(model.parameters()).device
     inputs = inputs.to(device)
@@ -239,8 +333,7 @@ def run_case(
             position_ids=inputs["position_ids"],
             attention_mask=inputs["attention_mask"],
             inputs_embeds=inputs_embeds,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
+            **generation_options(max_new_tokens, repetition_penalty),
         )
 
     generated_ids_trimmed = generated_ids[:, input_ids_cpu.shape[1] :]
@@ -311,14 +404,17 @@ def write_summary(
         "HunyuanOCR Transformers fp32 deterministic baseline",
         f"timestamp: {datetime.now().isoformat(timespec='seconds')}",
         f"model_dir: {args.model_dir}",
+        f"model_revision: {read_model_revision(args.model_dir)}",
         f"manifest: {args.manifest}",
         f"torch: {torch.__version__}",
         f"transformers: {transformers.__version__}",
+        f"device: {args.device}",
         'attn_implementation: "eager"',
         "dtype: torch.float32",
-        "image_embeds: manual fp32 model.vit",
+        "image_embeds: manual fp32 vision tower",
         "generate: Transformers parent generate(inputs_embeds=...)",
         f"max_new_tokens: {args.max_new_tokens}",
+        f"repetition_penalty: {args.repetition_penalty}",
         f"processor.min_pixels: {pixel_bounds['min_pixels']}",
         f"processor.max_pixels: {pixel_bounds['max_pixels']}",
         "do_sample: False",
@@ -344,14 +440,23 @@ def main() -> int:
     args = parse_args()
     if args.max_new_tokens <= 0:
         fail("--max-new-tokens must be positive")
+    if args.repetition_penalty <= 0:
+        fail("--repetition-penalty must be positive")
     args.model_dir = args.model_dir.resolve()
     args.manifest = args.manifest.resolve()
     args.image_root = args.image_root.resolve()
-    args.output_dir = args.output_dir.resolve()
+    args.output_dir = lexical_absolute_path(args.output_dir)
 
     cases = load_cases(args.manifest)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    validate_model_revision(read_model_revision(args.model_dir), args.expected_revision)
+    if (
+        paths_overlap(args.output_dir, args.model_dir)
+        or paths_overlap(args.output_dir, args.image_root)
+        or paths_overlap(args.output_dir, args.manifest)
+    ):
+        fail("output directory must not overlap model, image, or manifest paths")
     load_runtime_deps()
+    validate_transformers_version(transformers.__version__, args.expected_transformers_version)
     print(f"Loading processor from {args.model_dir}", flush=True)
     processor = AutoProcessor.from_pretrained(str(args.model_dir), use_fast=False)
     pixel_bounds = apply_processor_pixel_bounds(processor, args.min_pixels, args.max_pixels)
@@ -361,14 +466,27 @@ def main() -> int:
         str(args.model_dir),
         attn_implementation="eager",
         dtype=torch.float32,
-        device_map="auto",
+        device_map=args.device,
     ).eval()
 
-    summaries = []
-    for case in cases:
-        print(f"Running {case.name} ({case.prompt_label})", flush=True)
-        summaries.append(run_case(case, processor, model, args.image_root, args.max_new_tokens, args.output_dir))
-    write_summary(args.output_dir, summaries, args, pixel_bounds)
+    def build(staging: Path) -> None:
+        summaries = []
+        for case in cases:
+            print(f"Running {case.name} ({case.prompt_label})", flush=True)
+            summaries.append(
+                run_case(
+                    case,
+                    processor,
+                    model,
+                    args.image_root,
+                    args.max_new_tokens,
+                    args.repetition_penalty,
+                    staging,
+                )
+            )
+        write_summary(staging, summaries, args, pixel_bounds)
+
+    build_directory_transactionally(args.output_dir, build, replace_existing=True)
     print(f"Wrote summary to {args.output_dir / 'summary.txt'}", flush=True)
     return 0
 

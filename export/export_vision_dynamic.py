@@ -17,6 +17,11 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoProcessor, HunYuanVLForConditionalGeneration
 
+try:
+    from _common import vision_tower
+except ModuleNotFoundError:
+    from export._common import vision_tower
+
 
 DEFAULT_IMAGE_DIR = Path("examples/images")
 DEFAULT_BASELINE_ROOT = Path("outputs/baseline_fp32_p512k")
@@ -180,7 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-dir", type=Path, default=DEFAULT_IMAGE_DIR)
     parser.add_argument("--ncnn-python-dir", type=Path, default=None, help="Directory containing the ncnn Python binding.")
     parser.add_argument("--case", action="append", default=[], help="case stem or image filename; repeatable")
-    parser.add_argument("--pos-method", choices=["scale", "size", "both"], default="scale")
+    parser.add_argument("--pos-method", choices=["scale", "size", "both"], default="size")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--baseline-root", type=Path, default=DEFAULT_BASELINE_ROOT)
     parser.add_argument("--min-pixels", type=int, default=262144)
@@ -191,6 +196,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--export-w2", type=int, default=448)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--max-new-tokens", type=int, default=1024)
+    parser.add_argument("--repetition-penalty", type=float, default=1.08)
     return parser.parse_args()
 
 
@@ -214,20 +220,25 @@ def build_dynamic_vision(vit: nn.Module) -> DynamicVisionEncoder:
         copy_linear(dst.self_attn.k_proj, src.self_attn.k_proj)
         copy_linear(dst.self_attn.v_proj, src.self_attn.v_proj)
         copy_linear(dst.self_attn.o_proj, src.self_attn.o_proj)
-        copy_linear(dst.mlp.dense_h_to_4h, src.mlp.dense_h_to_4h)
-        copy_linear(dst.mlp.dense_4h_to_h, src.mlp.dense_4h_to_h)
-        dst.input_layernorm.weight.data.copy_(src.input_layernorm.weight.data)
-        dst.input_layernorm.bias.data.copy_(src.input_layernorm.bias.data)
-        dst.post_attention_layernorm.weight.data.copy_(src.post_attention_layernorm.weight.data)
-        dst.post_attention_layernorm.bias.data.copy_(src.post_attention_layernorm.bias.data)
-    copy_conv(wrapper.perceive.proj[0], vit.perceive.proj[0])
-    copy_conv(wrapper.perceive.proj[2], vit.perceive.proj[2])
-    copy_linear(wrapper.perceive.mlp, vit.perceive.mlp)
-    wrapper.perceive.image_newline.data.copy_(vit.perceive.image_newline.data)
-    wrapper.perceive.image_begin.data.copy_(vit.perceive.image_begin.data)
-    wrapper.perceive.image_end.data.copy_(vit.perceive.image_end.data)
-    wrapper.perceive.before_rms.weight.data.copy_(vit.perceive.before_rms.weight.data)
-    wrapper.perceive.after_rms.weight.data.copy_(vit.perceive.after_rms.weight.data)
+        copy_linear(dst.mlp.dense_h_to_4h, getattr(src.mlp, "fc1", src.mlp.dense_h_to_4h if hasattr(src.mlp, "dense_h_to_4h") else None))
+        copy_linear(dst.mlp.dense_4h_to_h, getattr(src.mlp, "fc2", src.mlp.dense_4h_to_h if hasattr(src.mlp, "dense_4h_to_h") else None))
+        input_norm = getattr(src, "layer_norm1", src.input_layernorm if hasattr(src, "input_layernorm") else None)
+        output_norm = getattr(src, "layer_norm2", src.post_attention_layernorm if hasattr(src, "post_attention_layernorm") else None)
+        dst.input_layernorm.weight.data.copy_(input_norm.weight.data)
+        dst.input_layernorm.bias.data.copy_(input_norm.bias.data)
+        dst.post_attention_layernorm.weight.data.copy_(output_norm.weight.data)
+        dst.post_attention_layernorm.bias.data.copy_(output_norm.bias.data)
+    merger = getattr(vit, "patch_merger", vit.perceive if hasattr(vit, "perceive") else None)
+    proj_conv = getattr(merger, "proj_conv", merger.proj[0] if hasattr(merger, "proj") else None)
+    proj_out = getattr(merger, "proj_out", merger.proj[2] if hasattr(merger, "proj") else None)
+    copy_conv(wrapper.perceive.proj[0], proj_conv)
+    copy_conv(wrapper.perceive.proj[2], proj_out)
+    copy_linear(wrapper.perceive.mlp, merger.mlp)
+    wrapper.perceive.image_newline.data.copy_(merger.image_newline.data)
+    wrapper.perceive.image_begin.data.copy_(merger.image_begin.data)
+    wrapper.perceive.image_end.data.copy_(merger.image_end.data)
+    wrapper.perceive.before_rms.weight.data.copy_(merger.before_rms.weight.data)
+    wrapper.perceive.after_rms.weight.data.copy_(merger.after_rms.weight.data)
     return wrapper
 
 
@@ -276,7 +287,7 @@ def load_model_and_processor(args: argparse.Namespace) -> tuple[AutoProcessor, n
         device_map=None,
         low_cpu_mem_usage=True,
     ).eval()
-    vit = model.vit.float().eval()
+    vit = vision_tower(model).float().eval()
     wrapper = build_dynamic_vision(vit).eval()
     return processor, vit, wrapper
 
@@ -302,6 +313,12 @@ def base_pos_embed(vit: nn.Module) -> torch.Tensor:
     return vit.embeddings.position_embedding.weight[1:, :].reshape(1, pos_edge, pos_edge, hidden).permute(0, 3, 1, 2).float()
 
 
+def vision_interpolate_mode(vit: nn.Module) -> str:
+    if hasattr(vit.embeddings, "interpolate_mode"):
+        return vit.embeddings.interpolate_mode
+    return vit.embeddings.config.interpolate_mode
+
+
 def build_pos_embed(vit: nn.Module, grid_h: int, grid_w: int, method: str) -> torch.Tensor:
     pos_base = base_pos_embed(vit)
     pos_edge = pos_base.shape[-1]
@@ -309,14 +326,14 @@ def build_pos_embed(vit: nn.Module, grid_h: int, grid_w: int, method: str) -> to
         return F.interpolate(
             pos_base,
             scale_factor=((grid_h + 0.1) / pos_edge, (grid_w + 0.1) / pos_edge),
-            mode=vit.embeddings.interpolate_mode,
+            mode=vision_interpolate_mode(vit),
             align_corners=False,
         ).contiguous()
     if method == "size":
         return F.interpolate(
             pos_base,
             size=[grid_h, grid_w],
-            mode=vit.embeddings.interpolate_mode,
+            mode=vision_interpolate_mode(vit),
             align_corners=False,
         ).contiguous()
     raise ValueError(method)
@@ -328,6 +345,14 @@ def diff_stats(actual: np.ndarray, expected: np.ndarray) -> dict[str, float]:
         "max_abs": float(diff.max()),
         "mean_abs": float(diff.mean()),
         "p99_abs": float(np.quantile(diff.reshape(-1), 0.99)),
+    }
+
+
+def generation_options(max_new_tokens: int, repetition_penalty: float) -> dict[str, Any]:
+    return {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": False,
+        "repetition_penalty": repetition_penalty,
     }
 
 
@@ -364,7 +389,8 @@ def run_torch(args: argparse.Namespace) -> dict[str, Any]:
 
         pixel_values_d = pixel_values.to(device)
         grid_d = image_grid_thw.to(device)
-        hf_features = vit(pixel_values_d, grid_d).float().cpu().numpy()
+        hf_output = vit(pixel_values_d, grid_d)
+        hf_features = getattr(hf_output, "pooler_output", hf_output).float().cpu().numpy()
         image_chw = image_from_pixel_values(pixel_values, grid_h, grid_w)
 
         case_result: dict[str, Any] = {
@@ -579,6 +605,7 @@ def run_token_gate(args: argparse.Namespace) -> dict[str, Any]:
         "mode": "token",
         "pos_method": args.pos_method,
         "max_new_tokens": args.max_new_tokens,
+        "repetition_penalty": args.repetition_penalty,
         "cases": [],
     }
     out_root = args.out_dir / "token_gate"
@@ -626,8 +653,7 @@ def run_token_gate(args: argparse.Namespace) -> dict[str, Any]:
             position_ids=inputs["position_ids"],
             attention_mask=inputs["attention_mask"],
             inputs_embeds=inputs_embeds,
-            max_new_tokens=args.max_new_tokens,
-            do_sample=False,
+            **generation_options(args.max_new_tokens, args.repetition_penalty),
         )
         generated_trimmed = generated_ids[:, inputs["input_ids"].shape[1] :]
         output_text = processor.batch_decode(
@@ -696,6 +722,8 @@ def main() -> None:
     args.baseline_root = args.baseline_root.resolve()
     if args.pnnx is not None:
         args.pnnx = args.pnnx.resolve()
+    if args.repetition_penalty <= 0:
+        raise SystemExit("--repetition-penalty must be positive")
     if args.ncnn_python_dir is not None:
         import_ncnn_binding.binding_dir = args.ncnn_python_dir.resolve()
     if args.mode in ("export", "all") and args.pnnx is None:

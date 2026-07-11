@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from transformers import HunYuanVLForConditionalGeneration
 
-from _common import ensure_dir, run_pnnx
+from _common import ensure_dir, run_pnnx, text_backbone
 from text_decoder_kv import TextDecoderExternalRopeKVWrapper
 
 
@@ -41,7 +41,7 @@ def main() -> int:
         device_map=None,
         low_cpu_mem_usage=True,
     ).float().eval()
-    wrapper = TextDecoderExternalRopeKVWrapper.from_decoder(model.model).eval()
+    wrapper = TextDecoderExternalRopeKVWrapper.from_decoder(text_backbone(model)).eval()
 
     seq_len = args.seq_len
     inputs_embeds = torch.randn(1, seq_len, 1024, dtype=torch.float32)

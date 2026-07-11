@@ -10,6 +10,18 @@
 #include <utility>
 
 namespace hunyuan_ocr {
+
+namespace detail {
+
+float bilinear_source_coordinate(int output_index, int input_size, int output_size)
+{
+    return (static_cast<float>(output_index) + 0.5f) *
+               static_cast<float>(input_size) / static_cast<float>(output_size) -
+           0.5f;
+}
+
+} // namespace detail
+
 namespace {
 
 constexpr int kPatchDim = 768;
@@ -173,12 +185,9 @@ void interpolate_pos_embed(const std::vector<float>& base,
                            std::vector<float>* out)
 {
     out->assign(static_cast<size_t>(kVisionHiddenSize) * grid_h * grid_w, 0.0f);
-    const float scale_h = (static_cast<float>(grid_h) + 0.1f) / static_cast<float>(kPositionEdge);
-    const float scale_w = (static_cast<float>(grid_w) + 0.1f) / static_cast<float>(kPositionEdge);
-
     for (int y = 0; y < grid_h; ++y)
     {
-        const float in_y = (static_cast<float>(y) + 0.5f) / scale_h - 0.5f;
+        const float in_y = detail::bilinear_source_coordinate(y, kPositionEdge, grid_h);
         int y0 = static_cast<int>(std::floor(in_y));
         float wy = in_y - static_cast<float>(y0);
         if (y0 < 0)
@@ -196,7 +205,7 @@ void interpolate_pos_embed(const std::vector<float>& base,
 
         for (int x = 0; x < grid_w; ++x)
         {
-            const float in_x = (static_cast<float>(x) + 0.5f) / scale_w - 0.5f;
+            const float in_x = detail::bilinear_source_coordinate(x, kPositionEdge, grid_w);
             int x0 = static_cast<int>(std::floor(in_x));
             float wx = in_x - static_cast<float>(x0);
             if (x0 < 0)

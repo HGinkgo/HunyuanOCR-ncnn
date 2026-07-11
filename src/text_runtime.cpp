@@ -1,6 +1,9 @@
 #include "hunyuan_ocr/text_runtime.h"
 
+#include "hunyuan_ocr/generation_config.h"
 #include "hunyuan_ocr/hunyuan_ocr.h"
+#include "hunyuan_ocr/multimodal_rope.h"
+#include "hunyuan_ocr/precise_sdpa.h"
 
 #include <algorithm>
 #include <chrono>
@@ -15,6 +18,34 @@
 #include <unordered_set>
 
 namespace hunyuan_ocr {
+
+namespace detail {
+
+std::vector<float> build_mrope(const std::vector<int>& position_ids, int seq_len, bool use_cos)
+{
+    constexpr int head_dim = 128;
+    constexpr int axis_count = 4;
+    constexpr int section_size = head_dim / axis_count;
+    const float base = static_cast<float>(10000.0 * std::pow(1000.0, 128.0 / 126.0));
+    std::vector<float> values(static_cast<size_t>(seq_len) * head_dim);
+    for (int dim = 0; dim < head_dim; ++dim)
+    {
+        const int axis = dim / section_size;
+        const int frequency_dim = dim % (head_dim / 2);
+        const float inv_freq = 1.0f / std::pow(base, static_cast<float>(2 * frequency_dim) / head_dim);
+        for (int pos_index = 0; pos_index < seq_len; ++pos_index)
+        {
+            const int position = position_ids[static_cast<size_t>(axis) * seq_len + pos_index];
+            const float angle = static_cast<float>(position) * inv_freq;
+            values[static_cast<size_t>(pos_index) * head_dim + dim] =
+                use_cos ? std::cos(angle) : std::sin(angle);
+        }
+    }
+    return values;
+}
+
+} // namespace detail
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -31,8 +62,7 @@ constexpr int kVocabSize = 120818;
 constexpr float kRopeTheta = 10000.0f;
 constexpr float kRopeAlpha = 1000.0f;
 constexpr float kMaskNegInf = -1.0e38f;
-const int kXdRopeSection[4] = {16, 16, 16, 16};
-const int kEosIds[2] = {120007, 120020};
+constexpr float kDefaultRepetitionPenalty = 1.08f;
 
 bool load_net(ncnn::Net& net,
               const std::filesystem::path& param,
@@ -67,28 +97,17 @@ size_t logical_value_count(const ncnn::Mat& mat)
            static_cast<size_t>(elempack);
 }
 
-float bf16_round_rne(float value)
-{
-    uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(float));
-    const uint32_t rounding_bias = ((bits >> 16) & 1u) + 0x7FFFu;
-    bits = (bits + rounding_bias) & 0xFFFF0000u;
-    float rounded = 0.0f;
-    std::memcpy(&rounded, &bits, sizeof(float));
-    return rounded;
-}
-
 float rope_value(int position, int dim, bool use_cos)
 {
-    const double base = static_cast<double>(kRopeTheta) *
-                        std::pow(static_cast<double>(kRopeAlpha),
-                                 static_cast<double>(kHeadDim) / static_cast<double>(kHeadDim - 2));
+    const float base = static_cast<float>(
+        static_cast<double>(kRopeTheta) *
+        std::pow(static_cast<double>(kRopeAlpha),
+                 static_cast<double>(kHeadDim) / static_cast<double>(kHeadDim - 2)));
     const int half_dim = dim % (kHeadDim / 2);
     const float exponent = static_cast<float>(2 * half_dim) / static_cast<float>(kHeadDim);
-    const float inv_freq = static_cast<float>(1.0 / std::pow(base, static_cast<double>(exponent)));
+    const float inv_freq = 1.0f / std::pow(base, exponent);
     const float angle = static_cast<float>(position) * inv_freq;
-    const float value = use_cos ? static_cast<float>(std::cos(angle)) : static_cast<float>(std::sin(angle));
-    return bf16_round_rne(value);
+    return use_cos ? static_cast<float>(std::cos(angle)) : static_cast<float>(std::sin(angle));
 }
 
 ncnn::Mat make_mat_from_vector(int w, int h, const std::vector<float>& values)
@@ -118,48 +137,12 @@ ncnn::Mat make_decode_mask(int past_len)
     return mask;
 }
 
-std::vector<float> build_1d_rope(int seq_len, bool use_cos)
-{
-    std::vector<float> values(static_cast<size_t>(seq_len) * kHeadDim);
-    for (int pos = 0; pos < seq_len; ++pos)
-    {
-        for (int dim = 0; dim < kHeadDim; ++dim)
-        {
-            values[static_cast<size_t>(pos) * kHeadDim + dim] = rope_value(pos, dim, use_cos);
-        }
-    }
-    return values;
-}
-
 std::vector<float> build_decode_rope(int position, bool use_cos)
 {
     std::vector<float> values(kHeadDim);
     for (int dim = 0; dim < kHeadDim; ++dim)
     {
         values[static_cast<size_t>(dim)] = rope_value(position, dim, use_cos);
-    }
-    return values;
-}
-
-std::vector<float> build_xd_rope(const std::vector<int>& position_ids, int seq_len, bool use_cos)
-{
-    std::vector<float> values(static_cast<size_t>(seq_len) * kHeadDim);
-    int out_dim = 0;
-    for (int split = 0; split < 8; ++split)
-    {
-        const int axis = split % 4;
-        const int section = kXdRopeSection[split % 4];
-        for (int local = 0; local < section; ++local)
-        {
-            const int source_dim = out_dim + local;
-            for (int pos_index = 0; pos_index < seq_len; ++pos_index)
-            {
-                const int position = position_ids[static_cast<size_t>(axis) * seq_len + pos_index];
-                values[static_cast<size_t>(pos_index) * kHeadDim + out_dim + local] =
-                    rope_value(position, source_dim, use_cos);
-            }
-        }
-        out_dim += section;
     }
     return values;
 }
@@ -494,24 +477,17 @@ int select_next_token(const ncnn::Mat& logits, const std::vector<int>& history, 
     return static_cast<int>(std::max_element(scores.begin(), scores.end()) - scores.begin());
 }
 
-bool is_eos(int token)
-{
-    for (const int eos : kEosIds)
-    {
-        if (token == eos) return true;
-    }
-    return false;
-}
-
 bool decode_from_embeddings(const ncnn::Net& text_embed_net,
                             const ncnn::Net& decoder_net,
                             const ncnn::Net& lm_head_net,
                             int seq_len,
                             int max_tokens,
+                            float repetition_penalty,
                             const std::vector<float>& inputs_embeds,
                             const std::vector<int>& input_ids,
                             const std::vector<int>& position_ids,
                             const std::vector<int>& expected_tokens,
+                            const std::vector<int>& eos_ids,
                             TextDecodeResult* result,
                             TextDecodeTiming* timing,
                             std::string* error)
@@ -520,6 +496,11 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
     if (seq_len <= 0)
     {
         if (error) *error = "seq_len must be positive";
+        return false;
+    }
+    if (!std::isfinite(repetition_penalty) || repetition_penalty <= 0.0f)
+    {
+        if (error) *error = "repetition_penalty must be positive";
         return false;
     }
     if (inputs_embeds.size() != static_cast<size_t>(seq_len) * kHiddenSize ||
@@ -543,19 +524,15 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
     const ncnn::Mat input_mat = make_mat_from_vector(kHiddenSize, seq_len, inputs_embeds);
     const ncnn::Mat prefill_mask = make_prefill_mask(seq_len);
-    const std::vector<float> xd_cos_data = build_xd_rope(position_ids, seq_len, true);
-    const std::vector<float> xd_sin_data = build_xd_rope(position_ids, seq_len, false);
-    const std::vector<float> rope_cos_data = build_1d_rope(seq_len, true);
-    const std::vector<float> rope_sin_data = build_1d_rope(seq_len, false);
+    const std::vector<float> xd_cos_data = detail::build_mrope(position_ids, seq_len, true);
+    const std::vector<float> xd_sin_data = detail::build_mrope(position_ids, seq_len, false);
     const ncnn::Mat xd_cos = make_mat_from_vector(kHeadDim, seq_len, xd_cos_data);
     const ncnn::Mat xd_sin = make_mat_from_vector(kHeadDim, seq_len, xd_sin_data);
-    const ncnn::Mat rope_cos = make_mat_from_vector(kHeadDim, seq_len, rope_cos_data);
-    const ncnn::Mat rope_sin = make_mat_from_vector(kHeadDim, seq_len, rope_sin_data);
 
     ncnn::Mat prefill_hidden;
     KVCache caches;
     const auto prefill_start = Clock::now();
-    if (!run_decoder_prefill(decoder_net, input_mat, prefill_mask, xd_cos, xd_sin, rope_cos, rope_sin,
+    if (!run_decoder_prefill(decoder_net, input_mat, prefill_mask, xd_cos, xd_sin, xd_cos, xd_sin,
                              &prefill_hidden, &caches, error))
     {
         return false;
@@ -580,7 +557,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
     TextDecodeResult local;
     local.seq_len = seq_len;
-    local.repetition_penalty = 1.03f;
+    local.repetition_penalty = repetition_penalty;
     local.checked_tokens = max_tokens;
     if (!expected_tokens.empty())
     {
@@ -602,7 +579,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         local.raw_top1_tokens.push_back(raw_top1);
         history.push_back(current_token);
 
-        if (is_eos(current_token) || out_index + 1 >= max_tokens)
+        if (is_eos_token(current_token, eos_ids) || out_index + 1 >= max_tokens)
         {
             break;
         }
@@ -679,11 +656,13 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                int image_token_id,
                                const std::vector<float>& vision_features,
                                int vision_token_count,
-                              const std::vector<int>& expected_tokens,
-                              int max_tokens,
-                              TextDecodeResult* result,
-                              TextDecodeTiming* timing,
-                              std::string* error)
+                               const std::vector<int>& expected_tokens,
+                               const std::vector<int>& eos_ids,
+                               int max_tokens,
+                               float repetition_penalty,
+                               TextDecodeResult* result,
+                               TextDecodeTiming* timing,
+                               std::string* error)
 {
     const int seq_len = static_cast<int>(input_ids.size());
     if (seq_len <= 0)
@@ -744,10 +723,12 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                   lm_head_net,
                                   seq_len,
                                   max_tokens,
+                                  repetition_penalty,
                                   inputs_embeds,
                                   input_ids,
                                   position_ids,
                                   expected_tokens,
+                                  eos_ids,
                                   result,
                                   timing,
                                   error);
@@ -767,6 +748,12 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
 {
     const std::filesystem::path root(model_root);
     ready_ = false;
+    eos_ids_.clear();
+
+    if (!load_eos_ids((root / "tokenizer" / "eos_ids.json").string(), &eos_ids_, error))
+    {
+        return false;
+    }
 
     if (!load_net(*text_embed_net_,
                   root / "text_embed" / "text_embed.ncnn.param",
@@ -774,6 +761,16 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   num_threads_,
                   error))
     {
+        return false;
+    }
+    if (text_decoder_net_->register_custom_layer("SDPA", create_precise_sdpa_layer) != 0)
+    {
+        if (error) *error = "failed to register precise SDPA layer";
+        return false;
+    }
+    if (text_decoder_net_->register_custom_layer("RotaryEmbed", create_multimodal_rope_layer) != 0)
+    {
+        if (error) *error = "failed to register multimodal RotaryEmbed layer";
         return false;
     }
     if (!load_net(*text_decoder_net_,
@@ -925,10 +922,12 @@ bool TextRuntime::run_fixture_decode(const std::string& fixture_dir,
                                   *lm_head_net_,
                                   seq_len,
                                   max_tokens,
+                                  kDefaultRepetitionPenalty,
                                   inputs_embeds,
                                   input_ids,
                                   position_ids,
                                   expected_tokens,
+                                  eos_ids_,
                                   result,
                                   nullptr,
                                   error);
@@ -1006,10 +1005,12 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
                                   *lm_head_net_,
                                   meta.seq_len,
                                   max_tokens,
+                                  kDefaultRepetitionPenalty,
                                   inputs_embeds,
                                   input_ids,
                                   position_ids,
                                   expected_tokens,
+                                  eos_ids_,
                                   result,
                                   nullptr,
                                   error);
@@ -1103,10 +1104,12 @@ bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixtur
                                   *lm_head_net_,
                                   meta.seq_len,
                                   max_tokens,
+                                  kDefaultRepetitionPenalty,
                                   inputs_embeds,
                                   input_ids,
                                   position_ids,
                                   expected_tokens,
+                                  eos_ids_,
                                   result,
                                   nullptr,
                                   error);
@@ -1119,6 +1122,7 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
                                              int vision_token_count,
                                              const std::vector<int>& expected_tokens,
                                              int max_tokens,
+                                             float repetition_penalty,
                                              TextDecodeResult* result,
                                              std::string* error) const
 {
@@ -1144,7 +1148,9 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
                                               vision_features,
                                               vision_token_count,
                                               expected_tokens,
+                                              eos_ids_,
                                               max_tokens,
+                                              repetition_penalty,
                                               result,
                                               &timing,
                                               error);

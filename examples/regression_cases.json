@@ -142,7 +142,7 @@
   {
     "key": "hunyuan_ie_parallel",
     "name": "hunyuan_ie_parallel",
-    "image": "hunyuan_ie_parallel.jpg",
+    "image": "hunyuan_ie_parallel.png",
     "prompt_mode": "document",
     "description": "HunyuanOCR upstream information extraction example."
   },
@@ -177,7 +177,7 @@
   {
     "key": "hunyuan_vis_art_16",
     "name": "hunyuan_vis_art_16",
-    "image": "hunyuan_vis_art_16.jpg",
+    "image": "hunyuan_vis_art_16.png",
     "prompt_mode": "spotting",
     "description": "HunyuanOCR upstream art/image spotting example."
   },

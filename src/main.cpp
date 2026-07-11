@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -52,6 +53,7 @@ void print_usage(const char* program)
         << "  --benchmark-warmup N   Same-process warmup iterations. Default: 0.\n"
         << "  --benchmark-repeat N   Same-process measured iterations. Default: 1.\n"
         << "  --num-threads N        ncnn thread count for all submodels.\n"
+        << "  --repetition-penalty F Greedy decode repetition penalty. Default: 1.08.\n"
         << "  --image-preprocess-fixture PATH Run resized RGB -> flattened pixel_values fixture.\n"
         << "  --image-preprocess-tolerance F  Max absolute diff tolerance for expected_pixel_values.f32.\n"
         << "  --image-file-fixture PATH Run original RGB -> resize -> flattened pixel_values fixture.\n"
@@ -402,6 +404,7 @@ bool run_benchmark_iteration(const std::string& image_path,
                              const std::string& prompt_mode_text,
                              const std::string& prompt_text,
                              int max_tokens,
+                             float repetition_penalty,
                              bool use_dynamic_vision,
                              const hunyuan_ocr::ImagePreprocessor& preprocessor,
                              const hunyuan_ocr::VisionRuntime& vision_runtime,
@@ -477,6 +480,7 @@ bool run_benchmark_iteration(const std::string& image_path,
                                                  vision.vision_token_count,
                                                  {},
                                                  max_tokens,
+                                                 repetition_penalty,
                                                  &decode,
                                                  error))
     {
@@ -506,6 +510,7 @@ int run_image_benchmark(const std::string& model_root,
                         const std::string& vision_param_path,
                         const std::string& vision_bin_path,
                         int max_tokens,
+                        float repetition_penalty,
                         int num_threads,
                         int warmup,
                         int repeat,
@@ -586,6 +591,7 @@ int run_image_benchmark(const std::string& model_root,
                                  prompt_mode_text,
                                  prompt_text,
                                  max_tokens,
+                                 repetition_penalty,
                                  use_dynamic_vision,
                                  preprocessor,
                                  vision_runtime,
@@ -608,6 +614,7 @@ int run_image_benchmark(const std::string& model_root,
                                      prompt_mode_text,
                                      prompt_text,
                                      max_tokens,
+                                     repetition_penalty,
                                      use_dynamic_vision,
                                      preprocessor,
                                      vision_runtime,
@@ -637,6 +644,7 @@ int run_image_benchmark(const std::string& model_root,
                                      prompt_mode_text,
                                      prompt_text,
                                      max_tokens,
+                                     repetition_penalty,
                                      use_dynamic_vision,
                                      preprocessor,
                                      vision_runtime,
@@ -725,6 +733,7 @@ int main(int argc, char** argv)
     std::string image_file_fixture_dir;
     float image_preprocess_tolerance = 0.000001f;
     int max_tokens = 0;
+    float repetition_penalty = 1.08f;
     bool benchmark = false;
     int benchmark_warmup = 0;
     int benchmark_repeat = 1;
@@ -955,6 +964,29 @@ int main(int argc, char** argv)
             }
             continue;
         }
+        if (arg == "--repetition-penalty")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--repetition-penalty requires a float\n";
+                return 1;
+            }
+            try
+            {
+                repetition_penalty = std::stof(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--repetition-penalty value must be a float\n";
+                return 1;
+            }
+            if (!std::isfinite(repetition_penalty) || repetition_penalty <= 0.0f)
+            {
+                std::cerr << "--repetition-penalty must be positive\n";
+                return 1;
+            }
+            continue;
+        }
         if (arg == "--image-preprocess-fixture")
         {
             if (i + 1 >= argc)
@@ -1086,6 +1118,7 @@ int main(int argc, char** argv)
                                    vision_param_path,
                                    vision_bin_path,
                                    max_tokens,
+                                   repetition_penalty,
                                    num_threads,
                                    benchmark_warmup,
                                    benchmark_repeat,
@@ -1393,6 +1426,7 @@ int main(int argc, char** argv)
                                                              vision.vision_token_count,
                                                              expected_tokens,
                                                              max_tokens,
+                                                             repetition_penalty,
                                                              &decode,
                                                              &error))
                 {

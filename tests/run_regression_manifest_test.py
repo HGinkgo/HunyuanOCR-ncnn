@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -32,8 +33,70 @@ print("  match_expected_text: true")
     path.chmod(0o755)
 
 
+def verify_canonical_regression_image(repo_root: Path) -> bool:
+    manifest_path = repo_root / "examples/regression_cases.json"
+    items = json.loads(manifest_path.read_text(encoding="utf-8"))
+    canonical_images = {
+        "hunyuan_vis_art_16": "hunyuan_vis_art_16.png",
+        "hunyuan_ie_parallel": "hunyuan_ie_parallel.png",
+    }
+    for name, expected_image in canonical_images.items():
+        case = next((item for item in items if item.get("name") == name), None)
+        if case is None:
+            print(f"{name} missing from regression manifest", file=sys.stderr)
+            return False
+        if case.get("image") != expected_image:
+            print(f"{name} must use canonical PNG, got: {case.get('image')}", file=sys.stderr)
+            return False
+        image_path = repo_root / "examples/images" / expected_image
+        if not image_path.is_file():
+            print(f"canonical PNG missing: {image_path}", file=sys.stderr)
+            return False
+    return True
+
+
+def verify_packaged_dynamic_manifest(repo_root: Path, output: Path) -> bool:
+    spec = importlib.util.spec_from_file_location("package_model", repo_root / "tools/package_model.py")
+    if spec is None or spec.loader is None:
+        print("failed to load package_model.py", file=sys.stderr)
+        return False
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.write_dynamic_manifest(repo_root, output, False, [])
+    manifest = json.loads((output / "model.json").read_text(encoding="utf-8"))
+    interpolation = manifest["networks"]["vision"]["pos_embed_interpolation"]
+    if interpolation.get("size") != ["grid_h", "grid_w"] or "scale_factor" in interpolation:
+        print("packaged model must use Transformers 5.13 size interpolation", file=sys.stderr)
+        return False
+    return True
+
+
+def verify_hunyuan_1_5_model_defaults(repo_root: Path) -> bool:
+    manifest = json.loads((repo_root / "models/model.json.example").read_text(encoding="utf-8"))
+    baseline = manifest.get("baseline", {})
+    if baseline.get("repetition_penalty") != 1.08:
+        print(f"model default repetition penalty must be 1.08, got: {baseline.get('repetition_penalty')}", file=sys.stderr)
+        return False
+    if baseline.get("eos_ids") != [120020]:
+        print(f"model default EOS ids must be [120020], got: {baseline.get('eos_ids')}", file=sys.stderr)
+        return False
+    vision = manifest.get("networks", {}).get("vision", {})
+    if vision.get("backend") != "dynamic" or vision.get("available_grids") != []:
+        print("HunyuanOCR 1.5 model template must use dynamic vision without stale fixed grids", file=sys.stderr)
+        return False
+    interpolation = vision.get("pos_embed_interpolation", {})
+    if interpolation.get("size") != ["grid_h", "grid_w"] or "scale_factor" in interpolation:
+        print("HunyuanOCR 1.5 model template must use Transformers 5.13 size interpolation", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
+    if not verify_canonical_regression_image(repo_root):
+        return 1
+    if not verify_hunyuan_1_5_model_defaults(repo_root):
+        return 1
     with tempfile.TemporaryDirectory(prefix="hunyuanocr_run_regression_test_") as tmp_text:
         tmp = Path(tmp_text)
         model = tmp / "model"
@@ -44,6 +107,8 @@ def main() -> int:
         model.mkdir()
         images.mkdir()
         fixture_case.mkdir(parents=True)
+        if not verify_packaged_dynamic_manifest(repo_root, tmp):
+            return 1
         (images / "image.png").write_bytes(b"not a real image; fake binary does not read it")
 
         manifest = tmp / "manifest.json"
@@ -104,6 +169,10 @@ def main() -> int:
             return 1
         if "--prompt-mode" in argv:
             print(f"unexpected --prompt-mode in argv: {argv}", file=sys.stderr)
+            return 1
+        penalty_index = argv.index("--repetition-penalty") if "--repetition-penalty" in argv else -1
+        if penalty_index < 0 or argv[penalty_index + 1] != "1.08":
+            print(f"missing repetition penalty in argv: {argv}", file=sys.stderr)
             return 1
         if "summary: 1/1 passed" not in completed.stdout:
             print(completed.stdout, end="")

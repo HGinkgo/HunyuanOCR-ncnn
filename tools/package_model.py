@@ -235,7 +235,7 @@ def write_dynamic_manifest(repo_root: Path, output: Path, include_fixed: bool, g
     vision["pos_embed_interpolation"] = {
         "mode": "bilinear",
         "align_corners": False,
-        "scale_factor": "((grid_h + 0.1) / 128, (grid_w + 0.1) / 128)",
+        "size": ["grid_h", "grid_w"],
     }
     if include_fixed:
         vision["fallback_backend"] = "fixed_grid"

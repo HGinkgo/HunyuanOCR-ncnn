@@ -5,8 +5,8 @@
     "precision": "fp32",
     "max_pixels": 524288,
     "vocab_size": 120818,
-    "repetition_penalty": 1.03,
-    "eos_ids": [120007, 120020]
+    "repetition_penalty": 1.08,
+    "eos_ids": [120020]
   },
   "tokenizer": {
     "vocab": "tokenizer/vocab.txt",
@@ -29,7 +29,7 @@
       "bin": "lm_head/lm_head.ncnn.bin"
     },
     "vision": {
-      "status": "dynamic_vision_with_fixed_grid_fallback",
+      "status": "dynamic_vision",
       "backend": "dynamic",
       "param": "vision/vision.ncnn.param",
       "bin": "vision/vision.ncnn.bin",
@@ -38,32 +38,16 @@
       "pos_embed_interpolation": {
         "mode": "bilinear",
         "align_corners": false,
-        "scale_factor": "((grid_h + 0.1) / 128, (grid_w + 0.1) / 128)"
+        "size": [
+          "grid_h",
+          "grid_w"
+        ]
       },
       "fallback_backend": "fixed_grid",
       "directory_pattern": "vision/grid_<grid_h>x<grid_w>/",
       "param_name": "vision.ncnn.param",
       "bin_name": "vision.ncnn.bin",
-      "available_grids": [
-        {
-          "grid_h": 38,
-          "grid_w": 52,
-          "param": "vision/grid_38x52/vision.ncnn.param",
-          "bin": "vision/grid_38x52/vision.ncnn.bin"
-        },
-        {
-          "grid_h": 54,
-          "grid_w": 36,
-          "param": "vision/grid_54x36/vision.ncnn.param",
-          "bin": "vision/grid_54x36/vision.ncnn.bin"
-        },
-        {
-          "grid_h": 58,
-          "grid_w": 34,
-          "param": "vision/grid_58x34/vision.ncnn.param",
-          "bin": "vision/grid_58x34/vision.ncnn.bin"
-        }
-      ]
+      "available_grids": []
     }
   }
 }
