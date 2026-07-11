@@ -15,9 +15,8 @@ with pnnx and runs the full OCR path in C++.
 > **HunyuanOCR 1.5 preview (`0.3.0`):** the current development branch targets
 > checkpoint revision `9e01f897bf8956f77a80c350dc0491d6bbbd43e6`. The strict
 > reference uses Transformers 5.13.0 with CPU fp32 eager attention. Linux and
-> Windows validation passed, and all 28 bundled cases match for the first 128
-> generated tokens and decoded text. Tag `v0.2.0` remains the frozen
-> HunyuanOCR 1.0 release.
+> Windows validation passed, including the 28-case test suite. Tag `v0.2.0`
+> remains the frozen HunyuanOCR 1.0 release.
 
 | Line | Model | Status |
 | --- | --- | --- |
@@ -33,8 +32,7 @@ with pnnx and runs the full OCR path in C++.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - CMake build on Linux and Windows; no Python at runtime.
-- 28 bundled cases match the HunyuanOCR 1.5 PyTorch fp32 reference for the
-  validated 128-token window.
+- The HunyuanOCR 1.5 28-case test suite passes.
 
 ## Quick Links
 
@@ -52,18 +50,21 @@ with pnnx and runs the full OCR path in C++.
 
 | Item | Status |
 | --- | --- |
-| Linux | HunyuanOCR 1.5 build, CTest, and 28-case 128-token regression validated locally |
+| Linux | HunyuanOCR 1.5 build, CTest, and 28-case test suite validated locally |
 | Windows | Build and packaged-model validation passed |
 | Runtime | PNG/JPEG input to final OCR text |
-| Validation | 28 bundled cases match the 1.5 PyTorch fp32 reference token/text for 128 generated tokens |
+| Validation | HunyuanOCR 1.5 28-case test suite passed |
 | Precision | fp32 ncnn path |
 | Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
 | Vision | one dynamic package for exported image sizes, with fixed-grid fallback |
 
-The current verified configuration uses `max_pixels=524288`. In practice, the
-dynamic vision package covers image sizes inside the exported processor range,
-and fixed-grid packages are kept as a compatibility fallback. See
-`models/README.md` for package layout details.
+The current verified configuration uses `max_pixels=524288` because development
+and validation were limited to a single RTX 3090 (24 GB), requiring bounded GPU
+memory use during model conversion and testing. This is the project's verified
+scope, not a theoretical limit of HunyuanOCR or ncnn. In practice, the dynamic
+vision package covers image sizes inside the exported processor range, and
+fixed-grid packages are kept as a compatibility fallback. See `models/README.md`
+for package layout details.
 
 This version does not cover the original high-resolution route.
 

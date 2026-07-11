@@ -11,8 +11,8 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 
 > **HunyuanOCR 1.5 预览版本（`0.3.0`）：** 当前开发分支固定 checkpoint
 > revision `9e01f897bf8956f77a80c350dc0491d6bbbd43e6`，严格参考使用
-> Transformers 5.13.0、CPU fp32 和 eager attention。Linux 与 Windows 验证均
-> 已通过，28 个公开 case 的前 128 个生成 token 及对应 decode 文本严格一致；
+> Transformers 5.13.0、CPU fp32 和 eager attention。Linux、Windows 验证及
+> 28-case 测试均已通过；
 > `v0.2.0` 继续作为冻结的 HunyuanOCR 1.0 版本。
 
 | 开发线 | 模型 | 状态 |
@@ -25,12 +25,11 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 
 - C++17 端到端完成 PNG/JPEG 图片输入到 OCR 文本输出。
 - 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包。
-- 带 KV cache 的文本解码、贪心解码和重复惩罚。
+- KV cache text decoder、greedy decoding 和 repetition penalty。
 - 内置 `spotting` / `document` 两种模式，也支持自定义 `--prompt` 文本。
 - Windows CLI 全链路支持 UTF-8 prompt、模型路径、图片路径和 fixture 路径。
 - CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
-- 28 个公开 case 在已验证的 128-token 窗口内与 HunyuanOCR 1.5 PyTorch fp32
-  reference 的 token/text 一致。
+- HunyuanOCR 1.5 的 28-case 测试通过。
 
 ## 常用入口
 
@@ -40,7 +39,7 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 | 打包转换产物 | `tools/package_model.py` |
 | 从 HF 权重导出 | `export/README.md` |
 | 运行示例图 | `tools/run_example.py`, `tools/run_examples.py` |
-| 严格回归 | `tools/run_regression.py` |
+| 完整测试 | `tools/run_regression.py` |
 | 性能测试 | `tools/benchmark.py`, `benchmark/README.md` |
 | 模型目录协议 | `models/README.md`, `models/model.json.example` |
 
@@ -48,20 +47,24 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 
 | 项目 | 状态 |
 | --- | --- |
-| Linux | 本地完成 HunyuanOCR 1.5 构建、CTest 和 28-case 128-token 回归 |
+| Linux | 本地完成 HunyuanOCR 1.5 构建、CTest 和 28-case 测试 |
 | Windows | 构建和带模型验证通过 |
 | 输入 | PNG/JPEG 图片 |
 | 输出 | OCR 文本 |
-| 验证 | 28 个 case 的前 128 个生成 token/text 与 1.5 PyTorch fp32 reference 一致 |
+| 验证 | HunyuanOCR 1.5 的 28-case 测试通过 |
 | 精度 | fp32 ncnn 路径 |
 | Prompt | 内置 `spotting` / `document` 模式，也支持自定义 `--prompt` 文本 |
 | Vision | 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包 |
 
-当前已验证配置使用 `max_pixels=524288`。就运行方式而言，dynamic vision 包可覆盖已导出范围内的不同图片尺寸；fixed-grid 包主要作为兼容回退。模型目录和字段说明见 `models/README.md`。
+当前已验证配置使用 `max_pixels=524288`。这是因为开发和验证硬件只有一张
+RTX 3090（24 GB），需要控制模型转换与测试过程的显存占用；它表示当前项目的
+已验证范围，并不是 HunyuanOCR 或 ncnn 的理论上限。就运行方式而言，dynamic
+vision 包可覆盖已导出范围内的不同图片尺寸，fixed-grid 包主要作为兼容回退。
+模型目录和字段说明见 `models/README.md`。
 
 当前版本暂不覆盖原版高分辨率路径。
 
-对于对 JPEG 解码舍入敏感的 case，严格回归使用规范化无损 PNG。运行时仍
+对于对 JPEG 解码舍入敏感的 case，严格测试使用规范化无损 PNG。运行时仍
 支持 JPEG，但 Pillow/libjpeg-turbo 与 `stb_image` 对有损 JPEG 的解码像素可能
 存在微小差异，因此不承诺任意 JPEG 都能跨解码器保持 token 完全一致。
 
@@ -210,9 +213,9 @@ scripts/export_and_package_linux.sh \
 
 模块级命令见 `export/README.md`。
 
-## 完整回归
+## 完整测试
 
-准备好 baseline/export 产生的 fixture 后，可以运行完整 token/text 回归：
+准备好 baseline/export 产生的 fixture 后，可以运行完整 token/text 测试：
 
 ```bash
 python tools/run_regression.py \
@@ -226,7 +229,7 @@ python tools/run_regression.py \
 summary: 28/28 passed
 ```
 
-该回归会比较 prompt ids、position ids、generated token ids 和最终 decode 文本。
+该测试会比较 prompt ids、position ids、generated token ids 和最终 decode 文本。
 
 ## 性能测试
 
@@ -245,12 +248,12 @@ python tools/benchmark.py \
 
 ## 当前限制
 
-- dynamic vision backend 已在 28 个 case 的前 128 个生成 token 上完成 token/text 回归验证，验证口径为 `max_pixels=524288`。
+- dynamic vision backend 已在 28 个 case 的前 128 个生成 token 上完成 token/text 测试，验证口径为 `max_pixels=524288`。
 - HunyuanOCR 1.5 仍是绑定固定 checkpoint revision 和已验证 128-token 窗口的 preview。
 - 有损 JPEG 的跨解码器舍入差异可能改变决策敏感样本的生成 token；严格对齐时使用规范化无损输入。
 - 自定义 prompt 已接入 C++ tokenizer encode；更多 tokenizer 边界还需要继续补充 HF 对齐测试。
 - 当前交付范围使用 `max_pixels=524288`，不包含原版高分辨率路径。
-- 公开示例脚本只验证端到端运行；严格 token/text 对齐由 fixture 回归验证。
+- 公开示例脚本只验证端到端运行；严格 token/text 对齐由 fixture 测试验证。
 
 ## 许可证
 
