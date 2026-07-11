@@ -23,8 +23,8 @@ def main() -> int:
         print(completed.stdout, file=sys.stderr)
         print(completed.stderr, file=sys.stderr)
         return 1
-    if "HunyuanOCR-ncnn" not in completed.stdout:
-        print("version output missing after --repetition-penalty", file=sys.stderr)
+    if "HunyuanOCR-ncnn 0.3.0" not in completed.stdout:
+        print("0.3.0 version output missing after --repetition-penalty", file=sys.stderr)
         return 1
 
     help_result = subprocess.run(

@@ -28,12 +28,12 @@ are listed in `EXPECTED_OUTPUTS.md`.
 | `hunyuan_vis_parsing_table_2` | `document` | `hunyuan_vis_parsing_table_2.png` |
 | `hunyuan_vis_subtitle3` | `spotting` | `hunyuan_vis_subtitle3.png` |
 | `hunyuan_zimu2` | `spotting` | `hunyuan_zimu2.jpg` |
-| `hunyuan_ie_parallel` | `document` | `hunyuan_ie_parallel.jpg` |
+| `hunyuan_ie_parallel` | `document` | `hunyuan_ie_parallel.png` |
 | `hunyuan_translation2` | `document` | `hunyuan_translation2.png` |
 | `hunyuan_vis_translation` | `document` | `hunyuan_vis_translation.png` |
 | `hunyuan_vis_ie_1` | `document` | `hunyuan_vis_ie_1.png` |
 | `hunyuan_vis_parsing_chart3` | `document` | `hunyuan_vis_parsing_chart3.png` |
-| `hunyuan_vis_art_16` | `spotting` | `hunyuan_vis_art_16.jpg` |
+| `hunyuan_vis_art_16` | `spotting` | `hunyuan_vis_art_16.png` |
 | `hunyuan_show_res_parsing_fig` | `document` | `hunyuan_show_res_parsing_fig.png` |
 | `hunyuan_vis_parsing` | `document` | `hunyuan_vis_parsing.png` |
 
@@ -73,6 +73,12 @@ processor range with one `vision/vision.ncnn.param/bin` pair plus
 
 After preparing exported fixtures, the full regression additionally compares
 prompt ids, position ids, generated token ids, and decoded text:
+
+`hunyuan_vis_art_16.png` and `hunyuan_ie_parallel.png` are lossless canonical
+regression inputs derived from Pillow-decoded RGB pixels of the retained
+upstream JPEGs. JPEG input remains supported, but lossy JPEG decoders can
+differ by small pixel rounding amounts, so cross-decoder token identity is not
+used as the conversion gate for these decision-sensitive cases.
 
 ```bash
 python tools/run_regression.py --package --package-vision-backend dynamic

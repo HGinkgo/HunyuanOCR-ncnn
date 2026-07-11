@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(HunyuanOCR_ncnn
-    VERSION 0.2.0
+    VERSION 0.3.0
     LANGUAGES CXX
 )
 
@@ -237,6 +237,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME atomic_output
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/atomic_output_test.py"
+    )
+    add_test(NAME release_metadata
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/release_metadata_test.py"
     )
     if(HUNYUAN_OCR_BUILD_CLI)
         add_test(NAME cli_options

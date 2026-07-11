@@ -12,6 +12,13 @@ Technical report: [Tencent ncnn Discussion #6808](https://github.com/Tencent/ncn
 This repository exports the Hugging Face HunyuanOCR model into ncnn submodules
 with pnnx and runs the full OCR path in C++.
 
+> **HunyuanOCR 1.5 preview (`0.3.0`):** the current development branch targets
+> checkpoint revision `9e01f897bf8956f77a80c350dc0491d6bbbd43e6`. The strict
+> reference uses Transformers 5.13.0 with CPU fp32 eager attention. Linux and
+> Windows validation passed, and all 28 bundled cases match for the first 128
+> generated tokens and decoded text. Tag `v0.2.0` remains the frozen
+> HunyuanOCR 1.0 release.
+
 ## Highlights
 
 - End-to-end PNG/JPEG input to OCR text in C++17.
@@ -19,7 +26,8 @@ with pnnx and runs the full OCR path in C++.
 - KV-cache text decoder, greedy decoding, and repetition penalty.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
 - CMake build on Linux and Windows; no Python at runtime.
-- 28 bundled regression images match the PyTorch fp32 reference token/text.
+- 28 bundled cases match the HunyuanOCR 1.5 PyTorch fp32 reference for the
+  validated 128-token window.
 
 ## Quick Links
 
@@ -37,11 +45,10 @@ with pnnx and runs the full OCR path in C++.
 
 | Item | Status |
 | --- | --- |
-| Linux | CMake build and 28-image runtime regression validated locally |
-| Windows CI | MSVC compile-only in GitHub Actions |
-| Windows runtime | Packaged-model run validated on a real Windows machine |
+| Linux | HunyuanOCR 1.5 build, CTest, and 28-case 128-token regression validated locally |
+| Windows | Build and packaged-model validation passed |
 | Runtime | PNG/JPEG input to final OCR text |
-| Validation | 28 bundled regression images match PyTorch fp32 reference token/text |
+| Validation | 28 bundled cases match the 1.5 PyTorch fp32 reference token/text for 128 generated tokens |
 | Precision | fp32 ncnn path |
 | Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
 | Vision | one dynamic package for exported image sizes, with fixed-grid fallback |
@@ -52,6 +59,11 @@ and fixed-grid packages are kept as a compatibility fallback. See
 `models/README.md` for package layout details.
 
 This version does not cover the original high-resolution route.
+
+PNG is used as the canonical strict input for JPEG cases that are sensitive to
+decoder rounding. JPEG remains supported for normal inference, but Pillow/
+libjpeg-turbo and `stb_image` may decode lossy JPEG pixels slightly differently;
+cross-decoder token identity is therefore not guaranteed for every JPEG.
 
 ## Quick Start
 
@@ -103,9 +115,7 @@ Basic checks:
 ./build/hunyuan_ocr_cli --version
 ```
 
-Windows coverage is split into two checks:
-`.github/workflows/windows-compile.yml` runs MSVC compile-only in CI, and a
-separate real Windows machine was used for packaged-model runtime validation.
+Windows build and packaged-model validation passed.
 
 ### 2. Package Model Files
 
@@ -270,7 +280,11 @@ models/                Tracked config template only
 ## Limitations
 
 - The dynamic vision backend is verified on the bundled 28-image regression set
-  under `max_pixels=524288`.
+  under `max_pixels=524288` for the first 128 generated tokens.
+- HunyuanOCR 1.5 remains a preview tied to the pinned checkpoint revision and
+  the validated 128-token window.
+- Lossy JPEG decoder rounding may change generated tokens in decision-sensitive
+  cases; canonical lossless inputs are used where strict parity requires them.
 - Custom prompt text is supported through the C++ tokenizer encode path; broader
   tokenizer edge cases still need more HF parity tests.
 - The current delivery scope uses `max_pixels=524288`; it does not include the

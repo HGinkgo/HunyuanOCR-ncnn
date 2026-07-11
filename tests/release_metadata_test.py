@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+
+VERSION = "0.3.0"
+REVISION = "9e01f897bf8956f77a80c350dc0491d6bbbd43e6"
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    readme_zh = (root / "README_zh.md").read_text(encoding="utf-8")
+    model_readme = (root / "models/README.md").read_text(encoding="utf-8")
+    image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
+    expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
+
+    require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.3\.0", cmake) is not None, "CMake version must be 0.3.0")
+    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+        require(REVISION in text, f"{label} must record the fixed checkpoint revision")
+        require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
+        require("v0.2.0" in text, f"{label} must retain the frozen HunyuanOCR 1.0 tag")
+    require("HunyuanOCR 1.5 preview" in readme, "README must mark HunyuanOCR 1.5 as preview")
+    require("Windows | Build and packaged-model validation passed" in readme, "README Windows status must be concise and complete")
+    require("Windows | 构建和带模型验证通过" in readme_zh, "README_zh Windows status must be concise and complete")
+    require("MSVC" not in readme and "UCRT64" not in readme, "README Windows status must not expose toolchain details")
+    require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README_zh Windows status must not expose toolchain details")
+    require("validation pending" not in readme and "still pending" not in readme, "README contains stale pending status")
+    require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README_zh contains stale pending status")
+    require("v0.3.0" in model_readme and "preview" in model_readme.lower(), "model README must identify v0.3.0 preview")
+    for image in ("hunyuan_vis_art_16.png", "hunyuan_ie_parallel.png"):
+        require(image in image_sources, f"image source missing canonical PNG: {image}")
+
+    require(REVISION in expected_outputs, "expected outputs must record the checkpoint revision")
+    require("Transformers 5.13.0" in expected_outputs, "expected outputs must record Transformers 5.13.0")
+    rows = [line for line in expected_outputs.splitlines() if line.startswith("| `")]
+    require(len(rows) == 28, f"expected outputs must contain 28 cases, got {len(rows)}")
+    require(all(re.search(r"\| 128 \| [0-9]+ \|$", row) for row in rows), "all expected output rows must use 128 tokens")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except AssertionError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1)

@@ -37,6 +37,11 @@ The current runtime requires tokenizer files, `text_embed`, `text_decoder`,
 `model.json` records the expected relative paths. See
 `models/model.json.example` for the current schema.
 
+The `v0.3.0` preview template targets HunyuanOCR 1.5 checkpoint revision
+`9e01f897bf8956f77a80c350dc0491d6bbbd43e6` with repetition penalty `1.08`
+and EOS token `120020`. Tag `v0.2.0` retains the HunyuanOCR 1.0 template and
+runtime behavior.
+
 ## Vision Backends
 
 `tools/package_model.py --vision-backend dynamic` creates:
