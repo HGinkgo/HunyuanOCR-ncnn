@@ -1,13 +1,25 @@
-# HunyuanOCR-ncnn
+<div align="center">
+  <h1>HunyuanOCR-ncnn</h1>
+  <p>
+    <a href="https://huggingface.co/tencent/HunyuanOCR"><strong>HunyuanOCR 1.5</strong></a>
+    on <a href="https://github.com/Tencent/ncnn"><strong>ncnn</strong></a> -
+    a pure C++17 OCR inference runtime
+  </p>
+  <p>
+    <a href="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml"><img src="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg" alt="Linux CI"></a>
+    <a href="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml"><img src="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg" alt="Windows CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
+    <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
+    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32-4c1.svg" alt="CPU fp32">
+  </p>
+  <p>
+    Tencent/ncnn activity entry <a href="https://github.com/Tencent/ncnn/discussions/6808">#6808</a>
+    &nbsp;|&nbsp; <a href="README_zh.md">中文说明</a>
+  </p>
+</div>
 
-[![Linux CI](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml)
-[![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
-
-C++17/ncnn runtime for Tencent HunyuanOCR.
-
-[中文说明](README_zh.md)
-
-Technical report: [Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
+---
 
 This repository exports the Hugging Face HunyuanOCR model into ncnn submodules
 with pnnx and runs the full OCR path in C++.

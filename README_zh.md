@@ -1,11 +1,24 @@
-# HunyuanOCR-ncnn
+<div align="center">
+  <h1>HunyuanOCR-ncnn</h1>
+  <p>
+    基于 <a href="https://huggingface.co/tencent/HunyuanOCR"><strong>HunyuanOCR 1.5</strong></a>
+    和 <a href="https://github.com/Tencent/ncnn"><strong>ncnn</strong></a> 的纯 C++17 OCR 推理运行时
+  </p>
+  <p>
+    <a href="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml"><img src="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg" alt="Linux CI"></a>
+    <a href="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml"><img src="https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg" alt="Windows CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
+    <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
+    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32-4c1.svg" alt="CPU fp32">
+  </p>
+  <p>
+    Tencent/ncnn 开源活动作品 <a href="https://github.com/Tencent/ncnn/discussions/6808">#6808</a>
+    &nbsp;|&nbsp; <a href="README.md">English</a>
+  </p>
+</div>
 
-[![Linux CI](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/linux-ci.yml)
-[![Windows Compile](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml/badge.svg)](https://github.com/HGinkgo/HunyuanOCR-ncnn/actions/workflows/windows-compile.yml)
-
-Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
-
-技术报告：[Tencent ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
+---
 
 本仓库使用 pnnx 将 Hugging Face 版 HunyuanOCR 导出为 ncnn 子模块，并在 C++ 中跑通完整 OCR 推理链路。
 
@@ -56,7 +69,7 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 | Prompt | 内置 `spotting` / `document` 模式，也支持自定义 `--prompt` 文本 |
 | Vision | 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包 |
 
-当前已验证配置使用 `max_pixels=524288`。这是因为开发和验证硬件只有一张
+当前已验证配置使用 `max_pixels=524288`。这是因为开发和验证硬件资源为
 RTX 3090（24 GB），需要控制模型转换与测试过程的显存占用；它表示当前项目的
 已验证范围，并不是 HunyuanOCR 或 ncnn 的理论上限。就运行方式而言，dynamic
 vision 包可覆盖已导出范围内的不同图片尺寸，fixed-grid 包主要作为兼容回退。
