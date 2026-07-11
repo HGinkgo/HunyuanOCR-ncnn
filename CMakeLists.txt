@@ -157,6 +157,23 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_utf8_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_utf8_test PRIVATE cxx_std_17)
 
+    set(_hunyuan_ocr_enable_utf8_cpp20_test FALSE)
+    if("cxx_std_20" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+        set(_hunyuan_ocr_enable_utf8_cpp20_test TRUE)
+        add_executable(hunyuan_ocr_utf8_cpp20_test
+            tests/utf8_test.cpp
+            src/utf8.cpp
+        )
+        target_include_directories(hunyuan_ocr_utf8_cpp20_test PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        )
+        set_target_properties(hunyuan_ocr_utf8_cpp20_test PROPERTIES
+            CXX_STANDARD 20
+            CXX_STANDARD_REQUIRED ON
+            CXX_EXTENSIONS OFF
+        )
+    endif()
+
     if(_hunyuan_ocr_enable_tokenizer_test)
         add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
         target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
@@ -170,6 +187,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE /W4)
             target_compile_options(hunyuan_ocr_generation_config_test PRIVATE /W4)
             target_compile_options(hunyuan_ocr_utf8_test PRIVATE /W4)
+            if(_hunyuan_ocr_enable_utf8_cpp20_test)
+                target_compile_options(hunyuan_ocr_utf8_cpp20_test PRIVATE /W4)
+            endif()
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
             endif()
@@ -177,6 +197,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE -Wall -Wextra -Wpedantic)
             target_compile_options(hunyuan_ocr_generation_config_test PRIVATE -Wall -Wextra -Wpedantic)
             target_compile_options(hunyuan_ocr_utf8_test PRIVATE -Wall -Wextra -Wpedantic)
+            if(_hunyuan_ocr_enable_utf8_cpp20_test)
+                target_compile_options(hunyuan_ocr_utf8_cpp20_test PRIVATE -Wall -Wextra -Wpedantic)
+            endif()
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
             endif()
@@ -210,6 +233,11 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME utf8
         COMMAND hunyuan_ocr_utf8_test
     )
+    if(_hunyuan_ocr_enable_utf8_cpp20_test)
+        add_test(NAME utf8_cpp20
+            COMMAND hunyuan_ocr_utf8_cpp20_test
+        )
+    endif()
     add_test(NAME run_regression_prompt_manifest
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_regression_manifest_test.py"
@@ -245,6 +273,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME windows_workflow
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_workflow_test.py"
+    )
+    add_test(NAME linux_workflow
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/linux_workflow_test.py"
     )
     add_test(NAME atomic_output
         COMMAND "${Python3_EXECUTABLE}"

@@ -25,6 +25,11 @@ jobs:
           path: _deps/ncnn
           ref: ${{ env.NCNN_REF }}
 
+      - name: Install Python test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y python3-numpy
+
       - name: Configure ncnn
         run: >
           cmake -S _deps/ncnn -B _deps/ncnn-build

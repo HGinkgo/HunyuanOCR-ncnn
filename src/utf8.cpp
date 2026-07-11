@@ -107,12 +107,18 @@ bool wide_arguments_to_utf8(const std::vector<std::wstring>& input,
 
 std::filesystem::path path_from_utf8(std::string_view value)
 {
+#if defined(__cpp_char8_t)
+    const std::u8string encoded(reinterpret_cast<const char8_t*>(value.data()), value.size());
+    return std::filesystem::path(encoded);
+#else
     return std::filesystem::u8path(value.begin(), value.end());
+#endif
 }
 
 std::string path_to_utf8(const std::filesystem::path& path)
 {
-    return path.u8string();
+    const auto encoded = path.u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
 }
 
 } // namespace hunyuan_ocr
