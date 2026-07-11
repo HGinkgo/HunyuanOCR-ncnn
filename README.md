@@ -19,6 +19,12 @@ with pnnx and runs the full OCR path in C++.
 > generated tokens and decoded text. Tag `v0.2.0` remains the frozen
 > HunyuanOCR 1.0 release.
 
+| Line | Model | Status |
+| --- | --- | --- |
+| `main` | HunyuanOCR 1.5 | `0.3.0` development/preview |
+| `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | preserved compatibility branch |
+| `v0.2.0` | HunyuanOCR 1.0 | frozen release |
+
 ## Highlights
 
 - End-to-end PNG/JPEG input to OCR text in C++17.

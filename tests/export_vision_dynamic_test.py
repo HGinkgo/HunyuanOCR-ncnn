@@ -51,6 +51,10 @@ def main() -> int:
 
     from export import export_vision_dynamic as mod
 
+    if mod.DEFAULT_OUT_DIR != Path("models/export/vision_dynamic"):
+        print(f"dynamic vision default output path mismatch: {mod.DEFAULT_OUT_DIR}", file=sys.stderr)
+        return 1
+
     original_argv = sys.argv
     try:
         sys.argv = ["export_vision_dynamic.py", "--hf-dir", "/tmp/hunyuanocr-1.5"]

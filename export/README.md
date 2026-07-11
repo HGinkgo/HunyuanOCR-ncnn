@@ -24,7 +24,7 @@ models/tokenizer/
 models/export/text_embed/
 models/export/text_decoder/
 models/export/lm_head/
-models/export/vision_dynamic_probe/
+models/export/vision_dynamic/
 ```
 
 Then package the runtime directory:
@@ -96,7 +96,7 @@ python export/export_vision_dynamic.py \
   --mode export \
   --hf-dir /path/to/HunyuanOCR-hf \
   --pnnx /path/to/pnnx \
-  --out-dir models/export/vision_dynamic_probe
+  --out-dir models/export/vision_dynamic
 ```
 
 ## Development Validation Modes
@@ -136,7 +136,7 @@ layout:
       lm_head/
         lm_head.ncnn.param
         lm_head.ncnn.bin
-      vision_dynamic_probe/
+      vision_dynamic/
         ncnn/
           vision_dynamic.ncnn.param
           vision_dynamic.ncnn.bin

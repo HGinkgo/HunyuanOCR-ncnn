@@ -31,13 +31,16 @@ def main() -> int:
         require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
         require("v0.2.0" in text, f"{label} must retain the frozen HunyuanOCR 1.0 tag")
     require("HunyuanOCR 1.5 preview" in readme, "README must mark HunyuanOCR 1.5 as preview")
+    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+        require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
+        require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")
     require("Windows | Build and packaged-model validation passed" in readme, "README Windows status must be concise and complete")
     require("Windows | 构建和带模型验证通过" in readme_zh, "README_zh Windows status must be concise and complete")
     require("MSVC" not in readme and "UCRT64" not in readme, "README Windows status must not expose toolchain details")
     require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README_zh Windows status must not expose toolchain details")
     require("validation pending" not in readme and "still pending" not in readme, "README contains stale pending status")
     require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README_zh contains stale pending status")
-    require("v0.3.0" in model_readme and "preview" in model_readme.lower(), "model README must identify v0.3.0 preview")
+    require("`0.3.0` preview" in model_readme, "model README must identify the untagged 0.3.0 preview")
     for image in ("hunyuan_vis_art_16.png", "hunyuan_ie_parallel.png"):
         require(image in image_sources, f"image source missing canonical PNG: {image}")
 

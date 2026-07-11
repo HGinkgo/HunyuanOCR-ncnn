@@ -15,6 +15,12 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 > 已通过，28 个公开 case 的前 128 个生成 token 及对应 decode 文本严格一致；
 > `v0.2.0` 继续作为冻结的 HunyuanOCR 1.0 版本。
 
+| 开发线 | 模型 | 状态 |
+| --- | --- | --- |
+| `main` | HunyuanOCR 1.5 | `0.3.0` development/preview |
+| `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | 保留的兼容分支 |
+| `v0.2.0` | HunyuanOCR 1.0 | 冻结版本 |
+
 ## 当前交付能力
 
 - C++17 端到端完成 PNG/JPEG 图片输入到 OCR 文本输出。

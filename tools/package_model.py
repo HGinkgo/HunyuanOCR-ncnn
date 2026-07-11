@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_DYNAMIC_VISION_DIR = Path("models/export/vision_dynamic")
+
+
 RUNTIME_FILES = [
     ("models/tokenizer/vocab.txt", "tokenizer/vocab.txt"),
     ("models/tokenizer/merges.txt", "tokenizer/merges.txt"),
@@ -60,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         "--dynamic-vision-dir",
         type=Path,
         default=None,
-        help="Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic_probe/ncnn",
+        help="Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic/ncnn",
     )
     parser.add_argument(
         "--copy",
@@ -266,7 +269,7 @@ def main() -> int:
     dynamic_vision_dir = (
         args.dynamic_vision_dir.resolve()
         if args.dynamic_vision_dir is not None
-        else workspace / "models/export/vision_dynamic_probe/ncnn"
+        else workspace / DEFAULT_DYNAMIC_VISION_DIR / "ncnn"
     )
 
     if args.vision_backend in ("fixed", "both"):

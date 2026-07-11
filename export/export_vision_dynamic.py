@@ -25,7 +25,7 @@ except ModuleNotFoundError:
 
 DEFAULT_IMAGE_DIR = Path("examples/images")
 DEFAULT_BASELINE_ROOT = Path("outputs/baseline_fp32_p512k")
-DEFAULT_OUT_DIR = Path("models/export/vision_dynamic_probe")
+DEFAULT_OUT_DIR = Path("models/export/vision_dynamic")
 _NCNN_BINDING: Any | None = None
 
 SPOTTING_PROMPT = "检测并识别图片中的文字，将文本坐标格式化输出。"

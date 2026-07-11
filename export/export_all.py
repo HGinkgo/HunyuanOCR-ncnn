@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 
+DEFAULT_DYNAMIC_VISION_DIR = Path("models/export/vision_dynamic")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export tokenizer and ncnn submodules from a HunyuanOCR HF model.")
     parser.add_argument("--hf-dir", type=Path, required=True, help="HunyuanOCR HuggingFace model directory.")
@@ -95,7 +98,7 @@ def main() -> int:
                 "--pnnx",
                 str(pnnx),
                 "--out-dir",
-                str(workspace / "models/export/vision_dynamic_probe"),
+                str(workspace / DEFAULT_DYNAMIC_VISION_DIR),
             ]
         )
     print("export_workspace:", workspace)

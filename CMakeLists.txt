@@ -242,6 +242,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/release_metadata_test.py"
     )
+    add_test(NAME artifact_paths
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/artifact_paths_test.py"
+    )
     if(HUNYUAN_OCR_BUILD_CLI)
         add_test(NAME cli_options
             COMMAND "${Python3_EXECUTABLE}"
