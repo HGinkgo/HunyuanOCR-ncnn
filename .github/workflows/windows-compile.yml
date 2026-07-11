@@ -63,5 +63,70 @@ jobs:
       - name: Build HunyuanOCR-ncnn
         run: cmake --build build --config Release --parallel
 
-      - name: Test HunyuanOCR 1.5 custom layers
-        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope"
+      - name: Test HunyuanOCR 1.5 custom layers and UTF-8 boundaries
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8"
+
+  ucrt64:
+    name: UCRT64 compile and UTF-8 tests
+    runs-on: windows-2022
+    env:
+      NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout HunyuanOCR-ncnn
+        uses: actions/checkout@v4
+
+      - name: Checkout ncnn
+        uses: actions/checkout@v4
+        with:
+          repository: Tencent/ncnn
+          path: _deps/ncnn
+          ref: ${{ env.NCNN_REF }}
+
+      - name: Set up MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure ncnn
+        run: >
+          cmake -S _deps/ncnn -B _deps/ncnn-build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DNCNN_VULKAN=OFF
+          -DNCNN_OPENMP=OFF
+          -DNCNN_BUILD_TOOLS=OFF
+          -DNCNN_BUILD_EXAMPLES=OFF
+          -DNCNN_BUILD_BENCHMARK=OFF
+          -DNCNN_BUILD_TESTS=OFF
+          -DNCNN_INSTALL_SDK=ON
+
+      - name: Build and install ncnn SDK
+        run: >
+          cmake --build _deps/ncnn-build --parallel &&
+          cmake --install _deps/ncnn-build --prefix _deps/ncnn-install
+
+      - name: Configure HunyuanOCR-ncnn
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -Dncnn_DIR="$PWD/_deps/ncnn-install/lib/cmake/ncnn"
+          -DHUNYUAN_OCR_USE_NCNN_PACKAGE=ON
+          -DHUNYUAN_OCR_BUILD_CLI=ON
+          -DHUNYUAN_OCR_BUILD_TESTS=ON
+          -DHUNYUAN_OCR_BUILD_TOKENIZER_TEST=OFF
+          -DHUNYUAN_OCR_STRICT_WARNINGS=ON
+
+      - name: Build HunyuanOCR-ncnn
+        run: cmake --build build --parallel
+
+      - name: Test HunyuanOCR 1.5 custom layers and UTF-8 CLI
+        run: ctest --test-dir build --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8"

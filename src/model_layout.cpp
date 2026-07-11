@@ -1,4 +1,5 @@
 #include "hunyuan_ocr/model_layout.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <filesystem>
 #include <system_error>
@@ -47,7 +48,7 @@ ModelLayoutReport check_model_layout(const std::string& model_root)
     ModelLayoutReport report;
     report.root = model_root;
 
-    const std::filesystem::path root_path(model_root);
+    const std::filesystem::path root_path = path_from_utf8(model_root);
     for (const ModelFile& file : expected_model_files())
     {
         const std::filesystem::path full_path = root_path / file.relative_path;

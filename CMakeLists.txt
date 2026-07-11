@@ -9,6 +9,7 @@ option(HUNYUAN_OCR_BUILD_CLI "Build the hunyuan_ocr_cli executable" ON)
 option(HUNYUAN_OCR_BUILD_TESTS "Build HunyuanOCR-ncnn test executables" OFF)
 option(HUNYUAN_OCR_STRICT_WARNINGS "Enable compiler warnings for project sources" ON)
 option(HUNYUAN_OCR_USE_NCNN_PACKAGE "Try find_package(ncnn CONFIG) before manual ncnn paths" ON)
+set(HUNYUAN_OCR_MIN_NCNN_VERSION 20260106)
 set(HUNYUAN_OCR_BUILD_TOKENIZER_TEST "AUTO" CACHE STRING "Build tokenizer file parity test: AUTO, ON, or OFF")
 set_property(CACHE HUNYUAN_OCR_BUILD_TOKENIZER_TEST PROPERTY STRINGS AUTO ON OFF)
 
@@ -16,7 +17,7 @@ if(HUNYUAN_OCR_USE_NCNN_PACKAGE)
     if(DEFINED ENV{ncnn_DIR} AND NOT ncnn_DIR)
         set(ncnn_DIR "$ENV{ncnn_DIR}" CACHE PATH "Path to ncnnConfig.cmake" FORCE)
     endif()
-    find_package(ncnn CONFIG QUIET)
+    find_package(ncnn ${HUNYUAN_OCR_MIN_NCNN_VERSION} CONFIG QUIET)
 endif()
 
 if(NOT TARGET ncnn)
@@ -26,7 +27,8 @@ if(NOT TARGET ncnn)
 
     if(NOT NCNN_INCLUDE_DIR OR NOT NCNN_BUILD_INCLUDE_DIR OR NOT NCNN_LIBRARY)
         message(FATAL_ERROR
-            "ncnn was not found. Either pass -Dncnn_DIR=/path/to/ncnnConfig.cmake "
+            "ncnn ${HUNYUAN_OCR_MIN_NCNN_VERSION} or newer was not found. "
+            "Either pass -Dncnn_DIR=/path/to/ncnnConfig.cmake "
             "or pass -DNCNN_INCLUDE_DIR=/path/to/ncnn/src "
             "-DNCNN_BUILD_INCLUDE_DIR=/path/to/ncnn/build/src "
             "-DNCNN_LIBRARY=/path/to/libncnn.a"
@@ -64,6 +66,7 @@ target_sources(hunyuan_ocr
         src/precise_sdpa.cpp
         src/text_runtime.cpp
         src/tokenizer.cpp
+        src/utf8.cpp
         src/vision_runtime.cpp
 )
 target_include_directories(hunyuan_ocr
@@ -150,6 +153,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_multimodal_rope_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_multimodal_rope_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_utf8_test tests/utf8_test.cpp)
+    target_link_libraries(hunyuan_ocr_utf8_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_utf8_test PRIVATE cxx_std_17)
+
     if(_hunyuan_ocr_enable_tokenizer_test)
         add_executable(hunyuan_ocr_tokenizer_test tests/tokenizer_encode_test.cpp)
         target_link_libraries(hunyuan_ocr_tokenizer_test PRIVATE hunyuan_ocr)
@@ -162,12 +169,14 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         if(MSVC)
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE /W4)
             target_compile_options(hunyuan_ocr_generation_config_test PRIVATE /W4)
+            target_compile_options(hunyuan_ocr_utf8_test PRIVATE /W4)
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE /W4)
             endif()
         else()
             target_compile_options(hunyuan_ocr_prompt_builder_test PRIVATE -Wall -Wextra -Wpedantic)
             target_compile_options(hunyuan_ocr_generation_config_test PRIVATE -Wall -Wextra -Wpedantic)
+            target_compile_options(hunyuan_ocr_utf8_test PRIVATE -Wall -Wextra -Wpedantic)
             if(_hunyuan_ocr_enable_tokenizer_test)
                 target_compile_options(hunyuan_ocr_tokenizer_test PRIVATE -Wall -Wextra -Wpedantic)
             endif()
@@ -197,6 +206,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     add_test(NAME multimodal_rope
         COMMAND hunyuan_ocr_multimodal_rope_test
+    )
+    add_test(NAME utf8
+        COMMAND hunyuan_ocr_utf8_test
     )
     add_test(NAME run_regression_prompt_manifest
         COMMAND "${Python3_EXECUTABLE}"
@@ -247,6 +259,11 @@ if(HUNYUAN_OCR_BUILD_TESTS)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/artifact_paths_test.py"
     )
     if(HUNYUAN_OCR_BUILD_CLI)
+        add_test(NAME windows_utf8_integration
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_utf8_integration_test.py"
+                    "$<TARGET_FILE:hunyuan_ocr_cli>"
+        )
         add_test(NAME cli_options
             COMMAND "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_options_test.py"
@@ -258,6 +275,9 @@ endif()
 if(HUNYUAN_OCR_BUILD_CLI)
     add_executable(hunyuan_ocr_cli src/main.cpp)
     target_link_libraries(hunyuan_ocr_cli PRIVATE hunyuan_ocr)
+    if(WIN32)
+        target_link_libraries(hunyuan_ocr_cli PRIVATE shell32)
+    endif()
     target_compile_features(hunyuan_ocr_cli PRIVATE cxx_std_17)
 
     if(HUNYUAN_OCR_STRICT_WARNINGS)

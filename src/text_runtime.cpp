@@ -4,6 +4,7 @@
 #include "hunyuan_ocr/hunyuan_ocr.h"
 #include "hunyuan_ocr/multimodal_rope.h"
 #include "hunyuan_ocr/precise_sdpa.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <algorithm>
 #include <chrono>
@@ -73,14 +74,14 @@ bool load_net(ncnn::Net& net,
     net.opt = make_fp32_ncnn_option(num_threads);
     net.opt.use_packing_layout = false;
 
-    if (net.load_param(param.string().c_str()) != 0)
+    if (net.load_param(param.c_str()) != 0)
     {
-        if (error) *error = "failed to load param: " + param.string();
+        if (error) *error = "failed to load param: " + path_to_utf8(param);
         return false;
     }
-    if (net.load_model(bin.string().c_str()) != 0)
+    if (net.load_model(bin.c_str()) != 0)
     {
-        if (error) *error = "failed to load bin: " + bin.string();
+        if (error) *error = "failed to load bin: " + path_to_utf8(bin);
         return false;
     }
     return true;
@@ -153,20 +154,20 @@ bool read_binary_vector(const std::filesystem::path& path, size_t expected_count
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open: " + path.string();
+        if (error) *error = "failed to open: " + path_to_utf8(path);
         return false;
     }
     values->assign(expected_count, T{});
     file.read(reinterpret_cast<char*>(values->data()), static_cast<std::streamsize>(expected_count * sizeof(T)));
     if (file.gcount() != static_cast<std::streamsize>(expected_count * sizeof(T)))
     {
-        if (error) *error = "short read: " + path.string();
+        if (error) *error = "short read: " + path_to_utf8(path);
         return false;
     }
     char extra = 0;
     if (file.read(&extra, 1))
     {
-        if (error) *error = "unexpected extra bytes: " + path.string();
+        if (error) *error = "unexpected extra bytes: " + path_to_utf8(path);
         return false;
     }
     return true;
@@ -177,7 +178,7 @@ bool parse_fixture_meta(const std::filesystem::path& path, int* seq_len, int* ex
     std::ifstream file(path);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open fixture meta: " + path.string();
+        if (error) *error = "failed to open fixture meta: " + path_to_utf8(path);
         return false;
     }
 
@@ -221,7 +222,7 @@ bool parse_vlm_fixture_meta(const std::filesystem::path& path, VlmFixtureMeta* m
     std::ifstream file(path);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open fixture meta: " + path.string();
+        if (error) *error = "failed to open fixture meta: " + path_to_utf8(path);
         return false;
     }
 
@@ -746,11 +747,11 @@ TextRuntime::TextRuntime(int num_threads)
 
 bool TextRuntime::load(const std::string& model_root, std::string* error)
 {
-    const std::filesystem::path root(model_root);
+    const std::filesystem::path root = path_from_utf8(model_root);
     ready_ = false;
     eos_ids_.clear();
 
-    if (!load_eos_ids((root / "tokenizer" / "eos_ids.json").string(), &eos_ids_, error))
+    if (!load_eos_ids(path_to_utf8(root / "tokenizer" / "eos_ids.json"), &eos_ids_, error))
     {
         return false;
     }
@@ -893,7 +894,7 @@ bool TextRuntime::run_fixture_decode(const std::string& fixture_dir,
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     int seq_len = 0;
     int expected_token_count = 0;
     if (!parse_fixture_meta(root / "meta.txt", &seq_len, &expected_token_count, error))
@@ -949,7 +950,7 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureMeta meta;
     if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
     {
@@ -1034,7 +1035,7 @@ bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixtur
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureMeta meta;
     if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
     {

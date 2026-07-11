@@ -31,6 +31,7 @@ with pnnx and runs the full OCR path in C++.
 - One dynamic vision package for exported image sizes, with fixed-grid fallback.
 - KV-cache text decoder, greedy decoding, and repetition penalty.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
+- Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - CMake build on Linux and Windows; no Python at runtime.
 - 28 bundled cases match the HunyuanOCR 1.5 PyTorch fp32 reference for the
   validated 128-token window.
@@ -94,7 +95,8 @@ Requirements:
 
 - CMake 3.18 or newer
 - C++17 compiler
-- ncnn built or installed
+- ncnn `20260106` or newer; validation pins revision
+  `244f30c8b995d5b2cf57b59950596490c68813d6`
 
 With an installed ncnn CMake package:
 
@@ -121,7 +123,9 @@ Basic checks:
 ./build/hunyuan_ocr_cli --version
 ```
 
-Windows build and packaged-model validation passed.
+Windows build and packaged-model validation passed. The CLI reads the native
+wide-character command line and uses UTF-8 for prompts, console I/O, and model,
+image, and fixture paths.
 
 ### 2. Package Model Files
 

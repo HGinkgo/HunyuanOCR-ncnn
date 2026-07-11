@@ -1,6 +1,7 @@
 #include "hunyuan_ocr/vision_runtime.h"
 
 #include "hunyuan_ocr/hunyuan_ocr.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,20 +38,20 @@ bool read_binary_vector(const std::filesystem::path& path, size_t expected_count
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open: " + path.string();
+        if (error) *error = "failed to open: " + path_to_utf8(path);
         return false;
     }
     values->assign(expected_count, T{});
     file.read(reinterpret_cast<char*>(values->data()), static_cast<std::streamsize>(expected_count * sizeof(T)));
     if (file.gcount() != static_cast<std::streamsize>(expected_count * sizeof(T)))
     {
-        if (error) *error = "short read: " + path.string();
+        if (error) *error = "short read: " + path_to_utf8(path);
         return false;
     }
     char extra = 0;
     if (file.read(&extra, 1))
     {
-        if (error) *error = "unexpected extra bytes: " + path.string();
+        if (error) *error = "unexpected extra bytes: " + path_to_utf8(path);
         return false;
     }
     return true;
@@ -67,7 +68,7 @@ bool parse_fixture_meta(const std::filesystem::path& path, int* patch_count, int
     std::ifstream file(path);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open vision fixture meta: " + path.string();
+        if (error) *error = "failed to open vision fixture meta: " + path_to_utf8(path);
         return false;
     }
 
@@ -255,6 +256,8 @@ VisionRuntime::VisionRuntime(int num_threads)
 
 bool VisionRuntime::load(const std::string& param_path, const std::string& bin_path, std::string* error)
 {
+    const std::filesystem::path native_param_path = path_from_utf8(param_path);
+    const std::filesystem::path native_bin_path = path_from_utf8(bin_path);
     ready_ = false;
     dynamic_ready_ = false;
     pos_embed_base_.clear();
@@ -262,12 +265,12 @@ bool VisionRuntime::load(const std::string& param_path, const std::string& bin_p
     vision_net_->opt = make_fp32_ncnn_option(num_threads_);
     vision_net_->opt.use_packing_layout = false;
 
-    if (vision_net_->load_param(param_path.c_str()) != 0)
+    if (vision_net_->load_param(native_param_path.c_str()) != 0)
     {
         if (error) *error = "failed to load vision param: " + param_path;
         return false;
     }
-    if (vision_net_->load_model(bin_path.c_str()) != 0)
+    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
     {
         if (error) *error = "failed to load vision bin: " + bin_path;
         return false;
@@ -281,6 +284,9 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
                                  const std::string& pos_embed_path,
                                  std::string* error)
 {
+    const std::filesystem::path native_param_path = path_from_utf8(param_path);
+    const std::filesystem::path native_bin_path = path_from_utf8(bin_path);
+    const std::filesystem::path native_pos_embed_path = path_from_utf8(pos_embed_path);
     ready_ = false;
     dynamic_ready_ = false;
     pos_embed_base_.clear();
@@ -288,17 +294,17 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
     vision_net_->opt = make_fp32_ncnn_option(num_threads_);
     vision_net_->opt.use_packing_layout = false;
 
-    if (vision_net_->load_param(param_path.c_str()) != 0)
+    if (vision_net_->load_param(native_param_path.c_str()) != 0)
     {
         if (error) *error = "failed to load dynamic vision param: " + param_path;
         return false;
     }
-    if (vision_net_->load_model(bin_path.c_str()) != 0)
+    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
     {
         if (error) *error = "failed to load dynamic vision bin: " + bin_path;
         return false;
     }
-    if (!read_binary_vector(pos_embed_path,
+    if (!read_binary_vector(native_pos_embed_path,
                             static_cast<size_t>(kVisionHiddenSize) * kPositionEdge * kPositionEdge,
                             &pos_embed_base_,
                             error))
@@ -510,7 +516,7 @@ bool VisionRuntime::run_fixture(const std::string& fixture_dir, VisionRuntimeRes
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     int patch_count = 0;
     int vision_token_count = 0;
     if (!parse_fixture_meta(root / "meta.txt", &patch_count, &vision_token_count, error))

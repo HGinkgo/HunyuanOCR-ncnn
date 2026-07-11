@@ -1,4 +1,5 @@
 #include "hunyuan_ocr/generation_config.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <algorithm>
 #include <cctype>
@@ -32,7 +33,7 @@ bool load_eos_ids(const std::string& path, std::vector<int>* eos_ids, std::strin
         return fail("eos_ids output is null", error);
     }
 
-    std::ifstream file(path);
+    std::ifstream file(path_from_utf8(path));
     if (!file.is_open())
     {
         return fail("failed to open EOS config: " + path, error);

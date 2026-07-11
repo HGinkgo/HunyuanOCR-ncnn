@@ -1,4 +1,5 @@
 #include "hunyuan_ocr/tokenizer.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <algorithm>
 #include <cctype>
@@ -175,7 +176,7 @@ bool Tokenizer::load(const std::string& vocab_path,
     special_token_ids_.clear();
     init_byte_codec();
 
-    std::ifstream vocab(vocab_path);
+    std::ifstream vocab(path_from_utf8(vocab_path));
     if (!vocab.is_open())
     {
         if (error) *error = "failed to open vocab: " + vocab_path;
@@ -198,7 +199,7 @@ bool Tokenizer::load(const std::string& vocab_path,
 
     if (!merges_path.empty())
     {
-        std::ifstream merges(merges_path);
+        std::ifstream merges(path_from_utf8(merges_path));
         if (!merges.is_open())
         {
             if (error) *error = "failed to open merges: " + merges_path;
@@ -225,7 +226,7 @@ bool Tokenizer::load(const std::string& vocab_path,
         }
     }
 
-    std::ifstream special_file(special_tokens_path);
+    std::ifstream special_file(path_from_utf8(special_tokens_path));
     if (!special_file.is_open())
     {
         if (error) *error = "failed to open special tokens: " + special_tokens_path;

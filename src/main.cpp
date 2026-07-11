@@ -3,6 +3,7 @@
 #include "hunyuan_ocr/prompt_builder.h"
 #include "hunyuan_ocr/text_runtime.h"
 #include "hunyuan_ocr/tokenizer.h"
+#include "hunyuan_ocr/utf8.h"
 #include "hunyuan_ocr/vision_runtime.h"
 
 #include <filesystem>
@@ -14,6 +15,17 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 
@@ -88,7 +100,7 @@ void print_token_vector(const char* title, const std::vector<int>& tokens)
 
 bool read_text_file(const std::string& path, std::string& out)
 {
-    std::ifstream file(path);
+    std::ifstream file(hunyuan_ocr::path_from_utf8(path));
     if (!file.is_open())
     {
         return false;
@@ -117,7 +129,7 @@ bool resolve_fixed_grid_vision_paths(const std::string& model_root,
     }
 
     const std::string grid_name = "grid_" + std::to_string(grid_h) + "x" + std::to_string(grid_w);
-    const std::filesystem::path vision_dir = std::filesystem::path(model_root) / "vision" / grid_name;
+    const std::filesystem::path vision_dir = hunyuan_ocr::path_from_utf8(model_root) / "vision" / grid_name;
     const std::filesystem::path candidate_param = vision_dir / "vision.ncnn.param";
     const std::filesystem::path candidate_bin = vision_dir / "vision.ncnn.bin";
     if (!file_exists(candidate_param) || !file_exists(candidate_bin))
@@ -125,8 +137,8 @@ bool resolve_fixed_grid_vision_paths(const std::string& model_root,
         return false;
     }
 
-    param_path = candidate_param.string();
-    bin_path = candidate_bin.string();
+    param_path = hunyuan_ocr::path_to_utf8(candidate_param);
+    bin_path = hunyuan_ocr::path_to_utf8(candidate_bin);
     return true;
 }
 
@@ -135,15 +147,15 @@ bool resolve_dynamic_vision_paths(const std::string& model_root,
                                   std::string& bin_path,
                                   std::string& pos_embed_path)
 {
-    const std::filesystem::path vision_dir = std::filesystem::path(model_root) / "vision";
+    const std::filesystem::path vision_dir = hunyuan_ocr::path_from_utf8(model_root) / "vision";
     const std::filesystem::path pos_path = vision_dir / "pos_embed.bin";
     const std::filesystem::path candidate_param = vision_dir / "vision.ncnn.param";
     const std::filesystem::path candidate_bin = vision_dir / "vision.ncnn.bin";
     if (file_exists(candidate_param) && file_exists(candidate_bin) && file_exists(pos_path))
     {
-        param_path = candidate_param.string();
-        bin_path = candidate_bin.string();
-        pos_embed_path = pos_path.string();
+        param_path = hunyuan_ocr::path_to_utf8(candidate_param);
+        bin_path = hunyuan_ocr::path_to_utf8(candidate_bin);
+        pos_embed_path = hunyuan_ocr::path_to_utf8(pos_path);
         return true;
     }
 
@@ -151,9 +163,9 @@ bool resolve_dynamic_vision_paths(const std::string& model_root,
     const std::filesystem::path legacy_bin = vision_dir / "vision_dynamic.ncnn.bin";
     if (file_exists(legacy_param) && file_exists(legacy_bin) && file_exists(pos_path))
     {
-        param_path = legacy_param.string();
-        bin_path = legacy_bin.string();
-        pos_embed_path = pos_path.string();
+        param_path = hunyuan_ocr::path_to_utf8(legacy_param);
+        bin_path = hunyuan_ocr::path_to_utf8(legacy_bin);
+        pos_embed_path = hunyuan_ocr::path_to_utf8(pos_path);
         return true;
     }
 
@@ -163,7 +175,7 @@ bool resolve_dynamic_vision_paths(const std::string& model_root,
 template <typename T>
 bool read_binary_vector_file(const std::string& path, std::vector<T>& out, std::string& error)
 {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    std::ifstream file(hunyuan_ocr::path_from_utf8(path), std::ios::binary | std::ios::ate);
     if (!file.is_open())
     {
         error = "failed to open: " + path;
@@ -713,6 +725,43 @@ int run_image_benchmark(const std::string& model_root,
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+
+    int wide_argc = 0;
+    LPWSTR* wide_argv = CommandLineToArgvW(GetCommandLineW(), &wide_argc);
+    if (wide_argv == nullptr)
+    {
+        std::cerr << "Failed to read the Windows command line.\n";
+        return 1;
+    }
+
+    std::vector<std::wstring> wide_arguments;
+    wide_arguments.reserve(static_cast<size_t>(wide_argc));
+    for (int i = 0; i < wide_argc; ++i)
+    {
+        wide_arguments.emplace_back(wide_argv[i]);
+    }
+    LocalFree(wide_argv);
+
+    std::vector<std::string> utf8_arguments;
+    std::string utf8_error;
+    if (!hunyuan_ocr::wide_arguments_to_utf8(wide_arguments, &utf8_arguments, &utf8_error))
+    {
+        std::cerr << "Failed to convert the Windows command line to UTF-8: " << utf8_error << "\n";
+        return 1;
+    }
+
+    std::vector<char*> utf8_argv;
+    utf8_argv.reserve(utf8_arguments.size());
+    for (std::string& argument : utf8_arguments)
+    {
+        utf8_argv.push_back(argument.data());
+    }
+    argc = static_cast<int>(utf8_argv.size());
+    argv = utf8_argv.data();
+#endif
     const auto process_start = Clock::now();
     std::string model_root;
     std::string decode_ids_text;

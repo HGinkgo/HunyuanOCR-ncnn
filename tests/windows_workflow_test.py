@@ -20,7 +20,13 @@ def main() -> int:
         "cmake --build build --config Release --parallel",
         "ctest --test-dir build -C Release --output-on-failure",
         "--no-tests=error",
-        "precise_sdpa|multimodal_rope",
+        "precise_sdpa|multimodal_rope|utf8",
+        "msys2/setup-msys2@v2",
+        "msystem: UCRT64",
+        "mingw-w64-ucrt-x86_64-gcc",
+        "mingw-w64-ucrt-x86_64-cmake",
+        "mingw-w64-ucrt-x86_64-ninja",
+        "-G Ninja",
     )
     missing = [value for value in required if value not in workflow]
     if missing:
@@ -29,6 +35,9 @@ def main() -> int:
     generator = '-G "Visual Studio 17 2022" -A x64'
     if workflow.count(generator) != 2:
         print("Windows workflow must configure both ncnn and HunyuanOCR-ncnn for VS2022 x64", file=sys.stderr)
+        return 1
+    if workflow.count("NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6") != 2:
+        print("MSVC and UCRT64 jobs must use the same pinned ncnn revision", file=sys.stderr)
         return 1
     return 0
 

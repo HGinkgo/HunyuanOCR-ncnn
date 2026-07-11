@@ -27,6 +27,7 @@ Tencent HunyuanOCR 的 C++17/ncnn 推理运行时。
 - 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包。
 - 带 KV cache 的文本解码、贪心解码和重复惩罚。
 - 内置 `spotting` / `document` 两种模式，也支持自定义 `--prompt` 文本。
+- Windows CLI 全链路支持 UTF-8 prompt、模型路径、图片路径和 fixture 路径。
 - CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
 - 28 个公开 case 在已验证的 128-token 窗口内与 HunyuanOCR 1.5 PyTorch fp32
   reference 的 token/text 一致。
@@ -84,7 +85,8 @@ scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 
 - CMake 3.18 或更新版本
 - 支持 C++17 的编译器
-- 已构建或已安装的 ncnn
+- ncnn `20260106` 或更新版本；验证固定 revision 为
+  `244f30c8b995d5b2cf57b59950596490c68813d6`
 
 如果已经安装 ncnn CMake package：
 
@@ -111,7 +113,8 @@ cmake --build build -j
 ./build/hunyuan_ocr_cli --version
 ```
 
-Windows 构建和带模型验证均已通过。
+Windows 构建和带模型验证均已通过。CLI 从宽字符命令行读取参数，支持中文等
+Unicode prompt 和模型、图片、fixture 路径；控制台输入输出统一使用 UTF-8。
 
 ## 准备模型目录
 

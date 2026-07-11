@@ -1,4 +1,5 @@
 #include "hunyuan_ocr/image_preprocessor.h"
+#include "hunyuan_ocr/utf8.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,9 @@
 #define STBI_ONLY_PNG
 #define STBI_NO_HDR
 #define STBI_NO_LINEAR
+#ifdef _WIN32
+#define STBI_WINDOWS_UTF8
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -30,20 +34,20 @@ bool read_binary_vector(const std::filesystem::path& path, size_t expected_count
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open: " + path.string();
+        if (error) *error = "failed to open: " + path_to_utf8(path);
         return false;
     }
     values->assign(expected_count, T{});
     file.read(reinterpret_cast<char*>(values->data()), static_cast<std::streamsize>(expected_count * sizeof(T)));
     if (file.gcount() != static_cast<std::streamsize>(expected_count * sizeof(T)))
     {
-        if (error) *error = "short read: " + path.string();
+        if (error) *error = "short read: " + path_to_utf8(path);
         return false;
     }
     char extra = 0;
     if (file.read(&extra, 1))
     {
-        if (error) *error = "unexpected extra bytes: " + path.string();
+        if (error) *error = "unexpected extra bytes: " + path_to_utf8(path);
         return false;
     }
     return true;
@@ -156,7 +160,7 @@ bool parse_fixture_meta(const std::filesystem::path& path, FixtureMeta* meta, st
     std::ifstream file(path);
     if (!file.is_open())
     {
-        if (error) *error = "failed to open image preprocess fixture meta: " + path.string();
+        if (error) *error = "failed to open image preprocess fixture meta: " + path_to_utf8(path);
         return false;
     }
 
@@ -490,7 +494,7 @@ bool ImagePreprocessor::run_fixture(const std::string& fixture_dir,
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     FixtureMeta meta;
     if (!parse_fixture_meta(root / "meta.txt", &meta, error))
     {
@@ -564,7 +568,7 @@ bool ImagePreprocessor::run_image_file_fixture(const std::string& fixture_dir,
         return false;
     }
 
-    const std::filesystem::path root(fixture_dir);
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
     FixtureMeta meta;
     if (!parse_fixture_meta(root / "meta.txt", &meta, error))
     {
