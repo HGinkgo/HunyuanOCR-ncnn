@@ -34,8 +34,10 @@ def main() -> int:
     for text, label in ((readme, "README"), (readme_zh, "README_zh")):
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
         require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")
-    require("Windows | Build and packaged-model validation passed" in readme, "README Windows status must be concise and complete")
-    require("Windows | 构建和带模型验证通过" in readme_zh, "README_zh Windows status must be concise and complete")
+    require("\n## Status\n" not in readme, "README must not duplicate highlights in a Status section")
+    require("\n## 当前状态\n" not in readme_zh, "README_zh must not duplicate current delivery details")
+    require("Windows build and packaged-model validation passed." in readme, "README must retain Windows validation evidence")
+    require("Windows 构建和带模型验证均已通过。" in readme_zh, "README_zh must retain Windows validation evidence")
     require("MSVC" not in readme and "UCRT64" not in readme, "README Windows status must not expose toolchain details")
     require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README_zh Windows status must not expose toolchain details")
     require("validation pending" not in readme and "still pending" not in readme, "README contains stale pending status")

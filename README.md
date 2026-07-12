@@ -55,20 +55,8 @@ with pnnx and runs the full OCR path in C++.
 | Export from HF weights | `export/README.md` |
 | Run examples | `tools/run_example.py`, `tools/run_examples.py` |
 | Run strict regression | `tools/run_regression.py` |
-| Benchmark runtime | `tools/benchmark.py`, `benchmark/README.md` |
+| Benchmark runtime | `tools/benchmark.py`, `tools/README.md#benchmark` |
 | Model layout | `models/README.md`, `models/model.json.example` |
-
-## Status
-
-| Item | Status |
-| --- | --- |
-| Linux | HunyuanOCR 1.5 build, CTest, and 28-case test suite validated locally |
-| Windows | Build and packaged-model validation passed |
-| Runtime | PNG/JPEG input to final OCR text |
-| Validation | HunyuanOCR 1.5 28-case test suite passed |
-| Precision | fp32 ncnn path |
-| Prompts | built-in `spotting`/`document` modes and custom `--prompt` text |
-| Vision | one dynamic package for exported image sizes, with fixed-grid fallback |
 
 The current verified configuration uses `max_pixels=524288` because development
 and validation were limited to a single RTX 3090 (24 GB), requiring bounded GPU
@@ -102,7 +90,70 @@ To smoke-test one image after building:
 scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 ```
 
-### 1. Build
+The repository does not include model weights. If you already have a runtime
+model package, use the commands above. To reproduce the conversion from the
+Hugging Face model, follow the export, package, build, and run sections below.
+
+## Export From HF Model
+
+The scripts in `export/` use pnnx to convert the Hugging Face model into
+tokenizer files and ncnn submodule artifacts:
+
+```bash
+python export/export_all.py \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --workspace .
+```
+
+See `export/README.md` for the module-level commands.
+
+## Package the ncnn Runtime Model
+
+`tools/package_model.py` arranges exported artifacts into the runtime model
+package consumed by the CLI:
+
+```text
+hunyuan_ocr_ncnn_model/
+  model.json
+  tokenizer/
+  text_embed/
+  text_decoder/
+  lm_head/
+  vision/
+    vision.ncnn.param
+    vision.ncnn.bin
+    pos_embed.bin
+    grid_<grid_h>x<grid_w>/
+```
+
+```bash
+python tools/package_model.py \
+  --workspace <workspace> \
+  --output ./hunyuan_ocr_ncnn_model \
+  --vision-backend dynamic \
+  --copy \
+  --force
+```
+
+Here `<workspace>` means the directory containing `models/tokenizer/` and
+`models/export/`. Use symlinks instead of copies by omitting `--copy`. Use
+`--vision-backend fixed` for the v0.1 fixed-grid package, or `both` to include
+dynamic vision and fixed-grid fallback files in one model directory. See
+`models/README.md` for the `model.json` schema and backend selection rules.
+
+On Linux, the helper below combines build, export, packaging, and an example run:
+
+```bash
+scripts/export_and_package_linux.sh \
+  --hf-dir /path/to/HunyuanOCR-hf \
+  --pnnx /path/to/pnnx \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn \
+  --output ./hunyuan_ocr_ncnn_model \
+  --copy
+```
+
+## Build
 
 Requirements:
 
@@ -140,26 +191,7 @@ Windows build and packaged-model validation passed. The CLI reads the native
 wide-character command line and uses UTF-8 for prompts, console I/O, and model,
 image, and fixture paths.
 
-### 2. Package Model Files
-
-`tools/package_model.py` creates the runtime model directory from exported
-artifacts. Here `<workspace>` means the directory that contains
-`models/tokenizer/` and `models/export/`.
-
-```bash
-python tools/package_model.py \
-  --workspace <workspace> \
-  --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
-  --copy \
-  --force
-```
-
-Use symlinks instead of copies by omitting `--copy`. Use
-`--vision-backend fixed` for the v0.1 fixed-grid package, or `both` to include
-dynamic vision and fixed-grid fallback files in one model directory.
-
-### 3. Run Examples
+## Run Examples
 
 List bundled images:
 
@@ -195,61 +227,6 @@ Dynamic vision packages support different image sizes within the exported
 processor range. Fixed-grid fallback packages use the `grid_<h>x<w>` naming
 convention, for example `vision/grid_38x52/`.
 
-## Model Package
-
-Expected runtime layout:
-
-```text
-hunyuan_ocr_ncnn_model/
-  model.json
-  tokenizer/
-  text_embed/
-  text_decoder/
-  lm_head/
-  vision/
-    vision.ncnn.param
-    vision.ncnn.bin
-    pos_embed.bin
-    grid_<grid_h>x<grid_w>/
-```
-
-The runtime model package is generated separately from converted artifacts. The
-repository itself tracks source code, scripts, metadata, and example images.
-See `models/README.md` for the `model.json` schema and dynamic/fixed vision
-backend selection.
-
-## Export From HF Model
-
-The export scripts live in `export/`. They write tokenizer and ncnn submodule
-artifacts into a workspace layout consumed by `tools/package_model.py`.
-
-```bash
-python export/export_all.py \
-  --hf-dir /path/to/HunyuanOCR-hf \
-  --pnnx /path/to/pnnx \
-  --workspace .
-
-python tools/package_model.py \
-  --workspace . \
-  --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
-  --copy \
-  --force
-```
-
-For a Linux end-to-end helper:
-
-```bash
-scripts/export_and_package_linux.sh \
-  --hf-dir /path/to/HunyuanOCR-hf \
-  --pnnx /path/to/pnnx \
-  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn \
-  --output ./hunyuan_ocr_ncnn_model \
-  --copy
-```
-
-See `export/README.md` for the module-level commands.
-
 ## Regression
 
 For full token/text regression after preparing fixtures:
@@ -284,7 +261,7 @@ python tools/benchmark.py \
 
 The benchmark separates cold start from same-process warm inference, supports
 CPU thread sweeps, and reports stage timing plus decode throughput. See
-`benchmark/README.md`.
+`tools/README.md#benchmark`.
 
 ## Repository Layout
 
@@ -296,7 +273,6 @@ export/                Export workflow notes
 scripts/               Quickstart and export/package shell helpers
 tools/                 Model packaging and regression helpers
 examples/              Example images and usage notes
-benchmark/             Runtime benchmark notes
 models/                Tracked config template only
 ```
 
