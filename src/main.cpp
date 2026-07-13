@@ -54,6 +54,8 @@ void print_usage(const char* program)
         << "  --smoke-text TOKEN_ID  Load text ncnn nets and run text_embed + lm_head smoke.\n"
         << "  --text-fixture PATH    Run decoder prefill/KV greedy decode from a raw tensor fixture.\n"
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
+        << "  --dflash               Run DFlash with --vlm-fixture or --image with --prompt/--prompt-mode.\n"
+        << "  --dflash-probe         Run one 16-token DFlash block with --vlm-fixture.\n"
         << "  --vision-param PATH    Load a per-grid vision ncnn param file for fixture validation.\n"
         << "  --vision-bin PATH      Load a per-grid vision ncnn bin file for fixture validation.\n"
         << "  --vision-fixture PATH  Run pixel_values -> vision_features fixture.\n"
@@ -210,13 +212,109 @@ std::string strip_trailing_newlines(std::string text)
     return text;
 }
 
+int print_dflash_decode_result(const std::string& label,
+                               const std::string& model_root,
+                               const std::string& vlm_fixture_dir,
+                               const hunyuan_ocr::DFlashDecodeResult& result)
+{
+    std::string error;
+    hunyuan_ocr::Tokenizer tokenizer;
+    if (!tokenizer.load(model_root + "/tokenizer/vocab.txt",
+                        model_root + "/tokenizer/special_tokens.json",
+                        &error))
+    {
+        std::cerr << "Failed to load tokenizer: " << error << "\n";
+        return 1;
+    }
+
+    const hunyuan_ocr::TextDecodeResult& decode = result.decode;
+    const std::string generated_text = tokenizer.decode(decode.generated_tokens, true);
+    const auto safe_div = [](double numerator, double denominator) -> double {
+        if (denominator == 0.0 ||
+            !std::isfinite(numerator) ||
+            !std::isfinite(denominator))
+        {
+            return 0.0;
+        }
+        const double value = numerator / denominator;
+        return std::isfinite(value) ? value : 0.0;
+    };
+    const double acceptance_rate = safe_div(
+        static_cast<double>(result.accepted_draft_token_count),
+        static_cast<double>(result.drafted_token_count));
+    const double mean_accepted = safe_div(
+        static_cast<double>(result.accepted_draft_token_count),
+        static_cast<double>(result.block_count));
+    const double tokens_per_second = safe_div(
+        static_cast<double>(decode.generated_tokens.size()),
+        result.timing.total_ms / 1000.0);
+
+    std::cout << label << ":\n";
+    std::cout << "  seq_len: " << decode.seq_len << "\n";
+    std::cout << "  checked_tokens: " << decode.checked_tokens << "\n";
+    std::cout << "  generated_token_count: " << decode.generated_tokens.size() << "\n";
+    std::cout << "  generated_text_chars: " << generated_text.size() << "\n";
+    std::cout << "  block_count: " << result.block_count << "\n";
+    std::cout << "  drafted_token_count: " << result.drafted_token_count << "\n";
+    std::cout << "  accepted_draft_token_count: "
+              << result.accepted_draft_token_count << "\n";
+    std::cout << std::fixed << std::setprecision(3);
+    std::cout << "  timing_prefill_ms: " << result.timing.prefill_ms << "\n";
+    std::cout << "  timing_draft_prepare_ms: " << result.timing.draft_prepare_ms << "\n";
+    std::cout << "  timing_draft_infer_ms: " << result.timing.draft_infer_ms << "\n";
+    std::cout << "  timing_draft_postprocess_ms: "
+              << result.timing.draft_postprocess_ms << "\n";
+    std::cout << "  timing_verify_prepare_ms: " << result.timing.verify_prepare_ms << "\n";
+    std::cout << "  timing_verify_infer_ms: " << result.timing.verify_infer_ms << "\n";
+    std::cout << "  timing_verify_postprocess_ms: "
+              << result.timing.verify_postprocess_ms << "\n";
+    std::cout << "  timing_commit_ms: " << result.timing.commit_ms << "\n";
+    std::cout << "  timing_total_ms: " << result.timing.total_ms << "\n";
+    std::cout << "  timing_tokens_per_second: " << tokens_per_second << "\n";
+    std::cout << "  acceptance_rate: " << acceptance_rate << "\n";
+    std::cout << "  mean_accepted_draft_tokens_per_block: " << mean_accepted << "\n";
+    std::cout << "  target_verify_token_count: "
+              << result.block_count * hunyuan_ocr::detail::kDFlashBlockSize << "\n";
+    print_token_vector("  acceptance_lengths: ", result.acceptance_lengths);
+    print_token_vector("  generated_tokens: ", decode.generated_tokens);
+    if (!decode.expected_tokens.empty())
+    {
+        print_token_vector("  expected_tokens: ", decode.expected_tokens);
+        std::cout << "  match_expected_tokens: "
+                  << (decode.matches_expected() ? "true" : "false") << "\n";
+    }
+
+    if (!vlm_fixture_dir.empty())
+    {
+        std::string expected_text;
+        if (read_text_file(vlm_fixture_dir + "/expected_text.txt", expected_text))
+        {
+            const bool text_match =
+                strip_trailing_newlines(generated_text) == strip_trailing_newlines(expected_text);
+            std::cout << "  match_expected_text: " << (text_match ? "true" : "false") << "\n";
+            if (!text_match)
+            {
+                return 4;
+            }
+        }
+    }
+    std::cout << "Decoded text:\n" << generated_text << "\n";
+
+    if (!decode.expected_tokens.empty() && !decode.matches_expected())
+    {
+        return 3;
+    }
+    return 0;
+}
+
 int run_vlm_decode_with_features(const std::string& label,
                                  const std::string& model_root,
                                  const std::string& vlm_fixture_dir,
                                  const std::vector<float>& vision_features,
                                  int vision_token_count,
                                  int max_tokens,
-                                 int num_threads)
+                                 int num_threads,
+                                 bool use_dflash)
 {
     std::string error;
     hunyuan_ocr::TextRuntime text_runtime(num_threads);
@@ -224,6 +322,27 @@ int run_vlm_decode_with_features(const std::string& label,
     {
         std::cerr << "Failed to load text runtime: " << error << "\n";
         return 1;
+    }
+
+    if (use_dflash)
+    {
+        if (!text_runtime.load_dflash(model_root, &error))
+        {
+            std::cerr << "Failed to load DFlash runtime: " << error << "\n";
+            return 1;
+        }
+        hunyuan_ocr::DFlashDecodeResult decode;
+        if (!text_runtime.run_vlm_fixture_dflash_decode_with_features(vlm_fixture_dir,
+                                                                      vision_features,
+                                                                      vision_token_count,
+                                                                      max_tokens,
+                                                                      &decode,
+                                                                      &error))
+        {
+            std::cerr << label << " decode failed: " << error << "\n";
+            return 1;
+        }
+        return print_dflash_decode_result(label, model_root, vlm_fixture_dir, decode);
     }
 
     hunyuan_ocr::TextDecodeResult decode;
@@ -771,6 +890,8 @@ int main(int argc, char** argv)
     int smoke_token_id = 0;
     std::string text_fixture_dir;
     std::string vlm_fixture_dir;
+    bool dflash = false;
+    bool dflash_probe = false;
     std::string vision_param_path;
     std::string vision_bin_path;
     std::string vision_fixture_dir;
@@ -874,6 +995,16 @@ int main(int argc, char** argv)
                 return 1;
             }
             vlm_fixture_dir = argv[++i];
+            continue;
+        }
+        if (arg == "--dflash-probe")
+        {
+            dflash_probe = true;
+            continue;
+        }
+        if (arg == "--dflash")
+        {
+            dflash = true;
             continue;
         }
         if (arg == "--vision-param")
@@ -1139,6 +1270,28 @@ int main(int argc, char** argv)
             max_tokens = 64;
         }
     }
+    if (dflash && dflash_probe)
+    {
+        std::cerr << "--dflash and --dflash-probe are mutually exclusive\n";
+        return 1;
+    }
+    if (benchmark && dflash)
+    {
+        std::cerr << "--benchmark does not support --dflash yet\n";
+        return 1;
+    }
+    const bool has_image_prompt =
+        !image_path.empty() && (!prompt_text.empty() || !prompt_mode_text.empty());
+    if (dflash && vlm_fixture_dir.empty() && !has_image_prompt)
+    {
+        std::cerr << "--dflash requires --vlm-fixture or --image with --prompt/--prompt-mode\n";
+        return 1;
+    }
+    if (dflash_probe && vlm_fixture_dir.empty())
+    {
+        std::cerr << "--dflash-probe requires --vlm-fixture\n";
+        return 1;
+    }
 
     hunyuan_ocr::HunyuanOCR runtime;
     const bool ready = runtime.load(model_root);
@@ -1175,6 +1328,71 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Model layout check passed for the current runtime files.\n";
+
+    if (dflash_probe)
+    {
+        std::string error;
+        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        if (!text_runtime.load(model_root, &error) ||
+            !text_runtime.load_dflash(model_root, &error))
+        {
+            std::cerr << "Failed to load DFlash probe runtime: " << error << "\n";
+            return 1;
+        }
+
+        hunyuan_ocr::DFlashBlockProbeResult probe;
+        if (!text_runtime.run_vlm_fixture_dflash_probe(vlm_fixture_dir, &probe, &error))
+        {
+            std::cerr << "DFlash block probe failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "DFlash block probe:\n";
+        std::cout << "  seq_len: " << probe.seq_len << "\n";
+        std::cout << "  first_token: " << probe.first_token << "\n";
+        std::cout << "  acceptance_length: " << probe.acceptance_length << "\n";
+        std::cout << "  correction_token: " << probe.correction_token << "\n";
+        print_token_vector("  proposed_tokens: ", probe.proposed_tokens);
+        print_token_vector("  target_tokens: ", probe.target_tokens);
+        std::cout << "  match_expected_first_token: "
+                  << (probe.first_token_matches_expected ? "true" : "false") << "\n";
+        std::cout << "  match_expected_first_target_token: "
+                  << (probe.first_target_token_matches_expected ? "true" : "false") << "\n";
+        return probe.first_token_matches_expected &&
+                       probe.first_target_token_matches_expected
+                   ? 0
+                   : 3;
+    }
+
+    const bool pure_dflash_fixture = dflash &&
+        image_path.empty() &&
+        image_file_fixture_dir.empty() &&
+        image_preprocess_fixture_dir.empty() &&
+        vision_fixture_dir.empty();
+    if (pure_dflash_fixture)
+    {
+        std::string error;
+        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        if (!text_runtime.load(model_root, &error) ||
+            !text_runtime.load_dflash(model_root, &error))
+        {
+            std::cerr << "Failed to load DFlash runtime: " << error << "\n";
+            return 1;
+        }
+
+        hunyuan_ocr::DFlashDecodeResult result;
+        if (!text_runtime.run_vlm_fixture_dflash_decode(vlm_fixture_dir,
+                                                        max_tokens,
+                                                        &result,
+                                                        &error))
+        {
+            std::cerr << "DFlash fixture decode failed: " << error << "\n";
+            return 1;
+        }
+        return print_dflash_decode_result("DFlash fixture decode",
+                                          model_root,
+                                          vlm_fixture_dir,
+                                          result);
+    }
 
     if (!decode_ids_text.empty())
     {
@@ -1467,29 +1685,67 @@ int main(int argc, char** argv)
                     return 1;
                 }
 
-                hunyuan_ocr::TextDecodeResult decode;
-                if (!text_runtime.run_vlm_decode_with_prompt(prompt.input_ids,
-                                                             prompt.position_ids,
-                                                             prompt.image_token_id,
-                                                             vision.vision_features,
-                                                             vision.vision_token_count,
-                                                             expected_tokens,
-                                                             max_tokens,
-                                                             repetition_penalty,
-                                                             &decode,
-                                                             &error))
+                if (dflash)
                 {
-                    std::cerr << "Image + prompt + vision decode failed: " << error << "\n";
-                    return 1;
-                }
+                    if (!text_runtime.load_dflash(model_root, &error))
+                    {
+                        std::cerr << "Failed to load DFlash runtime: " << error << "\n";
+                        return 1;
+                    }
 
-                const int rc = print_prompt_decode_result("Image + prompt + vision decode",
-                                                          model_root,
-                                                          vlm_fixture_dir,
-                                                          decode);
-                if (rc != 0)
+                    hunyuan_ocr::DFlashDecodeResult decode;
+                    if (!text_runtime.run_vlm_dflash_decode_with_prompt(prompt.input_ids,
+                                                                        prompt.position_ids,
+                                                                        prompt.image_token_id,
+                                                                        vision.vision_features,
+                                                                        vision.vision_token_count,
+                                                                        expected_tokens,
+                                                                        max_tokens,
+                                                                        repetition_penalty,
+                                                                        &decode,
+                                                                        &error))
+                    {
+                        std::cerr << "Image + prompt + vision DFlash decode failed: "
+                                  << error << "\n";
+                        return 1;
+                    }
+
+                    const int rc = print_dflash_decode_result(
+                        "Image + prompt + vision DFlash decode",
+                        model_root,
+                        vlm_fixture_dir,
+                        decode);
+                    if (rc != 0)
+                    {
+                        return rc;
+                    }
+                }
+                else
                 {
-                    return rc;
+                    hunyuan_ocr::TextDecodeResult decode;
+                    if (!text_runtime.run_vlm_decode_with_prompt(prompt.input_ids,
+                                                                 prompt.position_ids,
+                                                                 prompt.image_token_id,
+                                                                 vision.vision_features,
+                                                                 vision.vision_token_count,
+                                                                 expected_tokens,
+                                                                 max_tokens,
+                                                                 repetition_penalty,
+                                                                 &decode,
+                                                                 &error))
+                    {
+                        std::cerr << "Image + prompt + vision decode failed: " << error << "\n";
+                        return 1;
+                    }
+
+                    const int rc = print_prompt_decode_result("Image + prompt + vision decode",
+                                                              model_root,
+                                                              vlm_fixture_dir,
+                                                              decode);
+                    if (rc != 0)
+                    {
+                        return rc;
+                    }
                 }
             }
             else if (!vlm_fixture_dir.empty())
@@ -1500,7 +1756,8 @@ int main(int argc, char** argv)
                                                             vision.vision_features,
                                                             vision.vision_token_count,
                                                             max_tokens,
-                                                            num_threads);
+                                                            num_threads,
+                                                            dflash);
                 if (rc != 0)
                 {
                     return rc;
@@ -1581,7 +1838,8 @@ int main(int argc, char** argv)
                                                             vision.vision_features,
                                                             vision.vision_token_count,
                                                             max_tokens,
-                                                            num_threads);
+                                                            num_threads,
+                                                            dflash);
                 if (rc != 0)
                 {
                     return rc;
@@ -1662,7 +1920,8 @@ int main(int argc, char** argv)
                                                             vision.vision_features,
                                                             vision.vision_token_count,
                                                             max_tokens,
-                                                            num_threads);
+                                                            num_threads,
+                                                            dflash);
                 if (rc != 0)
                 {
                     return rc;
@@ -1708,59 +1967,17 @@ int main(int argc, char** argv)
 
         if (!vlm_fixture_dir.empty())
         {
-            hunyuan_ocr::TextRuntime text_runtime(num_threads);
-            if (!text_runtime.load(model_root, &error))
+            const int rc = run_vlm_decode_with_features("Vision+VLM fixture decode",
+                                                        model_root,
+                                                        vlm_fixture_dir,
+                                                        vision.vision_features,
+                                                        vision.vision_token_count,
+                                                        max_tokens,
+                                                        num_threads,
+                                                        dflash);
+            if (rc != 0)
             {
-                std::cerr << "Failed to load text runtime: " << error << "\n";
-                return 1;
-            }
-
-            hunyuan_ocr::TextDecodeResult decode;
-            if (!text_runtime.run_vlm_fixture_decode_with_features(vlm_fixture_dir,
-                                                                   vision.vision_features,
-                                                                   vision.vision_token_count,
-                                                                   max_tokens,
-                                                                   &decode,
-                                                                   &error))
-            {
-                std::cerr << "Vision+VLM fixture decode failed: " << error << "\n";
-                return 1;
-            }
-
-            hunyuan_ocr::Tokenizer tokenizer;
-            if (!tokenizer.load(model_root + "/tokenizer/vocab.txt",
-                                model_root + "/tokenizer/special_tokens.json",
-                                &error))
-            {
-                std::cerr << "Failed to load tokenizer: " << error << "\n";
-                return 1;
-            }
-            const std::string generated_text = tokenizer.decode(decode.generated_tokens, true);
-
-            std::cout << "Vision+VLM fixture decode:\n";
-            std::cout << "  seq_len: " << decode.seq_len << "\n";
-            std::cout << "  checked_tokens: " << decode.checked_tokens << "\n";
-            std::cout << "  generated_token_count: " << decode.generated_tokens.size() << "\n";
-            std::cout << "  generated_text_chars: " << generated_text.size() << "\n";
-            print_token_vector("  generated_tokens: ", decode.generated_tokens);
-            print_token_vector("  expected_tokens: ", decode.expected_tokens);
-            std::cout << "  match_expected_tokens: " << (decode.matches_expected() ? "true" : "false") << "\n";
-
-            std::string expected_text;
-            if (read_text_file(vlm_fixture_dir + "/expected_text.txt", expected_text))
-            {
-                const bool text_match = strip_trailing_newlines(generated_text) == strip_trailing_newlines(expected_text);
-                std::cout << "  match_expected_text: " << (text_match ? "true" : "false") << "\n";
-                if (!text_match)
-                {
-                    return 4;
-                }
-            }
-            std::cout << "Decoded text:\n" << generated_text << "\n";
-
-            if (!decode.matches_expected())
-            {
-                return 3;
+                return rc;
             }
         }
 
@@ -1770,7 +1987,8 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!vlm_fixture_dir.empty() &&
+    if (!dflash &&
+        !vlm_fixture_dir.empty() &&
         vision_fixture_dir.empty() &&
         image_path.empty() &&
         prompt_mode_text.empty() &&
@@ -1802,11 +2020,31 @@ int main(int argc, char** argv)
         }
         const std::string generated_text = tokenizer.decode(decode.generated_tokens, true);
 
+        const auto safe_div = [](double num, double den) -> double {
+            if (den == 0.0 || !std::isfinite(den) || !std::isfinite(num))
+            {
+                return 0.0;
+            }
+            const double value = num / den;
+            return std::isfinite(value) ? value : 0.0;
+        };
+        const double tokens_per_second = safe_div(
+            static_cast<double>(decode.generated_tokens.size()),
+            decode.timing.total_ms / 1000.0);
+
         std::cout << "VLM fixture decode:\n";
         std::cout << "  seq_len: " << decode.seq_len << "\n";
         std::cout << "  checked_tokens: " << decode.checked_tokens << "\n";
         std::cout << "  generated_token_count: " << decode.generated_tokens.size() << "\n";
         std::cout << "  generated_text_chars: " << generated_text.size() << "\n";
+        std::cout << std::fixed << std::setprecision(3);
+        std::cout << "  timing_prefill_ms: " << decode.timing.prefill_ms << "\n";
+        std::cout << "  timing_text_embed_ms: " << decode.timing.text_embed_ms << "\n";
+        std::cout << "  timing_decode_ms: " << decode.timing.decode_ms << "\n";
+        std::cout << "  timing_lm_head_ms: " << decode.timing.lm_head_ms << "\n";
+        std::cout << "  timing_token_select_ms: " << decode.timing.token_select_ms << "\n";
+        std::cout << "  timing_total_ms: " << decode.timing.total_ms << "\n";
+        std::cout << "  timing_tokens_per_second: " << tokens_per_second << "\n";
         print_token_vector("  generated_tokens: ", decode.generated_tokens);
         print_token_vector("  expected_tokens: ", decode.expected_tokens);
         std::cout << "  match_expected_tokens: " << (decode.matches_expected() ? "true" : "false") << "\n";

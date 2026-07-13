@@ -42,6 +42,10 @@ def run_pnnx(
 ) -> None:
     require_file(pnnx, "pnnx executable")
     require_file(pt_path, "TorchScript model")
+    pnnx = pnnx.resolve()
+    pt_path = pt_path.resolve()
+    param_path = param_path.resolve()
+    bin_path = bin_path.resolve()
     cmd = [
         str(pnnx),
         str(pt_path),

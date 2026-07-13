@@ -20,7 +20,7 @@ def main() -> int:
         "cmake --build build --config Release --parallel",
         "ctest --test-dir build -C Release --output-on-failure",
         "--no-tests=error",
-        "precise_sdpa|multimodal_rope|utf8",
+        "precise_sdpa|multimodal_rope|utf8|dflash_runtime|text_decoder_aux|cli_options|package_model",
         "msys2/setup-msys2@v2",
         "msystem: UCRT64",
         "mingw-w64-ucrt-x86_64-gcc",

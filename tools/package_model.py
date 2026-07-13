@@ -12,9 +12,15 @@ from typing import Any
 
 
 DEFAULT_DYNAMIC_VISION_DIR = Path("models/export/vision_dynamic")
+DEFAULT_DFLASH_DIR = Path("models/export/dflash/ncnn")
+DEFAULT_DFLASH_DECODER_DIR = Path("models/export/text_decoder_dflash_aux")
 
+BASE_DECODER_DST = {
+    "text_decoder/text_decoder_kv.ncnn.param",
+    "text_decoder/text_decoder_kv.ncnn.bin",
+}
 
-RUNTIME_FILES = [
+STOCK_RUNTIME_FILES = [
     ("models/tokenizer/vocab.txt", "tokenizer/vocab.txt"),
     ("models/tokenizer/merges.txt", "tokenizer/merges.txt"),
     ("models/tokenizer/special_tokens.json", "tokenizer/special_tokens.json"),
@@ -25,6 +31,32 @@ RUNTIME_FILES = [
     ("models/export/text_decoder/text_decoder_kv.ncnn.bin", "text_decoder/text_decoder_kv.ncnn.bin"),
     ("models/export/lm_head/lm_head.ncnn.param", "lm_head/lm_head.ncnn.param"),
     ("models/export/lm_head/lm_head.ncnn.bin", "lm_head/lm_head.ncnn.bin"),
+]
+
+# Kept for import compatibility with tests/artifact_paths_test.py helpers and callers.
+RUNTIME_FILES = STOCK_RUNTIME_FILES
+BASE_DECODER_FILES = [
+    src_dst for src_dst in STOCK_RUNTIME_FILES if src_dst[1] in BASE_DECODER_DST
+]
+RUNTIME_FILES_WITHOUT_DECODER = [
+    src_dst for src_dst in STOCK_RUNTIME_FILES if src_dst[1] not in BASE_DECODER_DST
+]
+
+BASE_RUNTIME_FILES = [
+    "tokenizer/vocab.txt",
+    "tokenizer/merges.txt",
+    "tokenizer/special_tokens.json",
+    "tokenizer/eos_ids.json",
+    "text_embed/text_embed.ncnn.param",
+    "text_embed/text_embed.ncnn.bin",
+    "text_decoder/text_decoder_kv.ncnn.param",
+    "text_decoder/text_decoder_kv.ncnn.bin",
+    "lm_head/lm_head.ncnn.param",
+    "lm_head/lm_head.ncnn.bin",
+]
+
+BASE_RUNTIME_FILES_WITHOUT_DECODER = [
+    rel for rel in BASE_RUNTIME_FILES if rel not in BASE_DECODER_DST
 ]
 
 
@@ -64,6 +96,35 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic/ncnn",
+    )
+    parser.add_argument(
+        "--base-runtime-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Existing packaged runtime directory providing tokenizer/text_embed/text_decoder/lm_head. "
+            "When set, stock export layout paths are not required for those files."
+        ),
+    )
+    parser.add_argument(
+        "--dflash",
+        action="store_true",
+        help="Package DFlash draft weights and the auxiliary text decoder used by DFlash.",
+    )
+    parser.add_argument(
+        "--dflash-dir",
+        type=Path,
+        default=None,
+        help="Directory containing dflash.ncnn.param/bin. Default: <workspace>/models/export/dflash/ncnn",
+    )
+    parser.add_argument(
+        "--dflash-decoder-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory containing the auxiliary text_decoder_kv.ncnn.param/bin used with DFlash. "
+            "Default: <workspace>/models/export/text_decoder_dflash_aux"
+        ),
     )
     parser.add_argument(
         "--copy",
@@ -271,11 +332,58 @@ def main() -> int:
         if args.dynamic_vision_dir is not None
         else workspace / DEFAULT_DYNAMIC_VISION_DIR / "ncnn"
     )
+    dflash_dir = (
+        args.dflash_dir.resolve()
+        if args.dflash_dir is not None
+        else workspace / DEFAULT_DFLASH_DIR
+    )
+    dflash_decoder_dir = (
+        args.dflash_decoder_dir.resolve()
+        if args.dflash_decoder_dir is not None
+        else workspace / DEFAULT_DFLASH_DECODER_DIR
+    )
+    base_runtime_dir = (
+        args.base_runtime_dir.resolve() if args.base_runtime_dir is not None else None
+    )
+
+    if (args.dflash_dir is not None or args.dflash_decoder_dir is not None) and not args.dflash:
+        fail("--dflash-dir and --dflash-decoder-dir require --dflash")
 
     if args.vision_backend in ("fixed", "both"):
         require_file(vision_summary)
-    for src_rel, _ in RUNTIME_FILES:
-        require_file(workspace / src_rel)
+
+    # List of (src_path, dst_rel) for non-vision core runtime files.
+    core_sources: list[tuple[Path, str]] = []
+    if base_runtime_dir is not None:
+        runtime_rels = (
+            BASE_RUNTIME_FILES_WITHOUT_DECODER if args.dflash else BASE_RUNTIME_FILES
+        )
+        for rel in runtime_rels:
+            src = base_runtime_dir / rel
+            require_file(src)
+            core_sources.append((src, rel))
+    else:
+        stock_files = RUNTIME_FILES_WITHOUT_DECODER if args.dflash else STOCK_RUNTIME_FILES
+        for src_rel, dst_rel in stock_files:
+            src = workspace / src_rel
+            require_file(src)
+            core_sources.append((src, dst_rel))
+
+    if args.dflash:
+        aux_decoder_param = dflash_decoder_dir / "text_decoder_kv.ncnn.param"
+        aux_decoder_bin = dflash_decoder_dir / "text_decoder_kv.ncnn.bin"
+        dflash_param = dflash_dir / "dflash.ncnn.param"
+        dflash_bin = dflash_dir / "dflash.ncnn.bin"
+        for path in (aux_decoder_param, aux_decoder_bin, dflash_param, dflash_bin):
+            require_file(path)
+        core_sources.extend(
+            [
+                (aux_decoder_param, "text_decoder/text_decoder_kv.ncnn.param"),
+                (aux_decoder_bin, "text_decoder/text_decoder_kv.ncnn.bin"),
+                (dflash_param, "dflash/dflash.ncnn.param"),
+                (dflash_bin, "dflash/dflash.ncnn.bin"),
+            ]
+        )
 
     grids = unique_vision_grids(vision_summary) if args.vision_backend in ("fixed", "both") else []
     if args.vision_backend in ("dynamic", "both"):
@@ -283,8 +391,8 @@ def main() -> int:
     safe_prepare_output(output, workspace, repo_root, args.force)
 
     copied_files = 0
-    for src_rel, dst_rel in RUNTIME_FILES:
-        install_file(workspace / src_rel, output / dst_rel, args.copy)
+    for src_path, dst_rel in core_sources:
+        install_file(src_path, output / dst_rel, args.copy)
         copied_files += 1
 
     if args.vision_backend in ("fixed", "both"):
@@ -307,6 +415,11 @@ def main() -> int:
     print(f"vision_backend: {args.vision_backend}")
     print(f"runtime_files: {copied_files}")
     print(f"vision_grids: {grid_names}")
+    print(f"dflash: {'enabled' if args.dflash else 'disabled'}")
+    print(
+        "base_runtime_dir: "
+        + (str(base_runtime_dir) if base_runtime_dir is not None else "stock-export")
+    )
     return 0
 
 

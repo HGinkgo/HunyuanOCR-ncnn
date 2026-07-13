@@ -45,6 +45,27 @@ std::vector<float> build_mrope(const std::vector<int>& position_ids, int seq_len
     return values;
 }
 
+bool extract_dflash_target_hidden(ncnn::Extractor& ex,
+                                  std::array<ncnn::Mat, 4>* hidden,
+                                  std::string* error)
+{
+    if (hidden == nullptr)
+    {
+        if (error) *error = "DFlash target hidden pointer is null";
+        return false;
+    }
+    for (size_t index = 0; index < hidden->size(); ++index)
+    {
+        const std::string name = "out" + std::to_string(index + 1);
+        if (ex.extract(name.c_str(), (*hidden)[index]) != 0)
+        {
+            if (error) *error = "extract failed: " + name;
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace detail
 
 namespace {
@@ -117,6 +138,12 @@ ncnn::Mat make_mat_from_vector(int w, int h, const std::vector<float>& values)
     return mat.clone();
 }
 
+ncnn::Mat make_mat_from_vector_3d(int w, int h, int c, const std::vector<float>& values)
+{
+    ncnn::Mat mat(w, h, c, const_cast<float*>(values.data()));
+    return mat.clone();
+}
+
 ncnn::Mat make_prefill_mask(int seq_len)
 {
     ncnn::Mat mask(seq_len, seq_len);
@@ -144,6 +171,21 @@ std::vector<float> build_decode_rope(int position, bool use_cos)
     for (int dim = 0; dim < kHeadDim; ++dim)
     {
         values[static_cast<size_t>(dim)] = rope_value(position, dim, use_cos);
+    }
+    return values;
+}
+
+std::vector<float> build_verify_rope(int start_position, bool use_cos)
+{
+    std::vector<float> values(
+        static_cast<size_t>(detail::kDFlashBlockSize) * kHeadDim);
+    for (int row = 0; row < detail::kDFlashBlockSize; ++row)
+    {
+        for (int dim = 0; dim < kHeadDim; ++dim)
+        {
+            values[static_cast<size_t>(row) * kHeadDim + dim] =
+                rope_value(start_position + row, dim, use_cos);
+        }
     }
     return values;
 }
@@ -355,6 +397,7 @@ bool run_decoder_prefill(const ncnn::Net& net,
                          const ncnn::Mat& rope_sin,
                          ncnn::Mat* hidden,
                          KVCache* caches,
+                         std::array<ncnn::Mat, 4>* target_hidden,
                          std::string* error)
 {
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
@@ -386,6 +429,11 @@ bool run_decoder_prefill(const ncnn::Net& net,
         }
         caches->emplace_back(std::move(key), std::move(value));
     }
+    if (target_hidden != nullptr &&
+        !detail::extract_dflash_target_hidden(ex, target_hidden, error))
+    {
+        return false;
+    }
     return extract_or_error(ex, "out0", hidden, error);
 }
 
@@ -397,6 +445,7 @@ bool run_decoder_step(const ncnn::Net& net,
                       const KVCache& caches,
                       ncnn::Mat* hidden,
                       KVCache* updated,
+                      std::array<ncnn::Mat, 4>* target_hidden,
                       std::string* error)
 {
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
@@ -448,6 +497,11 @@ bool run_decoder_step(const ncnn::Net& net,
         }
         updated->emplace_back(std::move(key), std::move(value));
     }
+    if (target_hidden != nullptr &&
+        !detail::extract_dflash_target_hidden(ex, target_hidden, error))
+    {
+        return false;
+    }
     return extract_or_error(ex, "out0", hidden, error);
 }
 
@@ -476,6 +530,543 @@ int select_next_token(const ncnn::Mat& logits, const std::vector<int>& history, 
     }
 
     return static_cast<int>(std::max_element(scores.begin(), scores.end()) - scores.begin());
+}
+
+bool select_logit_rows(const ncnn::Mat& logits,
+                       int row_count,
+                       const std::vector<int>& initial_history,
+                       const std::vector<int>* row_prefix,
+                       float repetition_penalty,
+                       std::vector<int>* tokens,
+                       std::string* error)
+{
+    if (tokens == nullptr || row_count <= 0 || logits.w != kVocabSize || logits.h != row_count)
+    {
+        if (error) *error = "lm_head row shape mismatch";
+        return false;
+    }
+    if (row_prefix != nullptr && row_prefix->size() < static_cast<size_t>(row_count))
+    {
+        if (error) *error = "lm_head row prefix is too short";
+        return false;
+    }
+
+    tokens->clear();
+    tokens->reserve(static_cast<size_t>(row_count));
+    std::vector<int> history = initial_history;
+    for (int row = 0; row < row_count; ++row)
+    {
+        if (row_prefix != nullptr)
+        {
+            history.push_back((*row_prefix)[static_cast<size_t>(row)]);
+        }
+        const ncnn::Mat row_logits = logits.row_range(row, 1);
+        tokens->push_back(select_next_token(row_logits, history, repetition_penalty, nullptr));
+    }
+    return true;
+}
+
+struct DFlashPrefillState {
+    KVCache caches;
+    std::array<ncnn::Mat, 4> target_hidden;
+    int first_token = -1;
+};
+
+struct DFlashBlockExecution {
+    KVCache speculative_caches;
+    std::array<ncnn::Mat, 4> speculative_target_hidden;
+    std::vector<int> proposed_tokens;
+    std::vector<int> target_tokens;
+    int acceptance_length = -1;
+    int correction_token = -1;
+};
+
+bool run_dflash_prefill(const ncnn::Net& decoder_net,
+                        const ncnn::Net& lm_head_net,
+                        int seq_len,
+                        float repetition_penalty,
+                        const std::vector<float>& inputs_embeds,
+                        const std::vector<int>& input_ids,
+                        const std::vector<int>& position_ids,
+                        DFlashPrefillState* state,
+                        DFlashDecodeTiming* timing,
+                        std::string* error)
+{
+    const auto prefill_start = Clock::now();
+    if (state == nullptr)
+    {
+        if (error) *error = "DFlash prefill state pointer is null";
+        return false;
+    }
+    if (seq_len <= 0 ||
+        inputs_embeds.size() != static_cast<size_t>(seq_len) * kHiddenSize ||
+        input_ids.size() != static_cast<size_t>(seq_len) ||
+        position_ids.size() != static_cast<size_t>(seq_len) * 4)
+    {
+        if (error) *error = "DFlash prefill input tensor sizes do not match metadata";
+        return false;
+    }
+
+    const ncnn::Mat input_mat = make_mat_from_vector(kHiddenSize, seq_len, inputs_embeds);
+    const ncnn::Mat prefill_mask = make_prefill_mask(seq_len);
+    const std::vector<float> xd_cos_data = detail::build_mrope(position_ids, seq_len, true);
+    const std::vector<float> xd_sin_data = detail::build_mrope(position_ids, seq_len, false);
+    const ncnn::Mat xd_cos = make_mat_from_vector(kHeadDim, seq_len, xd_cos_data);
+    const ncnn::Mat xd_sin = make_mat_from_vector(kHeadDim, seq_len, xd_sin_data);
+
+    ncnn::Mat prefill_hidden;
+    DFlashPrefillState local;
+    if (!run_decoder_prefill(decoder_net,
+                             input_mat,
+                             prefill_mask,
+                             xd_cos,
+                             xd_sin,
+                             xd_cos,
+                             xd_sin,
+                             &prefill_hidden,
+                             &local.caches,
+                             &local.target_hidden,
+                             error))
+    {
+        return false;
+    }
+
+    ncnn::Mat first_logits;
+    const ncnn::Mat last_hidden = prefill_hidden.row_range(seq_len - 1, 1);
+    if (!run_lm_head(lm_head_net, last_hidden, &first_logits, error))
+    {
+        return false;
+    }
+    local.first_token =
+        select_next_token(first_logits, input_ids, repetition_penalty, nullptr);
+    *state = std::move(local);
+    if (timing != nullptr)
+    {
+        timing->prefill_ms += elapsed_ms(prefill_start, Clock::now());
+    }
+    return true;
+}
+
+bool run_dflash_block(const ncnn::Net& text_embed_net,
+                      const ncnn::Net& decoder_net,
+                      const ncnn::Net& lm_head_net,
+                      const DFlashDraftRuntime& draft_runtime,
+                      int current_token,
+                      float repetition_penalty,
+                      const std::vector<int>& history_before_block,
+                      const KVCache& caches,
+                      const std::array<ncnn::Mat, 4>& target_hidden,
+                      DFlashBlockExecution* execution,
+                      DFlashDecodeTiming* timing,
+                      std::string* error)
+{
+    if (execution == nullptr || caches.size() != kAttentionLayerCount)
+    {
+        if (error) *error = "invalid DFlash block state";
+        return false;
+    }
+    const int context_len = target_hidden[0].h;
+    if (current_token < 0 || context_len <= 0)
+    {
+        if (error) *error = "invalid DFlash block context";
+        return false;
+    }
+    for (const ncnn::Mat& hidden : target_hidden)
+    {
+        if (hidden.dims != 2 || hidden.w != kHiddenSize || hidden.h != context_len)
+        {
+            if (error) *error = "DFlash target hidden shape mismatch";
+            return false;
+        }
+    }
+
+    const auto draft_prepare_start = Clock::now();
+    std::vector<int> proposed = detail::build_dflash_block(current_token);
+
+    std::vector<float> noise_embeddings;
+    if (!run_text_embed_tokens(text_embed_net,
+                               proposed,
+                               detail::kDFlashBlockSize,
+                               &noise_embeddings,
+                               error))
+    {
+        return false;
+    }
+
+    const int draft_total_len = context_len + detail::kDFlashBlockSize;
+    const std::vector<float> draft_cos_data = detail::build_dflash_rope(draft_total_len, true);
+    const std::vector<float> draft_sin_data = detail::build_dflash_rope(draft_total_len, false);
+    const std::vector<float> draft_mask_data = detail::build_dflash_attention_mask(context_len);
+    DFlashDraftInput draft_input;
+    draft_input.noise_embedding =
+        make_mat_from_vector(kHiddenSize, detail::kDFlashBlockSize, noise_embeddings);
+    draft_input.target_hidden = target_hidden;
+    draft_input.cos = make_mat_from_vector_3d(kHeadDim, draft_total_len, 1, draft_cos_data);
+    draft_input.sin = make_mat_from_vector_3d(kHeadDim, draft_total_len, 1, draft_sin_data);
+    draft_input.attention_mask =
+        make_mat_from_vector_3d(draft_total_len,
+                                detail::kDFlashBlockSize,
+                                1,
+                                draft_mask_data);
+    if (timing != nullptr)
+    {
+        timing->draft_prepare_ms += elapsed_ms(draft_prepare_start, Clock::now());
+    }
+
+    const auto draft_infer_start = Clock::now();
+    ncnn::Mat draft_hidden;
+    if (!draft_runtime.run(draft_input, &draft_hidden, error))
+    {
+        return false;
+    }
+    if (timing != nullptr)
+    {
+        timing->draft_infer_ms += elapsed_ms(draft_infer_start, Clock::now());
+    }
+
+    const auto draft_postprocess_start = Clock::now();
+    ncnn::Mat draft_logits;
+    const ncnn::Mat draft_prediction_hidden =
+        draft_hidden.row_range(1, detail::kDFlashBlockSize - 1);
+    if (!run_lm_head(lm_head_net, draft_prediction_hidden, &draft_logits, error))
+    {
+        return false;
+    }
+    std::vector<int> draft_tokens;
+    if (!select_logit_rows(draft_logits,
+                           detail::kDFlashBlockSize - 1,
+                           {},
+                           nullptr,
+                           1.0f,
+                           &draft_tokens,
+                           error))
+    {
+        return false;
+    }
+    std::copy(draft_tokens.begin(), draft_tokens.end(), proposed.begin() + 1);
+    if (timing != nullptr)
+    {
+        timing->draft_postprocess_ms += elapsed_ms(draft_postprocess_start, Clock::now());
+    }
+
+    const auto verify_prepare_start = Clock::now();
+    std::vector<float> proposed_embeddings;
+    if (!run_text_embed_tokens(text_embed_net,
+                               proposed,
+                               detail::kDFlashBlockSize,
+                               &proposed_embeddings,
+                               error))
+    {
+        return false;
+    }
+    const std::vector<float> verify_mask_data = detail::build_dflash_verify_mask(context_len);
+    const std::vector<float> verify_cos_data = build_verify_rope(context_len, true);
+    const std::vector<float> verify_sin_data = build_verify_rope(context_len, false);
+    const ncnn::Mat proposed_mat =
+        make_mat_from_vector(kHiddenSize, detail::kDFlashBlockSize, proposed_embeddings);
+    const ncnn::Mat verify_mask =
+        make_mat_from_vector(context_len + detail::kDFlashBlockSize,
+                             detail::kDFlashBlockSize,
+                             verify_mask_data);
+    const ncnn::Mat verify_cos =
+        make_mat_from_vector(kHeadDim, detail::kDFlashBlockSize, verify_cos_data);
+    const ncnn::Mat verify_sin =
+        make_mat_from_vector(kHeadDim, detail::kDFlashBlockSize, verify_sin_data);
+    if (timing != nullptr)
+    {
+        timing->verify_prepare_ms += elapsed_ms(verify_prepare_start, Clock::now());
+    }
+
+    const auto verify_infer_start = Clock::now();
+    ncnn::Mat verify_hidden;
+    KVCache speculative_caches;
+    std::array<ncnn::Mat, 4> speculative_target_hidden;
+    if (!run_decoder_step(decoder_net,
+                          proposed_mat,
+                          verify_mask,
+                          verify_cos,
+                          verify_sin,
+                          caches,
+                          &verify_hidden,
+                          &speculative_caches,
+                          &speculative_target_hidden,
+                          error))
+    {
+        return false;
+    }
+    if (timing != nullptr)
+    {
+        timing->verify_infer_ms += elapsed_ms(verify_infer_start, Clock::now());
+    }
+
+    const auto verify_postprocess_start = Clock::now();
+    ncnn::Mat target_logits;
+    if (!run_lm_head(lm_head_net, verify_hidden, &target_logits, error))
+    {
+        return false;
+    }
+    std::vector<int> posterior;
+    if (!select_logit_rows(target_logits,
+                           detail::kDFlashBlockSize,
+                           history_before_block,
+                           &proposed,
+                           repetition_penalty,
+                           &posterior,
+                           error))
+    {
+        return false;
+    }
+
+    const int acceptance_length = detail::dflash_acceptance_length(proposed, posterior);
+    if (acceptance_length < 0 || acceptance_length >= detail::kDFlashBlockSize)
+    {
+        if (error) *error = "invalid DFlash acceptance length";
+        return false;
+    }
+
+    DFlashBlockExecution local;
+    local.speculative_caches = std::move(speculative_caches);
+    local.speculative_target_hidden = std::move(speculative_target_hidden);
+    local.proposed_tokens = std::move(proposed);
+    local.target_tokens = std::move(posterior);
+    local.acceptance_length = acceptance_length;
+    local.correction_token =
+        local.target_tokens[static_cast<size_t>(acceptance_length)];
+    *execution = std::move(local);
+    if (timing != nullptr)
+    {
+        timing->verify_postprocess_ms += elapsed_ms(verify_postprocess_start, Clock::now());
+    }
+    return true;
+}
+
+bool run_dflash_block_probe(const ncnn::Net& text_embed_net,
+                            const ncnn::Net& decoder_net,
+                            const ncnn::Net& lm_head_net,
+                            const DFlashDraftRuntime& draft_runtime,
+                            int seq_len,
+                            float repetition_penalty,
+                            const std::vector<float>& inputs_embeds,
+                            const std::vector<int>& input_ids,
+                            const std::vector<int>& position_ids,
+                            const std::vector<int>& expected_tokens,
+                            DFlashBlockProbeResult* result,
+                            std::string* error)
+{
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash probe result pointer is null";
+        return false;
+    }
+    if (expected_tokens.size() < 2)
+    {
+        if (error) *error = "DFlash probe requires two expected tokens";
+        return false;
+    }
+
+    DFlashPrefillState prefill;
+    if (!run_dflash_prefill(decoder_net,
+                            lm_head_net,
+                            seq_len,
+                            repetition_penalty,
+                            inputs_embeds,
+                            input_ids,
+                            position_ids,
+                            &prefill,
+                            nullptr,
+                            error))
+    {
+        return false;
+    }
+
+    DFlashBlockExecution block;
+    if (!run_dflash_block(text_embed_net,
+                          decoder_net,
+                          lm_head_net,
+                          draft_runtime,
+                          prefill.first_token,
+                          repetition_penalty,
+                          input_ids,
+                          prefill.caches,
+                          prefill.target_hidden,
+                          &block,
+                          nullptr,
+                          error))
+    {
+        return false;
+    }
+
+    DFlashBlockProbeResult local;
+    local.seq_len = seq_len;
+    local.first_token = prefill.first_token;
+    local.acceptance_length = block.acceptance_length;
+    local.correction_token = block.correction_token;
+    local.first_token_matches_expected = prefill.first_token == expected_tokens[0];
+    local.first_target_token_matches_expected = block.target_tokens[0] == expected_tokens[1];
+    local.proposed_tokens = std::move(block.proposed_tokens);
+    local.target_tokens = std::move(block.target_tokens);
+    *result = std::move(local);
+    return true;
+}
+
+bool decode_dflash_from_embeddings(const ncnn::Net& text_embed_net,
+                                   const ncnn::Net& decoder_net,
+                                   const ncnn::Net& lm_head_net,
+                                   const DFlashDraftRuntime& draft_runtime,
+                                   int seq_len,
+                                   int max_tokens,
+                                   float repetition_penalty,
+                                   const std::vector<float>& inputs_embeds,
+                                   const std::vector<int>& input_ids,
+                                   const std::vector<int>& position_ids,
+                                   const std::vector<int>& expected_tokens,
+                                   const std::vector<int>& eos_ids,
+                                   DFlashDecodeResult* result,
+                                   std::string* error)
+{
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash decode result pointer is null";
+        return false;
+    }
+    if (!std::isfinite(repetition_penalty) || repetition_penalty <= 0.0f)
+    {
+        if (error) *error = "repetition_penalty must be positive";
+        return false;
+    }
+    if (expected_tokens.empty())
+    {
+        if (max_tokens <= 0) max_tokens = 1024;
+    }
+    else if (max_tokens <= 0 || max_tokens > static_cast<int>(expected_tokens.size()))
+    {
+        max_tokens = static_cast<int>(expected_tokens.size());
+    }
+
+    const auto total_start = Clock::now();
+    DFlashDecodeResult local;
+    local.decode.seq_len = seq_len;
+    local.decode.checked_tokens = max_tokens;
+    local.decode.repetition_penalty = repetition_penalty;
+    if (!expected_tokens.empty())
+    {
+        local.decode.expected_tokens.assign(expected_tokens.begin(),
+                                            expected_tokens.begin() + max_tokens);
+    }
+
+    DFlashPrefillState state;
+    if (!run_dflash_prefill(decoder_net,
+                            lm_head_net,
+                            seq_len,
+                            repetition_penalty,
+                            inputs_embeds,
+                            input_ids,
+                            position_ids,
+                            &state,
+                            &local.timing,
+                            error))
+    {
+        return false;
+    }
+
+    std::vector<int> history_before_block = input_ids;
+    int current_token = state.first_token;
+    bool stop = false;
+    while (static_cast<int>(local.decode.generated_tokens.size()) < max_tokens && !stop)
+    {
+        const int context_len = state.target_hidden[0].h;
+        DFlashBlockExecution block;
+        if (!run_dflash_block(text_embed_net,
+                              decoder_net,
+                              lm_head_net,
+                              draft_runtime,
+                              current_token,
+                              repetition_penalty,
+                              history_before_block,
+                              state.caches,
+                              state.target_hidden,
+                              &block,
+                              &local.timing,
+                              error))
+        {
+            return false;
+        }
+
+        const auto commit_start = Clock::now();
+        const int available = block.acceptance_length + 1;
+        const int remaining = max_tokens -
+            static_cast<int>(local.decode.generated_tokens.size());
+        int committed = std::min(available, remaining);
+        for (int index = 0; index < committed; ++index)
+        {
+            const int token = block.proposed_tokens[static_cast<size_t>(index)];
+            local.decode.generated_tokens.push_back(token);
+            if (is_eos_token(token, eos_ids))
+            {
+                committed = index + 1;
+                stop = true;
+                break;
+            }
+        }
+
+        const int accepted_draft_tokens = std::max(0, committed - 1);
+        ++local.block_count;
+        local.drafted_token_count += detail::kDFlashBlockSize - 1;
+        local.accepted_draft_token_count += accepted_draft_tokens;
+        local.acceptance_lengths.push_back(accepted_draft_tokens);
+
+        if (committed < available || stop ||
+            static_cast<int>(local.decode.generated_tokens.size()) >= max_tokens)
+        {
+            local.timing.commit_ms += elapsed_ms(commit_start, Clock::now());
+            break;
+        }
+
+        KVCache committed_caches;
+        committed_caches.reserve(state.caches.size());
+        const int committed_context_len = context_len + committed;
+        for (size_t layer = 0; layer < block.speculative_caches.size(); ++layer)
+        {
+            ncnn::Mat key;
+            ncnn::Mat value;
+            if (!detail::view_dflash_rows(block.speculative_caches[layer].first,
+                                          committed_context_len,
+                                          &key,
+                                          error) ||
+                !detail::view_dflash_rows(block.speculative_caches[layer].second,
+                                          committed_context_len,
+                                          &value,
+                                          error))
+            {
+                return false;
+            }
+            committed_caches.emplace_back(std::move(key), std::move(value));
+        }
+        state.caches = std::move(committed_caches);
+        for (size_t index = 0; index < state.target_hidden.size(); ++index)
+        {
+            if (!detail::append_dflash_rows(&state.target_hidden[index],
+                                            block.speculative_target_hidden[index],
+                                            committed,
+                                            error))
+            {
+                return false;
+            }
+        }
+        history_before_block.insert(history_before_block.end(),
+                                    block.proposed_tokens.begin(),
+                                    block.proposed_tokens.begin() + committed);
+        current_token = block.correction_token;
+        local.timing.commit_ms += elapsed_ms(commit_start, Clock::now());
+    }
+
+    if (!local.decode.expected_tokens.empty())
+    {
+        local.decode.expected_tokens.resize(local.decode.generated_tokens.size());
+    }
+    local.timing.total_ms = elapsed_ms(total_start, Clock::now());
+    *result = std::move(local);
+    return true;
 }
 
 bool decode_from_embeddings(const ncnn::Net& text_embed_net,
@@ -534,7 +1125,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
     KVCache caches;
     const auto prefill_start = Clock::now();
     if (!run_decoder_prefill(decoder_net, input_mat, prefill_mask, xd_cos, xd_sin, xd_cos, xd_sin,
-                             &prefill_hidden, &caches, error))
+                             &prefill_hidden, &caches, nullptr, error))
     {
         return false;
     }
@@ -609,7 +1200,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         ncnn::Mat decode_hidden;
         KVCache updated;
         if (!run_decoder_step(decoder_net, current_embed, decode_mask, decode_cos, decode_sin,
-                              caches, &decode_hidden, &updated, error))
+                              caches, &decode_hidden, &updated, nullptr, error))
         {
             return false;
         }
@@ -735,12 +1326,94 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                   error);
 }
 
+bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
+                                      const ncnn::Net& decoder_net,
+                                      const ncnn::Net& lm_head_net,
+                                      const DFlashDraftRuntime& draft_runtime,
+                                      const std::vector<int>& input_ids,
+                                      const std::vector<int>& position_ids,
+                                      int image_token_id,
+                                      const std::vector<float>& vision_features,
+                                      int vision_token_count,
+                                      const std::vector<int>& expected_tokens,
+                                      const std::vector<int>& eos_ids,
+                                      int max_tokens,
+                                      float repetition_penalty,
+                                      DFlashDecodeResult* result,
+                                      std::string* error)
+{
+    const int seq_len = static_cast<int>(input_ids.size());
+    if (seq_len <= 0)
+    {
+        if (error) *error = "prompt input_ids must not be empty";
+        return false;
+    }
+    if (position_ids.size() != static_cast<size_t>(seq_len) * 4)
+    {
+        if (error) *error = "prompt position_ids size mismatch";
+        return false;
+    }
+    if (vision_token_count <= 0 ||
+        vision_features.size() != static_cast<size_t>(vision_token_count) * kHiddenSize)
+    {
+        if (error) *error = "vision feature size mismatch";
+        return false;
+    }
+
+    std::vector<float> inputs_embeds;
+    if (!run_text_embed_tokens(text_embed_net, input_ids, seq_len, &inputs_embeds, error))
+    {
+        return false;
+    }
+    int injected = 0;
+    for (int i = 0; i < seq_len; ++i)
+    {
+        if (input_ids[static_cast<size_t>(i)] != image_token_id)
+        {
+            continue;
+        }
+        if (injected >= vision_token_count)
+        {
+            if (error) *error = "more image tokens than vision features";
+            return false;
+        }
+        std::memcpy(inputs_embeds.data() + static_cast<size_t>(i) * kHiddenSize,
+                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
+                    static_cast<size_t>(kHiddenSize) * sizeof(float));
+        ++injected;
+    }
+    if (injected != vision_token_count)
+    {
+        if (error) {
+            *error = "image token count mismatch: injected " + std::to_string(injected) +
+                     ", expected " + std::to_string(vision_token_count);
+        }
+        return false;
+    }
+
+    return decode_dflash_from_embeddings(text_embed_net,
+                                         decoder_net,
+                                         lm_head_net,
+                                         draft_runtime,
+                                         seq_len,
+                                         max_tokens,
+                                         repetition_penalty,
+                                         inputs_embeds,
+                                         input_ids,
+                                         position_ids,
+                                         expected_tokens,
+                                         eos_ids,
+                                         result,
+                                         error);
+}
+
 } // namespace
 
 TextRuntime::TextRuntime(int num_threads)
     : text_embed_net_(new ncnn::Net),
       text_decoder_net_(new ncnn::Net),
       lm_head_net_(new ncnn::Net),
+      dflash_draft_(new DFlashDraftRuntime(num_threads)),
       num_threads_(num_threads)
 {
 }
@@ -749,6 +1422,7 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
 {
     const std::filesystem::path root = path_from_utf8(model_root);
     ready_ = false;
+    dflash_draft_.reset(new DFlashDraftRuntime(num_threads_));
     eos_ids_.clear();
 
     if (!load_eos_ids(path_to_utf8(root / "tokenizer" / "eos_ids.json"), &eos_ids_, error))
@@ -795,9 +1469,27 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     return true;
 }
 
+bool TextRuntime::load_dflash(const std::string& model_root, std::string* error)
+{
+    if (!ready_)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    const std::filesystem::path root = path_from_utf8(model_root);
+    return dflash_draft_->load(path_to_utf8(root / "dflash" / "dflash.ncnn.param"),
+                               path_to_utf8(root / "dflash" / "dflash.ncnn.bin"),
+                               error);
+}
+
 bool TextRuntime::ready() const
 {
     return ready_;
+}
+
+bool TextRuntime::dflash_ready() const
+{
+    return dflash_draft_ != nullptr && dflash_draft_->ready();
 }
 
 bool TextDecodeResult::matches_expected() const
@@ -1013,8 +1705,250 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
                                   expected_tokens,
                                   eos_ids_,
                                   result,
-                                  nullptr,
+                                  &result->timing,
                                   error);
+}
+
+bool TextRuntime::run_vlm_fixture_dflash_probe(const std::string& fixture_dir,
+                                               DFlashBlockProbeResult* result,
+                                               std::string* error) const
+{
+    if (!ready_)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (!dflash_ready())
+    {
+        if (error) *error = "DFlash draft runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash probe result pointer is null";
+        return false;
+    }
+
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
+    VlmFixtureMeta meta;
+    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    {
+        return false;
+    }
+
+    std::vector<int> input_ids;
+    std::vector<int> position_ids;
+    std::vector<int> expected_tokens;
+    std::vector<float> vision_features;
+    if (!read_binary_vector(root / "input_ids.i32", static_cast<size_t>(meta.seq_len), &input_ids, error) ||
+        !read_binary_vector(root / "position_ids.i32", static_cast<size_t>(meta.seq_len) * 4, &position_ids, error) ||
+        !read_binary_vector(root / "expected_tokens.i32", static_cast<size_t>(meta.expected_token_count), &expected_tokens, error) ||
+        !read_binary_vector(root / "vision_features.f32", static_cast<size_t>(meta.vision_token_count) * kHiddenSize, &vision_features, error))
+    {
+        return false;
+    }
+
+    std::vector<float> inputs_embeds;
+    if (!run_text_embed_tokens(*text_embed_net_, input_ids, meta.seq_len, &inputs_embeds, error))
+    {
+        return false;
+    }
+    int injected = 0;
+    for (int index = 0; index < meta.seq_len; ++index)
+    {
+        if (input_ids[static_cast<size_t>(index)] != meta.image_token_id)
+        {
+            continue;
+        }
+        if (injected >= meta.vision_token_count)
+        {
+            if (error) *error = "more image tokens than vision features";
+            return false;
+        }
+        std::memcpy(inputs_embeds.data() + static_cast<size_t>(index) * kHiddenSize,
+                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
+                    static_cast<size_t>(kHiddenSize) * sizeof(float));
+        ++injected;
+    }
+    if (injected != meta.vision_token_count)
+    {
+        if (error) *error = "image token count mismatch in DFlash probe";
+        return false;
+    }
+
+    return run_dflash_block_probe(*text_embed_net_,
+                                  *text_decoder_net_,
+                                  *lm_head_net_,
+                                  *dflash_draft_,
+                                  meta.seq_len,
+                                  kDefaultRepetitionPenalty,
+                                  inputs_embeds,
+                                  input_ids,
+                                  position_ids,
+                                  expected_tokens,
+                                  result,
+                                  error);
+}
+
+bool TextRuntime::run_vlm_fixture_dflash_decode(const std::string& fixture_dir,
+                                                int max_tokens,
+                                                DFlashDecodeResult* result,
+                                                std::string* error) const
+{
+    if (!ready_)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (!dflash_ready())
+    {
+        if (error) *error = "DFlash draft runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash decode result pointer is null";
+        return false;
+    }
+
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
+    VlmFixtureMeta meta;
+    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    {
+        return false;
+    }
+
+    std::vector<float> vision_features;
+    if (!read_binary_vector(root / "vision_features.f32",
+                            static_cast<size_t>(meta.vision_token_count) * kHiddenSize,
+                            &vision_features,
+                            error))
+    {
+        return false;
+    }
+
+    return run_vlm_fixture_dflash_decode_with_features(fixture_dir,
+                                                       vision_features,
+                                                       meta.vision_token_count,
+                                                       max_tokens,
+                                                       result,
+                                                       error);
+}
+
+bool TextRuntime::run_vlm_fixture_dflash_decode_with_features(
+    const std::string& fixture_dir,
+    const std::vector<float>& vision_features,
+    int vision_token_count,
+    int max_tokens,
+    DFlashDecodeResult* result,
+    std::string* error) const
+{
+    if (!ready_)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (!dflash_ready())
+    {
+        if (error) *error = "DFlash draft runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash decode result pointer is null";
+        return false;
+    }
+
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
+    VlmFixtureMeta meta;
+    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    {
+        return false;
+    }
+    if (vision_token_count != meta.vision_token_count)
+    {
+        if (error) {
+            *error = "external vision token count mismatch: got " +
+                     std::to_string(vision_token_count) + ", expected " +
+                     std::to_string(meta.vision_token_count);
+        }
+        return false;
+    }
+
+    std::vector<int> input_ids;
+    std::vector<int> position_ids;
+    std::vector<int> expected_tokens;
+    if (!read_binary_vector(root / "input_ids.i32",
+                            static_cast<size_t>(meta.seq_len),
+                            &input_ids,
+                            error) ||
+        !read_binary_vector(root / "position_ids.i32",
+                            static_cast<size_t>(meta.seq_len) * 4,
+                            &position_ids,
+                            error) ||
+        !read_binary_vector(root / "expected_tokens.i32",
+                            static_cast<size_t>(meta.expected_token_count),
+                            &expected_tokens,
+                            error))
+    {
+        return false;
+    }
+
+    return run_vlm_dflash_decode_with_prompt(input_ids,
+                                             position_ids,
+                                             meta.image_token_id,
+                                             vision_features,
+                                             vision_token_count,
+                                             expected_tokens,
+                                             max_tokens,
+                                             kDefaultRepetitionPenalty,
+                                             result,
+                                             error);
+}
+
+bool TextRuntime::run_vlm_dflash_decode_with_prompt(
+    const std::vector<int>& input_ids,
+    const std::vector<int>& position_ids,
+    int image_token_id,
+    const std::vector<float>& vision_features,
+    int vision_token_count,
+    const std::vector<int>& expected_tokens,
+    int max_tokens,
+    float repetition_penalty,
+    DFlashDecodeResult* result,
+    std::string* error) const
+{
+    if (!ready_)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (!dflash_ready())
+    {
+        if (error) *error = "DFlash draft runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = "DFlash decode result pointer is null";
+        return false;
+    }
+
+    return decode_dflash_from_prompt_tokens(*text_embed_net_,
+                                            *text_decoder_net_,
+                                            *lm_head_net_,
+                                            *dflash_draft_,
+                                            input_ids,
+                                            position_ids,
+                                            image_token_id,
+                                            vision_features,
+                                            vision_token_count,
+                                            expected_tokens,
+                                            eos_ids_,
+                                            max_tokens,
+                                            repetition_penalty,
+                                            result,
+                                            error);
 }
 
 bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixture_dir,

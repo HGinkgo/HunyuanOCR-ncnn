@@ -35,6 +35,8 @@ std::vector<ModelFile> expected_model_files()
         {"text_decoder/text_decoder_kv.ncnn.bin", true, "ncnn decoder weights."},
         {"lm_head/lm_head.ncnn.param", true, "ncnn lm_head network."},
         {"lm_head/lm_head.ncnn.bin", true, "ncnn lm_head tied embedding weights."},
+        {"dflash/dflash.ncnn.param", false, "Optional DFlash draft network."},
+        {"dflash/dflash.ncnn.bin", false, "Optional DFlash draft weights."},
         {"vision/vision.ncnn.param", false, "Optional dynamic vision network."},
         {"vision/vision.ncnn.bin", false, "Optional dynamic vision weights."},
         {"vision/pos_embed.bin", false, "Optional dynamic vision base position embedding [1152,128,128]."},

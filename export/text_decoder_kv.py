@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 
 KVCache = list[tuple[torch.Tensor, torch.Tensor]]
+DFLASH_TARGET_LAYER_IDS = (1, 8, 15, 22)
 
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -218,8 +219,28 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
         Transformers 5.13 callers pass the same four-axis mRoPE through both
         input pairs. Keeping the two slots avoids changing the packaged graph IO.
         """
+        hidden_states, caches, _ = self.prefill_hf_generate_with_aux(
+            inputs_embeds,
+            attention_mask,
+            xd_cos,
+            xd_sin,
+            rope_cos,
+            rope_sin,
+        )
+        return hidden_states, caches
+
+    def prefill_hf_generate_with_aux(
+        self,
+        inputs_embeds: torch.Tensor,
+        attention_mask: torch.Tensor,
+        xd_cos: torch.Tensor,
+        xd_sin: torch.Tensor,
+        rope_cos: torch.Tensor,
+        rope_sin: torch.Tensor,
+    ) -> tuple[torch.Tensor, KVCache, tuple[torch.Tensor, ...]]:
         hidden_states = inputs_embeds.to(torch.float32)
         caches: KVCache = []
+        auxiliary_hidden_states: list[torch.Tensor] = []
         for layer_index, layer in enumerate(self.layers):
             if layer_index == 0:
                 layer_cos, layer_sin = xd_cos, xd_sin
@@ -229,7 +250,14 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
                 layer, hidden_states, attention_mask, layer_cos, layer_sin, None, None
             )
             caches.append((key_states, value_states))
-        return self.norm(hidden_states), caches
+            if layer_index in DFLASH_TARGET_LAYER_IDS:
+                auxiliary_hidden_states.append(hidden_states)
+        if len(auxiliary_hidden_states) != len(DFLASH_TARGET_LAYER_IDS):
+            raise RuntimeError(
+                f"decoder exposes {len(auxiliary_hidden_states)} DFlash hidden states, "
+                f"expected {len(DFLASH_TARGET_LAYER_IDS)}"
+            )
+        return self.norm(hidden_states), caches, tuple(auxiliary_hidden_states)
 
     def decode(
         self,
@@ -256,6 +284,13 @@ class TextDecoderExternalRopeKVWrapper(nn.Module):
         xd_sin: torch.Tensor,
         rope_cos: torch.Tensor,
         rope_sin: torch.Tensor,
-    ) -> torch.Tensor:
-        hidden_states, _ = self.prefill_hf_generate(inputs_embeds, attention_mask, xd_cos, xd_sin, rope_cos, rope_sin)
-        return hidden_states
+    ) -> tuple[torch.Tensor, ...]:
+        hidden_states, _, auxiliary_hidden_states = self.prefill_hf_generate_with_aux(
+            inputs_embeds,
+            attention_mask,
+            xd_cos,
+            xd_sin,
+            rope_cos,
+            rope_sin,
+        )
+        return (hidden_states, *auxiliary_hidden_states)

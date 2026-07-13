@@ -58,6 +58,7 @@ add_library(hunyuan_ocr STATIC)
 target_sources(hunyuan_ocr
     PRIVATE
         src/hunyuan_ocr.cpp
+        src/dflash_runtime.cpp
         src/generation_config.cpp
         src/image_preprocessor.cpp
         src/model_layout.cpp
@@ -153,6 +154,20 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_multimodal_rope_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_multimodal_rope_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_dflash_runtime_test tests/dflash_runtime_test.cpp)
+    target_link_libraries(hunyuan_ocr_dflash_runtime_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_dflash_runtime_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_text_decoder_aux_test tests/text_decoder_aux_test.cpp)
+    target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_text_decoder_aux_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_dflash_probe_integration_test
+        tests/dflash_probe_integration_test.cpp
+    )
+    target_link_libraries(hunyuan_ocr_dflash_probe_integration_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_dflash_probe_integration_test PRIVATE cxx_std_17)
+
     add_executable(hunyuan_ocr_utf8_test tests/utf8_test.cpp)
     target_link_libraries(hunyuan_ocr_utf8_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_utf8_test PRIVATE cxx_std_17)
@@ -230,6 +245,12 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME multimodal_rope
         COMMAND hunyuan_ocr_multimodal_rope_test
     )
+    add_test(NAME dflash_runtime
+        COMMAND hunyuan_ocr_dflash_runtime_test
+    )
+    add_test(NAME text_decoder_aux
+        COMMAND hunyuan_ocr_text_decoder_aux_test
+    )
     add_test(NAME utf8
         COMMAND hunyuan_ocr_utf8_test
     )
@@ -253,6 +274,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME export_common
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_common_test.py"
+    )
+    add_test(NAME export_dflash
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_dflash_test.py"
     )
     add_test(NAME text_decoder_kv
         COMMAND "${Python3_EXECUTABLE}"
@@ -289,6 +314,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME artifact_paths
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/artifact_paths_test.py"
+    )
+    add_test(NAME package_model
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/package_model_test.py"
     )
     if(HUNYUAN_OCR_BUILD_CLI)
         add_test(NAME windows_utf8_integration
