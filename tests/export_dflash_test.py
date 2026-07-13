@@ -87,7 +87,7 @@ if torch is not None:
 
 class DFlashExportShapeTest(unittest.TestCase):
     def test_pnnx_shapes_keep_block_fixed_and_context_dynamic(self) -> None:
-        from export_dflash import pnnx_inputshape, pnnx_intermediate_paths
+        from _common import pnnx_inputshape, pnnx_intermediate_paths
 
         self.assertEqual(
             pnnx_inputshape(context_len=8, block_size=16, hidden_size=1024, head_dim=128),

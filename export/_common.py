@@ -31,6 +31,37 @@ def require_file(path: Path, label: str) -> Path:
     return path
 
 
+def pnnx_inputshape(
+    context_len: int,
+    block_size: int,
+    hidden_size: int,
+    head_dim: int,
+) -> str:
+    total_len = context_len + block_size
+    shapes = [f"[1,{block_size},{hidden_size}]f32"]
+    shapes.extend([f"[1,{context_len},{hidden_size}]f32"] * 4)
+    shapes.extend(
+        [
+            f"[1,1,{total_len},{head_dim}]f32",
+            f"[1,1,{total_len},{head_dim}]f32",
+            f"[1,1,{block_size},{total_len}]f32",
+        ]
+    )
+    return ",".join(shapes)
+
+
+def pnnx_intermediate_paths(pt_path: Path) -> list[Path]:
+    stem = pt_path.with_suffix("")
+    return [
+        pt_path,
+        stem.with_suffix(".pnnx.param"),
+        stem.with_suffix(".pnnx.bin"),
+        stem.with_suffix(".pnnx.onnx"),
+        stem.with_name(stem.name + "_pnnx.py"),
+        stem.with_name(stem.name + "_ncnn.py"),
+    ]
+
+
 def run_pnnx(
     pnnx: Path,
     pt_path: Path,
