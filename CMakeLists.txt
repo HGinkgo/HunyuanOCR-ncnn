@@ -9,6 +9,9 @@ option(HUNYUAN_OCR_BUILD_CLI "Build the hunyuan_ocr_cli executable" ON)
 option(HUNYUAN_OCR_BUILD_TESTS "Build HunyuanOCR-ncnn test executables" OFF)
 option(HUNYUAN_OCR_STRICT_WARNINGS "Enable compiler warnings for project sources" ON)
 option(HUNYUAN_OCR_USE_NCNN_PACKAGE "Try find_package(ncnn CONFIG) before manual ncnn paths" ON)
+option(HUNYUAN_OCR_ENABLE_SDPA_PROFILE
+    "Compile PreciseSDPA stage timers for decoder microbenchmarks (OFF by default)"
+    OFF)
 set(HUNYUAN_OCR_MIN_NCNN_VERSION 20260106)
 set(HUNYUAN_OCR_BUILD_TOKENIZER_TEST "AUTO" CACHE STRING "Build tokenizer file parity test: AUTO, ON, or OFF")
 set_property(CACHE HUNYUAN_OCR_BUILD_TOKENIZER_TEST PROPERTY STRINGS AUTO ON OFF)
@@ -80,6 +83,9 @@ target_include_directories(hunyuan_ocr
 target_link_libraries(hunyuan_ocr PUBLIC ncnn)
 target_compile_features(hunyuan_ocr PUBLIC cxx_std_17)
 target_compile_definitions(hunyuan_ocr PUBLIC HUNYUAN_OCR_VERSION="${PROJECT_VERSION}")
+if(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
+    target_compile_definitions(hunyuan_ocr PRIVATE HUNYUAN_OCR_ENABLE_SDPA_PROFILE=1)
+endif()
 
 if(HUNYUAN_OCR_STRICT_WARNINGS)
     if(MSVC)
@@ -157,6 +163,37 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_executable(hunyuan_ocr_dflash_runtime_test tests/dflash_runtime_test.cpp)
     target_link_libraries(hunyuan_ocr_dflash_runtime_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_dflash_runtime_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_decoder_microbench_parser_test
+        tests/decoder_microbench_parser_test.cpp
+        tests/decoder_microbench.cpp
+    )
+    target_include_directories(hunyuan_ocr_decoder_microbench_parser_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(hunyuan_ocr_decoder_microbench_parser_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_decoder_microbench_parser_test PRIVATE cxx_std_17)
+    if(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
+        target_compile_definitions(hunyuan_ocr_decoder_microbench_parser_test PRIVATE
+            HUNYUAN_OCR_ENABLE_SDPA_PROFILE=1)
+    endif()
+
+    # Model-backed microbenchmark executable: build only under tests, never CTest.
+    add_executable(hunyuan_ocr_decoder_microbench
+        tests/decoder_microbench_main.cpp
+        tests/decoder_microbench.cpp
+    )
+    target_include_directories(hunyuan_ocr_decoder_microbench PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(hunyuan_ocr_decoder_microbench PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_decoder_microbench PRIVATE cxx_std_17)
+    if(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
+        target_compile_definitions(hunyuan_ocr_decoder_microbench PRIVATE
+            HUNYUAN_OCR_ENABLE_SDPA_PROFILE=1)
+    endif()
 
     add_executable(hunyuan_ocr_text_decoder_aux_test tests/text_decoder_aux_test.cpp)
     target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
@@ -247,6 +284,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     add_test(NAME dflash_runtime
         COMMAND hunyuan_ocr_dflash_runtime_test
+    )
+    add_test(NAME decoder_microbench_parser
+        COMMAND hunyuan_ocr_decoder_microbench_parser_test
     )
     add_test(NAME text_decoder_aux
         COMMAND hunyuan_ocr_text_decoder_aux_test

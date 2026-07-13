@@ -1,5 +1,7 @@
 #include "hunyuan_ocr/text_runtime.h"
 
+#include "text_decoder_step.h"
+
 #include "hunyuan_ocr/generation_config.h"
 #include "hunyuan_ocr/hunyuan_ocr.h"
 #include "hunyuan_ocr/multimodal_rope.h"
@@ -77,9 +79,9 @@ double elapsed_ms(Clock::time_point start, Clock::time_point end)
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
-constexpr int kHiddenSize = 1024;
-constexpr int kHeadDim = 128;
-constexpr int kAttentionLayerCount = 24;
+constexpr int kHiddenSize = detail::kTextHiddenSize;
+constexpr int kHeadDim = detail::kTextHeadDim;
+constexpr int kAttentionLayerCount = detail::kTextAttentionLayerCount;
 constexpr int kVocabSize = 120818;
 constexpr float kRopeTheta = 10000.0f;
 constexpr float kRopeAlpha = 1000.0f;
@@ -386,7 +388,7 @@ bool run_text_embed_tokens(const ncnn::Net& net,
     return true;
 }
 
-using KVCache = std::vector<std::pair<ncnn::Mat, ncnn::Mat>>;
+using KVCache = detail::DecoderKVCache;
 
 bool run_decoder_prefill(const ncnn::Net& net,
                          const ncnn::Mat& inputs_embeds,
@@ -437,16 +439,18 @@ bool run_decoder_prefill(const ncnn::Net& net,
     return extract_or_error(ex, "out0", hidden, error);
 }
 
-bool run_decoder_step(const ncnn::Net& net,
-                      const ncnn::Mat& current_embed,
-                      const ncnn::Mat& mask,
-                      const ncnn::Mat& cos,
-                      const ncnn::Mat& sin,
-                      const KVCache& caches,
-                      ncnn::Mat* hidden,
-                      KVCache* updated,
-                      std::array<ncnn::Mat, 4>* target_hidden,
-                      std::string* error)
+// Production decoder step used by AR and DFlash verify. Defined in detail so
+// microbenchmarks call the same forward path without forking protocol logic.
+bool run_decoder_step_impl(const ncnn::Net& net,
+                           const ncnn::Mat& current_embed,
+                           const ncnn::Mat& mask,
+                           const ncnn::Mat& cos,
+                           const ncnn::Mat& sin,
+                           const KVCache& caches,
+                           ncnn::Mat* hidden,
+                           KVCache* updated,
+                           std::array<ncnn::Mat, 4>* target_hidden,
+                           std::string* error)
 {
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
     if (ex.input("in0", current_embed) != 0 ||
@@ -475,7 +479,11 @@ bool run_decoder_step(const ncnn::Net& net,
         if (ex.input(name_k, caches[static_cast<size_t>(i)].first) != 0 ||
             ex.input(name_v, caches[static_cast<size_t>(i)].second) != 0)
         {
-            if (error) *error = std::string("decoder step cache input failed at layer ") + std::to_string(i);
+            if (error)
+            {
+                *error = std::string("decoder step cache input failed at layer ") +
+                         std::to_string(i);
+            }
             return false;
         }
     }
@@ -781,7 +789,7 @@ bool run_dflash_block(const ncnn::Net& text_embed_net,
     ncnn::Mat verify_hidden;
     KVCache speculative_caches;
     std::array<ncnn::Mat, 4> speculative_target_hidden;
-    if (!run_decoder_step(decoder_net,
+    if (!run_decoder_step_impl(decoder_net,
                           proposed_mat,
                           verify_mask,
                           verify_cos,
@@ -1199,7 +1207,7 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
 
         ncnn::Mat decode_hidden;
         KVCache updated;
-        if (!run_decoder_step(decoder_net, current_embed, decode_mask, decode_cos, decode_sin,
+        if (!run_decoder_step_impl(decoder_net, current_embed, decode_mask, decode_cos, decode_sin,
                               caches, &decode_hidden, &updated, nullptr, error))
         {
             return false;
@@ -2096,5 +2104,60 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
     }
     return ok;
 }
+
+namespace detail {
+
+bool run_decoder_step(const ncnn::Net& net,
+                      const ncnn::Mat& current_embed,
+                      const ncnn::Mat& mask,
+                      const ncnn::Mat& cos,
+                      const ncnn::Mat& sin,
+                      const DecoderKVCache& caches,
+                      ncnn::Mat* hidden,
+                      DecoderKVCache* updated,
+                      std::array<ncnn::Mat, 4>* target_hidden,
+                      std::string* error)
+{
+    return run_decoder_step_impl(net,
+                                 current_embed,
+                                 mask,
+                                 cos,
+                                 sin,
+                                 caches,
+                                 hidden,
+                                 updated,
+                                 target_hidden,
+                                 error);
+}
+
+bool load_text_decoder_kv_net(const std::string& model_root,
+                              int num_threads,
+                              ncnn::Net* net,
+                              std::string* error)
+{
+    if (net == nullptr)
+    {
+        if (error) *error = "decoder net pointer is null";
+        return false;
+    }
+    const std::filesystem::path root = path_from_utf8(model_root);
+    if (net->register_custom_layer("SDPA", create_precise_sdpa_layer) != 0)
+    {
+        if (error) *error = "failed to register precise SDPA layer";
+        return false;
+    }
+    if (net->register_custom_layer("RotaryEmbed", create_multimodal_rope_layer) != 0)
+    {
+        if (error) *error = "failed to register multimodal RotaryEmbed layer";
+        return false;
+    }
+    return load_net(*net,
+                    root / "text_decoder" / "text_decoder_kv.ncnn.param",
+                    root / "text_decoder" / "text_decoder_kv.ncnn.bin",
+                    num_threads,
+                    error);
+}
+
+} // namespace detail
 
 } // namespace hunyuan_ocr
