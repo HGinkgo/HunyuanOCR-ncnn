@@ -20,6 +20,9 @@ hunyuan_ocr_ncnn_model/
   lm_head/
     lm_head.ncnn.param
     lm_head.ncnn.bin
+  dflash/                       # optional
+    dflash.ncnn.param
+    dflash.ncnn.bin
   vision/
     vision.ncnn.param
     vision.ncnn.bin
@@ -37,10 +40,15 @@ The current runtime requires tokenizer files, `text_embed`, `text_decoder`,
 `model.json` records the expected relative paths. See
 `models/model.json.example` for the current schema.
 
-The `main` branch `0.3.0` preview template targets HunyuanOCR 1.5 checkpoint revision
+The `main` branch `0.4.0` preview template targets HunyuanOCR 1.5 checkpoint revision
 `9e01f897bf8956f77a80c350dc0491d6bbbd43e6` with repetition penalty `1.08`
 and EOS token `120020`. Branch `feat/hunyuanocr-1.0` preserves the HunyuanOCR
 1.0 development line, while tag `v0.2.0` remains its frozen release.
+
+The optional DFlash package adds `dflash/dflash.ncnn.param/bin` and replaces the
+base decoder param with the auxiliary export that exposes `out1` through `out4`.
+The decoder weights are unchanged. Packages without these optional files continue
+to use the default AR path.
 
 ## Vision Backends
 
@@ -82,3 +90,7 @@ python tools/package_model.py \
 Here `<workspace>` is the directory containing `models/tokenizer/` and
 `models/export/`. The generated model package can be moved independently when
 `--copy` is used.
+
+Pass `--dflash` to include the draft network and auxiliary decoder. Existing base
+runtime files may be supplied with `--base-runtime-dir`; custom draft and decoder
+locations use `--dflash-dir` and `--dflash-decoder-dir`.

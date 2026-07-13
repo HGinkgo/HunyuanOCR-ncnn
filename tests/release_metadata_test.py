@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 REVISION = "9e01f897bf8956f77a80c350dc0491d6bbbd43e6"
 
 
@@ -22,10 +22,11 @@ def main() -> int:
     readme = (root / "README.md").read_text(encoding="utf-8")
     readme_zh = (root / "README_zh.md").read_text(encoding="utf-8")
     model_readme = (root / "models/README.md").read_text(encoding="utf-8")
+    tools_readme = (root / "tools/README.md").read_text(encoding="utf-8")
     image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
     expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
 
-    require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.3\.0", cmake) is not None, "CMake version must be 0.3.0")
+    require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.4\.0", cmake) is not None, "CMake version must be 0.4.0")
     for text, label in ((readme, "README"), (readme_zh, "README_zh")):
         require(REVISION in text, f"{label} must record the fixed checkpoint revision")
         require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
@@ -42,7 +43,18 @@ def main() -> int:
     require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README_zh Windows status must not expose toolchain details")
     require("validation pending" not in readme and "still pending" not in readme, "README contains stale pending status")
     require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README_zh contains stale pending status")
-    require("`0.3.0` preview" in model_readme, "model README must identify the untagged 0.3.0 preview")
+    require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
+    require("Experimental DFlash" in readme, "README must label DFlash as experimental")
+    require("实验性 DFlash" in readme_zh, "README_zh must label DFlash as experimental")
+    require("AR remains the default" in readme, "README must retain AR as the default path")
+    require("AR 仍是默认路径" in readme_zh, "README_zh must retain AR as the default path")
+    require("may be slower" in readme, "README must disclose low-acceptance slowdown")
+    require("可能更慢" in readme_zh, "README_zh must disclose low-acceptance slowdown")
+    require("DFlash" in model_readme, "model README must document optional DFlash artifacts")
+    require("DFlash" in tools_readme, "tools README must document DFlash packaging")
+    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+        for image in re.findall(r"--image\s+\./examples/images/(\S+)", text):
+            require((root / "examples" / "images" / image).is_file(), f"{label} image does not exist: {image}")
     for image in ("hunyuan_vis_art_16.png", "hunyuan_ie_parallel.png"):
         require(image in image_sources, f"image source missing canonical PNG: {image}")
 

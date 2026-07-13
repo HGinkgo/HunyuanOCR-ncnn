@@ -24,7 +24,7 @@
 This repository exports the Hugging Face HunyuanOCR model into ncnn submodules
 with pnnx and runs the full OCR path in C++.
 
-> **HunyuanOCR 1.5 preview (`0.3.0`):** the current development branch targets
+> **HunyuanOCR 1.5 preview (`0.4.0`):** the current development branch targets
 > checkpoint revision `9e01f897bf8956f77a80c350dc0491d6bbbd43e6`. The strict
 > reference uses Transformers 5.13.0 with CPU fp32 eager attention. Linux and
 > Windows validation passed, including the 28-case test suite. Tag `v0.2.0`
@@ -32,7 +32,7 @@ with pnnx and runs the full OCR path in C++.
 
 | Line | Model | Status |
 | --- | --- | --- |
-| `main` | HunyuanOCR 1.5 | `0.3.0` development/preview |
+| `main` | HunyuanOCR 1.5 | `0.4.0` development/preview |
 | `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | preserved compatibility branch |
 | `v0.2.0` | HunyuanOCR 1.0 | frozen release |
 
@@ -43,6 +43,7 @@ with pnnx and runs the full OCR path in C++.
 - KV-cache text decoder, greedy decoding, and repetition penalty.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
+- Optional DFlash speculative decoding with AR kept as the default path.
 - CMake build on Linux and Windows; no Python at runtime.
 - The HunyuanOCR 1.5 28-case test suite passes.
 
@@ -72,6 +73,27 @@ PNG is used as the canonical strict input for JPEG cases that are sensitive to
 decoder rounding. JPEG remains supported for normal inference, but Pillow/
 libjpeg-turbo and `stb_image` may decode lossy JPEG pixels slightly differently;
 cross-decoder token identity is therefore not guaranteed for every JPEG.
+
+## Experimental DFlash
+
+`--dflash` enables the optional DFlash speculative decoder for greedy generation.
+It requires a package containing `dflash/dflash.ncnn.param/bin` and the auxiliary
+text decoder exported with `out1` through `out4`. AR remains the default and the
+runtime does not switch decoding methods automatically.
+
+Linux and Windows validation passed with token/text output identical to AR. The
+performance gain is input-dependent: in the current three-case CPU benchmark,
+warm speedup ranged from `0.64x` to `1.20x` as draft acceptance increased from
+`2.71%` to `17.04%`. DFlash may be slower on low-acceptance inputs, so it remains
+an explicit development/preview option rather than a general acceleration claim.
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --image ./examples/images/hf_demo_tools-dark.png \
+  --prompt-mode document \
+  --dflash
+```
 
 ## Quick Start
 
@@ -135,6 +157,10 @@ python tools/package_model.py \
   --copy \
   --force
 ```
+
+Add `--dflash` to package the draft network and auxiliary decoder from their
+default export directories. `--dflash-dir`, `--dflash-decoder-dir`, and
+`--base-runtime-dir` allow those inputs to be supplied explicitly.
 
 Here `<workspace>` means the directory containing `models/tokenizer/` and
 `models/export/`. Use symlinks instead of copies by omitting `--copy`. Use
