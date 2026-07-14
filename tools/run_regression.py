@@ -185,8 +185,11 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
     require_dir(fixture, f"fixture for {case.name}")
 
     log_path = args.log_dir / f"{case.name}.log"
-    cmd = [
-        str(args.binary),
+    # Python fixtures are useful for testing the runner itself.  Windows cannot
+    # execute a .py file directly through CreateProcess, even when it has a
+    # shebang and executable permissions, so invoke it with this interpreter.
+    launcher = [sys.executable, str(args.binary)] if args.binary.suffix.lower() == ".py" else [str(args.binary)]
+    cmd = launcher + [
         "--model",
         str(args.model),
         "--image",

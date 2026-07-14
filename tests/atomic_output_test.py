@@ -15,6 +15,17 @@ from atomic_output import build_directory_transactionally, paths_overlap
 
 
 class AtomicOutputTest(unittest.TestCase):
+    def create_directory_symlink(self, link: Path, target: Path) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            # Creating symlinks on Windows requires Developer Mode or the
+            # SeCreateSymbolicLink privilege.  The behavior under test remains
+            # covered on hosts where the operation is available.
+            if sys.platform == "win32" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows symlink privilege is not available")
+            raise
+
     def test_failed_build_preserves_existing_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_text:
             root = Path(tmp_text)
@@ -78,7 +89,7 @@ class AtomicOutputTest(unittest.TestCase):
             target = root / "target"
             target.mkdir()
             output = root / "output"
-            output.symlink_to(target, target_is_directory=True)
+            self.create_directory_symlink(output, target)
             called = False
 
             def build(staging: Path) -> None:
@@ -94,7 +105,7 @@ class AtomicOutputTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_text:
             root = Path(tmp_text)
             output = root / "output"
-            output.symlink_to(root / "missing", target_is_directory=True)
+            self.create_directory_symlink(output, root / "missing")
             called = False
 
             def build(staging: Path) -> None:
