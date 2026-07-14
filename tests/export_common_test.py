@@ -66,6 +66,17 @@ class ExportCommonTest(unittest.TestCase):
             self.assertIn(f"ncnnbin={(tmp / 'out/model.ncnn.bin').resolve()}", command)
             self.assertEqual(run.call_args.kwargs["cwd"], (tmp / "out").resolve())
 
+    def test_run_python_script_uses_active_interpreter(self) -> None:
+        script = REPO_ROOT / "export" / "add_kvcache.py"
+        with mock.patch.object(_common.subprocess, "run") as run:
+            _common.run_python_script(script, "--param", "model.param")
+
+        self.assertEqual(
+            run.call_args.args[0],
+            [sys.executable, str(script.resolve()), "--param", "model.param"],
+        )
+        self.assertTrue(run.call_args.kwargs["check"])
+
 
 if __name__ == "__main__":
     unittest.main()

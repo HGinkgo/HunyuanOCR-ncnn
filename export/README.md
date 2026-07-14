@@ -6,6 +6,15 @@ weights into ncnn modules consumed by `hunyuan_ocr_cli`.
 All commands use explicit paths. Pass your HF model directory and pnnx
 executable explicitly; nothing depends on author-local directories.
 
+Create an isolated Python environment and install the conversion dependencies
+before exporting. The baseline runner and Transformers `device_map` loading
+require `accelerate` in addition to the model libraries:
+
+```bash
+python -m pip install torch torchvision transformers==5.13.0 \
+  accelerate pillow safetensors pnnx==20260526
+```
+
 ## One Command Export
 
 For most users, this is the only export command you need:

@@ -157,7 +157,14 @@ def run_packager(repo_root: Path, args: argparse.Namespace) -> None:
     if args.dynamic_vision_dir is not None:
         cmd.extend(["--dynamic-vision-dir", str(args.dynamic_vision_dir)])
     print("+ " + " ".join(cmd))
-    completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True)
+    completed = subprocess.run(
+        cmd,
+        cwd=repo_root,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
     if completed.stdout:
         print(completed.stdout, end="")
     if completed.stderr:
@@ -203,7 +210,14 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
         cmd.extend(["--prompt-mode", case.prompt_mode or ""])
     cmd.extend(["--vlm-fixture", str(fixture)])
 
-    completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True)
+    completed = subprocess.run(
+        cmd,
+        cwd=repo_root,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
     log_path.write_text(
         "$ " + " ".join(cmd) + "\n\n"
         + "## stdout\n"

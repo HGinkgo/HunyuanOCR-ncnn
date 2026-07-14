@@ -119,6 +119,7 @@ def load_runtime_deps() -> None:
     global HunYuanVLForConditionalGeneration
 
     try:
+        import accelerate  # noqa: F401 - required by Transformers device_map loading
         import numpy as numpy_module
         import torch as torch_module
         import transformers as transformers_module
@@ -128,7 +129,7 @@ def load_runtime_deps() -> None:
     except Exception as exc:
         fail(
             "failed to import baseline dependencies; activate the HunyuanOCR Python environment "
-            f"with torch/transformers/pillow installed: {exc}"
+            f"with torch/transformers/accelerate/pillow installed: {exc}"
         )
 
     np = numpy_module

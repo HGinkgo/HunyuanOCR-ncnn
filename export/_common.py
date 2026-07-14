@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,11 @@ def require_file(path: Path, label: str) -> Path:
     if not path.is_file():
         raise FileNotFoundError(f"{label} not found: {path}")
     return path
+
+
+def run_python_script(script: Path, *args: str) -> None:
+    """Run a companion script with the active Python environment."""
+    subprocess.run([sys.executable, str(script.resolve()), *args], check=True)
 
 
 def pnnx_inputshape(

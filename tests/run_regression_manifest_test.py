@@ -27,6 +27,7 @@ print("  match_fixture_input_ids: true")
 print("  match_fixture_position_ids: true")
 print("  match_expected_tokens: true")
 print("  match_expected_text: true")
+print("  output_text: 中文 UTF-8")
 """,
         encoding="utf-8",
     )

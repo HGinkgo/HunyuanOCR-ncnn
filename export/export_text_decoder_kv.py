@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 from pathlib import Path
 
 import torch
 from transformers import HunYuanVLForConditionalGeneration
 
-from _common import ensure_dir, run_pnnx, text_backbone
+from _common import ensure_dir, run_pnnx, run_python_script, text_backbone
 from text_decoder_kv import TextDecoderExternalRopeKVWrapper
 
 
@@ -73,10 +72,7 @@ def main() -> int:
             f"[1,{args.seq_len2},1024]f32,[1,{args.seq_len2}]f32,[1,1,{args.seq_len2},128]f32,[1,1,{args.seq_len2},128]f32,[1,1,{args.seq_len2},128]f32,[1,1,{args.seq_len2},128]f32",
         )
         if not args.skip_kvcache_patch:
-            subprocess.run(
-                ["python", str(Path(__file__).with_name("add_kvcache.py")), "--param", str(param_path)],
-                check=True,
-            )
+            run_python_script(Path(__file__).with_name("add_kvcache.py"), "--param", str(param_path))
     return 0
 
 
