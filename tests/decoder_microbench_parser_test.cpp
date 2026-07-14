@@ -14,7 +14,7 @@ int fail(const char* message)
     return 1;
 }
 
-bool near(double value, double expected, double tol = 1e-9)
+bool nearly_equal(double value, double expected, double tol = 1e-9)
 {
     return std::fabs(value - expected) <= tol;
 }
@@ -86,17 +86,17 @@ int main()
 
     const std::vector<double> samples = {5.0, 1.0, 3.0, 9.0, 7.0};
     const DecoderMicrobenchTiming stats = compute_timing_stats(samples, 16);
-    if (!near(stats.min_ms, 1.0) ||
-        !near(stats.mean_ms, 5.0) ||
-        !near(stats.median_ms, 5.0) ||
-        !near(stats.per_query_token_ms, 5.0 / 16.0))
+    if (!nearly_equal(stats.min_ms, 1.0) ||
+        !nearly_equal(stats.mean_ms, 5.0) ||
+        !nearly_equal(stats.median_ms, 5.0) ||
+        !nearly_equal(stats.per_query_token_ms, 5.0 / 16.0))
     {
         return fail("timing stats mismatch");
     }
 
     const std::vector<double> even = {4.0, 1.0, 3.0, 2.0};
     const DecoderMicrobenchTiming even_stats = compute_timing_stats(even, 1);
-    if (!near(even_stats.median_ms, 2.5))
+    if (!nearly_equal(even_stats.median_ms, 2.5))
     {
         return fail("even-length median should average the middle pair");
     }

@@ -14,7 +14,7 @@
 
 namespace {
 
-bool near(float value, float expected, float tol = 1e-5f)
+bool nearly_equal(float value, float expected, float tol = 1e-5f)
 {
     return std::fabs(value - expected) <= tol;
 }
@@ -204,7 +204,7 @@ int main()
 
         const double probability = std::exp(1.0) / (std::exp(1.0) + 1.0);
         const float expected = static_cast<float>(probability * 10.0 + (1.0 - probability) * 20.0);
-        if (!near(outputs[0][0], expected))
+        if (!nearly_equal(outputs[0][0], expected))
         {
             return fail("no-cache numerical mismatch", 3);
         }
