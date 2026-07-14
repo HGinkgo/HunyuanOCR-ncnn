@@ -1,5 +1,6 @@
 #include "hunyuan_ocr/precise_sdpa.h"
 
+#include "kv_cache_capacity.h"
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
 #include "precise_sdpa_profile.h"
 #endif
@@ -14,6 +15,7 @@
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
 #include <mutex>
 #endif
+#include <string>
 #include <vector>
 
 namespace hunyuan_ocr {
@@ -142,39 +144,39 @@ public:
         if (past_len > 0)
         {
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
-            // Coarse per-call timers only: alloc vs full memcpy loop.
-            const auto alloc_start = Clock::now();
+            detail::KvCacheAppendProfile append_profile;
 #endif
-            key.create(head_dim, key_len, num_kv_heads, 4u, opt.blob_allocator);
-            value.create(value_dim, key_len, num_kv_heads, 4u, opt.blob_allocator);
-            if (key.empty() || value.empty()) return -100;
+            std::string kv_error;
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
-            local.kv_alloc_ms += elapsed_ms(alloc_start, Clock::now());
-            const auto copy_start = Clock::now();
+            const bool appended = detail::append_or_grow_kv_cache_profiled(past_key,
+                                                                           past_value,
+                                                                           current_key,
+                                                                           current_value,
+                                                                           &key,
+                                                                           &value,
+                                                                           &append_profile,
+                                                                           &kv_error,
+                                                                           opt.blob_allocator);
+#else
+            const bool appended = detail::append_or_grow_kv_cache(past_key,
+                                                                  past_value,
+                                                                  current_key,
+                                                                  current_value,
+                                                                  &key,
+                                                                  &value,
+                                                                  &kv_error,
+                                                                  opt.blob_allocator);
 #endif
-            for (int head = 0; head < num_kv_heads; ++head)
+            if (!appended)
             {
-                std::memcpy(key.channel(head).row(0), past_key.channel(head),
-                            static_cast<size_t>(head_dim) * past_len * sizeof(float));
-                std::memcpy(key.channel(head).row(past_len), current_key.channel(head),
-                            static_cast<size_t>(head_dim) * current_len * sizeof(float));
-                std::memcpy(value.channel(head).row(0), past_value.channel(head),
-                            static_cast<size_t>(value_dim) * past_len * sizeof(float));
-                std::memcpy(value.channel(head).row(past_len), current_value.channel(head),
-                            static_cast<size_t>(value_dim) * current_len * sizeof(float));
+                return -100;
             }
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
-            local.kv_copy_ms += elapsed_ms(copy_start, Clock::now());
-            // Compatibility total: always alloc + copy.
-            local.kv_concat_ms = local.kv_alloc_ms + local.kv_copy_ms;
-            local.past_kv_copy_bytes +=
-                static_cast<std::uint64_t>(num_kv_heads) *
-                static_cast<std::uint64_t>(past_len) *
-                static_cast<std::uint64_t>(head_dim + value_dim) * sizeof(float);
-            local.current_kv_copy_bytes +=
-                static_cast<std::uint64_t>(num_kv_heads) *
-                static_cast<std::uint64_t>(current_len) *
-                static_cast<std::uint64_t>(head_dim + value_dim) * sizeof(float);
+            local.kv_alloc_ms += append_profile.allocation_ms;
+            local.kv_copy_ms += append_profile.copy_ms;
+            local.kv_concat_ms += append_profile.allocation_ms + append_profile.copy_ms;
+            local.past_kv_copy_bytes += append_profile.past_copy_bytes;
+            local.current_kv_copy_bytes += append_profile.current_copy_bytes;
 #endif
         }
 

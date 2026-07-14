@@ -1,9 +1,15 @@
 #include "hunyuan_ocr/precise_sdpa.h"
 
+#include "kv_cache_capacity.h"
+
+#include <allocator.h>
+
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -29,7 +35,7 @@ void fill_channel_rows(ncnn::Mat& mat, float seed)
     }
 }
 
-bool mats_equal(const ncnn::Mat& left, const ncnn::Mat& right, float tol = 0.0f)
+bool mats_equal_logical(const ncnn::Mat& left, const ncnn::Mat& right, float tol = 0.0f)
 {
     if (left.dims != right.dims || left.w != right.w || left.h != right.h ||
         left.c != right.c || left.elemsize != right.elemsize ||
@@ -61,7 +67,6 @@ int fail(const char* message, int code)
     return code;
 }
 
-// Reference attention without KV cache, used to validate cache-path math.
 int reference_attention(const ncnn::Mat& query,
                         const ncnn::Mat& key,
                         const ncnn::Mat& value,
@@ -70,9 +75,9 @@ int reference_attention(const ncnn::Mat& query,
 {
     std::unique_ptr<ncnn::Layer> layer(hunyuan_ocr::create_precise_sdpa_layer(nullptr));
     ncnn::ParamDict params;
-    params.set(5, 0); // no mask
+    params.set(5, 0);
     params.set(6, scale);
-    params.set(7, 0); // no kv cache
+    params.set(7, 0);
     if (layer->load_param(params) != 0)
     {
         return 1;
@@ -88,10 +93,78 @@ int reference_attention(const ncnn::Mat& query,
     return 0;
 }
 
+void build_expected_concat(const ncnn::Mat& past,
+                           const ncnn::Mat& current,
+                           ncnn::Mat* expected)
+{
+    expected->create(past.w, past.h + current.h, past.c);
+    for (int head = 0; head < past.c; ++head)
+    {
+        std::memcpy(expected->channel(head).row(0),
+                    past.channel(head),
+                    static_cast<size_t>(past.w) * past.h * sizeof(float));
+        std::memcpy(expected->channel(head).row(past.h),
+                    current.channel(head),
+                    static_cast<size_t>(current.w) * current.h * sizeof(float));
+    }
+}
+
+bool run_kv_forward(const ncnn::Mat& query,
+                    const ncnn::Mat& current_key,
+                    const ncnn::Mat& current_value,
+                    const ncnn::Mat& past_key,
+                    const ncnn::Mat& past_value,
+                    float scale,
+                    int num_threads,
+                    std::vector<ncnn::Mat>* tops,
+                    ncnn::Allocator* blob_allocator = nullptr)
+{
+    std::unique_ptr<ncnn::Layer> layer(hunyuan_ocr::create_precise_sdpa_layer(nullptr));
+    ncnn::ParamDict params;
+    params.set(5, 0);
+    params.set(6, scale);
+    params.set(7, 1);
+    if (layer->load_param(params) != 0)
+    {
+        return false;
+    }
+    tops->assign(3, ncnn::Mat());
+    ncnn::Option options;
+    options.num_threads = num_threads;
+    options.blob_allocator = blob_allocator;
+    return layer->forward(
+               {query, current_key, current_value, past_key, past_value}, *tops, options) == 0;
+}
+
 } // namespace
 
 int main()
 {
+    using hunyuan_ocr::detail::allocate_kv_cache_with_capacity;
+    using hunyuan_ocr::detail::append_or_grow_kv_cache;
+    using hunyuan_ocr::detail::kKvCacheCapacityChunkRows;
+    using hunyuan_ocr::detail::kv_cache_capacity_rows;
+    using hunyuan_ocr::detail::make_kv_cache_logical_view;
+    using hunyuan_ocr::detail::round_up_kv_capacity_rows;
+
+    if (round_up_kv_capacity_rows(INT_MAX) != 0)
+    {
+        return fail("overflowing KV capacity must be rejected", 31);
+    }
+
+    {
+        ncnn::UnlockedPoolAllocator allocator;
+        ncnn::Mat allocated;
+        std::string error;
+        if (!allocate_kv_cache_with_capacity(8, 4, 16, 2, &allocated, &error, &allocator) ||
+            allocated.allocator != &allocator)
+        {
+            return fail("KV capacity allocation must preserve the requested allocator", 32);
+        }
+        allocated.release();
+        allocator.clear();
+    }
+
     // Case 1: original no-cache numerical smoke.
     {
         std::unique_ptr<ncnn::Layer> layer(hunyuan_ocr::create_precise_sdpa_layer(nullptr));
@@ -137,9 +210,7 @@ int main()
         }
     }
 
-    // Case 2: kv_cache=1, past_len>0, current_len>0, multiple KV heads.
-    // Validates out_cache_k/v are exact [past, current] concatenations and that
-    // attention matches a no-cache reference over the concatenated tensors.
+    // Case 2: exact-size past (no spare capacity) must still produce exact concat.
     {
         constexpr int head_dim = 4;
         constexpr int value_dim = 4;
@@ -147,7 +218,7 @@ int main()
         constexpr int past_len = 3;
         constexpr int current_len = 2;
         constexpr int num_q_heads = 4;
-        constexpr int num_kv_heads = 2; // GQA-style: 2 groups
+        constexpr int num_kv_heads = 2;
         constexpr float scale = 0.5f;
 
         ncnn::Mat query(head_dim, query_len, num_q_heads);
@@ -161,89 +232,341 @@ int main()
         fill_channel_rows(past_key, 4.0f);
         fill_channel_rows(past_value, 5.0f);
 
-        // Explicit expected concat: rows [0..past_len) = past, [past_len..) = current.
-        ncnn::Mat expected_key(head_dim, past_len + current_len, num_kv_heads);
-        ncnn::Mat expected_value(value_dim, past_len + current_len, num_kv_heads);
-        for (int head = 0; head < num_kv_heads; ++head)
+        // Exact-size past: capacity_rows == h (or no spare room for append).
+        if (kv_cache_capacity_rows(past_key) < past_len)
         {
-            std::memcpy(expected_key.channel(head).row(0),
-                        past_key.channel(head),
-                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
-            std::memcpy(expected_key.channel(head).row(past_len),
-                        current_key.channel(head),
-                        static_cast<size_t>(head_dim) * current_len * sizeof(float));
-            std::memcpy(expected_value.channel(head).row(0),
-                        past_value.channel(head),
-                        static_cast<size_t>(value_dim) * past_len * sizeof(float));
-            std::memcpy(expected_value.channel(head).row(past_len),
-                        current_value.channel(head),
-                        static_cast<size_t>(value_dim) * current_len * sizeof(float));
+            return fail("exact-size past capacity probe failed", 4);
         }
+
+        ncnn::Mat expected_key;
+        ncnn::Mat expected_value;
+        build_expected_concat(past_key, current_key, &expected_key);
+        build_expected_concat(past_value, current_value, &expected_value);
 
         ncnn::Mat reference_output;
         if (reference_attention(query, expected_key, expected_value, scale, &reference_output) != 0)
         {
-            return fail("reference attention failed", 4);
+            return fail("reference attention failed", 5);
         }
 
-        std::unique_ptr<ncnn::Layer> layer(hunyuan_ocr::create_precise_sdpa_layer(nullptr));
-        ncnn::ParamDict params;
-        params.set(5, 0); // no mask
-        params.set(6, scale);
-        params.set(7, 1); // kv_cache enabled
-        if (layer->load_param(params) != 0)
+        ncnn::UnlockedPoolAllocator allocator;
+        for (int threads : {1, 4})
         {
-            return fail("load_param kv-cache failed", 5);
+            std::vector<ncnn::Mat> tops;
+            if (!run_kv_forward(query,
+                                current_key,
+                                current_value,
+                                past_key,
+                                past_value,
+                                scale,
+                                threads,
+                                &tops,
+                                &allocator))
+            {
+                return fail("exact-size kv-cache forward failed", 6);
+            }
+            if (!mats_equal_logical(tops[1], expected_key, 0.0f) ||
+                !mats_equal_logical(tops[2], expected_value, 0.0f) ||
+                !mats_equal_logical(tops[0], reference_output, 1e-5f))
+            {
+                return fail("exact-size fallback concat mismatch", 7);
+            }
+            if (tops[1].allocator != &allocator || tops[2].allocator != &allocator)
+            {
+                return fail("PreciseSDPA grow must use opt.blob_allocator", 33);
+            }
+            // Fallback growth should expose capacity for later appends.
+            if (kv_cache_capacity_rows(tops[1]) < past_len + current_len ||
+                kv_cache_capacity_rows(tops[1]) % kKvCacheCapacityChunkRows != 0)
+            {
+                return fail("fallback out_cache lacks rounded capacity", 8);
+            }
+        }
+        allocator.clear();
+    }
+
+    // Case 3: capacity-bearing past appends inplace (data pointer / cstep stable).
+    {
+        constexpr int head_dim = 8;
+        constexpr int past_len = 5;
+        constexpr int current_len = 3;
+        constexpr int capacity = 16;
+        constexpr int num_kv_heads = 2;
+        std::string error;
+        ncnn::Mat past_key;
+        ncnn::Mat past_value;
+        if (!allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_key, &error) ||
+            !allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_value, &error))
+        {
+            return fail(error.c_str(), 9);
+        }
+        fill_channel_rows(past_key, 1.0f);
+        fill_channel_rows(past_value, 2.0f);
+        ncnn::Mat current_key(head_dim, current_len, num_kv_heads);
+        ncnn::Mat current_value(head_dim, current_len, num_kv_heads);
+        fill_channel_rows(current_key, 3.0f);
+        fill_channel_rows(current_value, 4.0f);
+
+        void* past_key_data = past_key.data;
+        void* past_value_data = past_value.data;
+        const size_t past_key_cstep = past_key.cstep;
+        const size_t past_value_cstep = past_value.cstep;
+
+        ncnn::Mat out_key;
+        ncnn::Mat out_value;
+        if (!append_or_grow_kv_cache(past_key,
+                                     past_value,
+                                     current_key,
+                                     current_value,
+                                     &out_key,
+                                     &out_value,
+                                     &error))
+        {
+            return fail(error.c_str(), 10);
+        }
+        if (out_key.data != past_key_data || out_value.data != past_value_data ||
+            out_key.cstep != past_key_cstep || out_value.cstep != past_value_cstep ||
+            out_key.h != past_len + current_len || out_value.h != past_len + current_len)
+        {
+            return fail("inplace append did not preserve backing data/cstep/h", 11);
         }
 
-        // bottoms: query, current_key, current_value, past_key, past_value
-        std::vector<ncnn::Mat> bottoms = {
-            query, current_key, current_value, past_key, past_value};
-        std::vector<ncnn::Mat> tops(3); // out, out_cache_k, out_cache_v
-        ncnn::Option options;
-        options.num_threads = 4; // exercise multi-thread concat path when present
-        if (layer->forward(bottoms, tops, options) != 0)
+        ncnn::Mat packed_past_k(head_dim, past_len, num_kv_heads);
+        ncnn::Mat packed_past_v(head_dim, past_len, num_kv_heads);
+        for (int c = 0; c < num_kv_heads; ++c)
         {
-            return fail("kv-cache forward failed", 6);
+            std::memcpy(packed_past_k.channel(c),
+                        past_key.channel(c),
+                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
+            std::memcpy(packed_past_v.channel(c),
+                        past_value.channel(c),
+                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
+        }
+        ncnn::Mat expected_key;
+        ncnn::Mat expected_value;
+        build_expected_concat(packed_past_k, current_key, &expected_key);
+        build_expected_concat(packed_past_v, current_value, &expected_value);
+        if (!mats_equal_logical(out_key, expected_key, 0.0f) ||
+            !mats_equal_logical(out_value, expected_value, 0.0f))
+        {
+            return fail("inplace append content mismatch", 12);
+        }
+    }
+
+    // Case 4: speculative append 16 rows, shrink logical h, re-append overwrites reject zone.
+    {
+        constexpr int head_dim = 4;
+        constexpr int past_len = 8;
+        constexpr int block = 16;
+        constexpr int accept = 5;
+        constexpr int capacity = 64;
+        constexpr int num_kv_heads = 2;
+        std::string error;
+        ncnn::Mat past_key;
+        ncnn::Mat past_value;
+        if (!allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_key, &error) ||
+            !allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_value, &error))
+        {
+            return fail(error.c_str(), 13);
+        }
+        fill_channel_rows(past_key, 0.5f);
+        fill_channel_rows(past_value, 0.6f);
+
+        ncnn::Mat draft_key(head_dim, block, num_kv_heads);
+        ncnn::Mat draft_value(head_dim, block, num_kv_heads);
+        fill_channel_rows(draft_key, 7.0f);
+        fill_channel_rows(draft_value, 8.0f);
+
+        ncnn::Mat key;
+        ncnn::Mat value;
+        if (!append_or_grow_kv_cache(past_key, past_value, draft_key, draft_value, &key, &value, &error))
+        {
+            return fail(error.c_str(), 14);
+        }
+        if (key.h != past_len + block)
+        {
+            return fail("speculative append length mismatch", 15);
+        }
+        // Shrink to accepted prefix (like DFlash view_dflash_rows).
+        ncnn::Mat committed_key;
+        ncnn::Mat committed_value;
+        if (!make_kv_cache_logical_view(key, past_len + accept, &committed_key, &error) ||
+            !make_kv_cache_logical_view(value, past_len + accept, &committed_value, &error))
+        {
+            return fail(error.c_str(), 16);
+        }
+        if (committed_key.data != key.data || committed_key.cstep != key.cstep ||
+            committed_key.h != past_len + accept)
+        {
+            return fail("shrink view lost capacity backing", 17);
         }
 
-        if (tops[0].empty() || tops[1].empty() || tops[2].empty())
+        ncnn::Mat next_key(head_dim, 2, num_kv_heads);
+        ncnn::Mat next_value(head_dim, 2, num_kv_heads);
+        fill_channel_rows(next_key, 9.0f);
+        fill_channel_rows(next_value, 10.0f);
+        ncnn::Mat out_key;
+        ncnn::Mat out_value;
+        if (!append_or_grow_kv_cache(committed_key,
+                                     committed_value,
+                                     next_key,
+                                     next_value,
+                                     &out_key,
+                                     &out_value,
+                                     &error))
         {
-            return fail("kv-cache tops missing", 7);
+            return fail(error.c_str(), 18);
         }
-        if (tops[1].w != head_dim || tops[1].h != past_len + current_len ||
-            tops[1].c != num_kv_heads || tops[2].w != value_dim ||
-            tops[2].h != past_len + current_len || tops[2].c != num_kv_heads)
+        if (out_key.data != key.data || out_key.h != past_len + accept + 2)
         {
-            return fail("out_cache shape mismatch", 8);
+            return fail("re-append after shrink did not reuse capacity", 19);
+        }
+        // Rejected draft rows must be overwritten by next append.
+        for (int c = 0; c < num_kv_heads; ++c)
+        {
+            for (int r = 0; r < 2; ++r)
+            {
+                for (int w = 0; w < head_dim; ++w)
+                {
+                    if (out_key.channel(c).row(past_len + accept + r)[w] !=
+                        next_key.channel(c).row(r)[w])
+                    {
+                        return fail("reject zone not overwritten on re-append", 20);
+                    }
+                }
+            }
+        }
+    }
+
+    // Case 5: capacity exhaustion grows with exact content.
+    {
+        constexpr int head_dim = 4;
+        constexpr int past_len = 6;
+        constexpr int capacity = 8;
+        constexpr int current_len = 4; // past+current > capacity
+        constexpr int num_kv_heads = 2;
+        std::string error;
+        ncnn::Mat past_key;
+        ncnn::Mat past_value;
+        if (!allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_key, &error) ||
+            !allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_value, &error))
+        {
+            return fail(error.c_str(), 21);
+        }
+        fill_channel_rows(past_key, 1.1f);
+        fill_channel_rows(past_value, 1.2f);
+        ncnn::Mat current_key(head_dim, current_len, num_kv_heads);
+        ncnn::Mat current_value(head_dim, current_len, num_kv_heads);
+        fill_channel_rows(current_key, 2.1f);
+        fill_channel_rows(current_value, 2.2f);
+
+        ncnn::Mat out_key;
+        ncnn::Mat out_value;
+        if (!append_or_grow_kv_cache(past_key,
+                                     past_value,
+                                     current_key,
+                                     current_value,
+                                     &out_key,
+                                     &out_value,
+                                     &error))
+        {
+            return fail(error.c_str(), 22);
+        }
+        if (out_key.data == past_key.data)
+        {
+            return fail("capacity exhaustion should reallocate", 23);
+        }
+        if (kv_cache_capacity_rows(out_key) !=
+            round_up_kv_capacity_rows(past_len + current_len))
+        {
+            return fail("grown capacity not rounded to chunk", 24);
+        }
+        ncnn::Mat packed_past(head_dim, past_len, num_kv_heads);
+        for (int c = 0; c < num_kv_heads; ++c)
+        {
+            std::memcpy(packed_past.channel(c),
+                        past_key.channel(c),
+                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
+        }
+        ncnn::Mat expected;
+        build_expected_concat(packed_past, current_key, &expected);
+        if (!mats_equal_logical(out_key, expected, 0.0f))
+        {
+            return fail("grown cache content mismatch", 25);
+        }
+    }
+
+    // Case 6: full SDPA path with capacity past for q=1 and q=16, ST/MT.
+    for (int query_len : {1, 16})
+    {
+        constexpr int head_dim = 4;
+        constexpr int past_len = 7;
+        constexpr int capacity = 64;
+        constexpr int num_q_heads = 4;
+        constexpr int num_kv_heads = 2;
+        constexpr float scale = 0.25f;
+        std::string error;
+        ncnn::Mat past_key;
+        ncnn::Mat past_value;
+        if (!allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_key, &error) ||
+            !allocate_kv_cache_with_capacity(head_dim, past_len, capacity, num_kv_heads, &past_value, &error))
+        {
+            return fail(error.c_str(), 26);
+        }
+        fill_channel_rows(past_key, 0.2f);
+        fill_channel_rows(past_value, 0.3f);
+        ncnn::Mat query(head_dim, query_len, num_q_heads);
+        ncnn::Mat current_key(head_dim, query_len, num_kv_heads);
+        ncnn::Mat current_value(head_dim, query_len, num_kv_heads);
+        fill_channel_rows(query, 0.4f);
+        fill_channel_rows(current_key, 0.5f);
+        fill_channel_rows(current_value, 0.6f);
+
+        ncnn::Mat packed_past_k(head_dim, past_len, num_kv_heads);
+        ncnn::Mat packed_past_v(head_dim, past_len, num_kv_heads);
+        for (int c = 0; c < num_kv_heads; ++c)
+        {
+            std::memcpy(packed_past_k.channel(c),
+                        past_key.channel(c),
+                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
+            std::memcpy(packed_past_v.channel(c),
+                        past_value.channel(c),
+                        static_cast<size_t>(head_dim) * past_len * sizeof(float));
+        }
+        ncnn::Mat expected_key;
+        ncnn::Mat expected_value;
+        build_expected_concat(packed_past_k, current_key, &expected_key);
+        build_expected_concat(packed_past_v, current_value, &expected_value);
+        ncnn::Mat reference_output;
+        if (reference_attention(query, expected_key, expected_value, scale, &reference_output) != 0)
+        {
+            return fail("capacity SDPA reference failed", 27);
         }
 
-        // Exact byte/element equality for concatenated caches.
-        if (!mats_equal(tops[1], expected_key, 0.0f))
+        for (int threads : {1, 4})
         {
-            return fail("out_cache_k is not exact [past,current] concat", 9);
-        }
-        if (!mats_equal(tops[2], expected_value, 0.0f))
-        {
-            return fail("out_cache_v is not exact [past,current] concat", 10);
-        }
-        if (!mats_equal(tops[0], reference_output, 1e-5f))
-        {
-            return fail("kv-cache attention output differs from reference", 11);
-        }
-
-        // Also run with single thread to ensure sequential path matches.
-        std::vector<ncnn::Mat> tops_st(3);
-        options.num_threads = 1;
-        if (layer->forward(bottoms, tops_st, options) != 0)
-        {
-            return fail("kv-cache single-thread forward failed", 12);
-        }
-        if (!mats_equal(tops_st[1], expected_key, 0.0f) ||
-            !mats_equal(tops_st[2], expected_value, 0.0f) ||
-            !mats_equal(tops_st[0], reference_output, 1e-5f))
-        {
-            return fail("single-thread kv-cache path mismatch", 13);
+            std::vector<ncnn::Mat> tops;
+            if (!run_kv_forward(query,
+                                current_key,
+                                current_value,
+                                past_key,
+                                past_value,
+                                scale,
+                                threads,
+                                &tops))
+            {
+                return fail("capacity SDPA forward failed", 28);
+            }
+            if (tops[1].data != past_key.data)
+            {
+                return fail("capacity SDPA did not append inplace", 29);
+            }
+            if (!mats_equal_logical(tops[1], expected_key, 0.0f) ||
+                !mats_equal_logical(tops[2], expected_value, 0.0f) ||
+                !mats_equal_logical(tops[0], reference_output, 1e-5f))
+            {
+                return fail("capacity SDPA output/content mismatch", 30);
+            }
         }
     }
 

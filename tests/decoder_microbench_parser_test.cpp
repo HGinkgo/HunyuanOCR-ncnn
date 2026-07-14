@@ -148,11 +148,11 @@ int main()
     const std::string header = decoder_microbench_csv_header();
     const std::string csv = format_decoder_microbench_csv_row(row);
     if (header !=
-        "context_len,query_len,num_threads,warmup,repeat,min_ms,mean_ms,median_ms,per_query_token_ms")
+        "context_len,query_len,num_threads,warmup,repeat,cache_mode,min_ms,mean_ms,median_ms,per_query_token_ms")
     {
         return fail("unexpected CSV header schema");
     }
-    if (csv.find("256,16,32,2,5,") != 0)
+    if (csv.find("256,16,32,2,5,exact,") != 0)
     {
         return fail("CSV row prefix mismatch");
     }

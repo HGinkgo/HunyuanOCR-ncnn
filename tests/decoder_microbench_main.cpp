@@ -80,6 +80,7 @@ int main(int argc, char** argv)
     std::string context_text = "256,512,1024";
     std::string query_text = "1,16";
     std::string threads_text = "4,8,16,32";
+    std::string cache_mode_text = "exact";
 
     for (int i = 1; i < argc; ++i)
     {
@@ -142,7 +143,28 @@ int main(int argc, char** argv)
             threads_text = need_value("--threads");
             continue;
         }
+        if (arg == "--cache-mode")
+        {
+            cache_mode_text = need_value("--cache-mode");
+            continue;
+        }
         std::cerr << "unknown argument: " << arg << '\n';
+        return 1;
+    }
+
+    hunyuan_ocr::detail::DecoderMicrobenchCacheMode cache_mode =
+        hunyuan_ocr::detail::DecoderMicrobenchCacheMode::Exact;
+    if (cache_mode_text == "exact")
+    {
+        cache_mode = hunyuan_ocr::detail::DecoderMicrobenchCacheMode::Exact;
+    }
+    else if (cache_mode_text == "reserved")
+    {
+        cache_mode = hunyuan_ocr::detail::DecoderMicrobenchCacheMode::Reserved;
+    }
+    else
+    {
+        std::cerr << "--cache-mode must be exact or reserved\n";
         return 1;
     }
 
@@ -194,6 +216,7 @@ int main(int argc, char** argv)
                 cell.num_threads = num_threads;
                 cell.warmup = warmup;
                 cell.repeat = repeat;
+                cell.cache_mode = cache_mode;
 
                 hunyuan_ocr::detail::DecoderMicrobenchRow row;
                 std::string sdpa_row;
@@ -204,6 +227,9 @@ int main(int argc, char** argv)
                               << " context_len=" << cell.context_len
                               << " query_len=" << cell.query_len
                               << " num_threads=" << cell.num_threads
+                              << " cache_mode="
+                              << hunyuan_ocr::detail::decoder_microbench_cache_mode_name(
+                                     cell.cache_mode)
                               << ": " << error << '\n';
                     return 1;
                 }
@@ -215,6 +241,9 @@ int main(int argc, char** argv)
                 std::cout << "context_len=" << row.cell.context_len
                           << " query_len=" << row.cell.query_len
                           << " num_threads=" << row.cell.num_threads
+                          << " cache_mode="
+                          << hunyuan_ocr::detail::decoder_microbench_cache_mode_name(
+                                 row.cell.cache_mode)
                           << " median_ms=" << row.timing.median_ms
                           << " per_query_token_ms=" << row.timing.per_query_token_ms
                           << '\n';

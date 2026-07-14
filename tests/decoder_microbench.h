@@ -10,12 +10,20 @@
 namespace hunyuan_ocr {
 namespace detail {
 
+// exact: past Mat is exact-size (cold first-touch / migration path).
+// reserved: past Mat is capacity-bearing (steady no-copy append path).
+enum class DecoderMicrobenchCacheMode {
+    Exact = 0,
+    Reserved = 1,
+};
+
 struct DecoderMicrobenchCell {
     int context_len = 0;
     int query_len = 0;
     int num_threads = 0;
     int warmup = 0;
     int repeat = 0;
+    DecoderMicrobenchCacheMode cache_mode = DecoderMicrobenchCacheMode::Exact;
 };
 
 struct DecoderMicrobenchTiming {
@@ -59,9 +67,13 @@ std::vector<DecoderMicrobenchCell> expand_decoder_microbench_matrix(
 // Stable CSV order: context_len, query_len, num_threads.
 void sort_decoder_microbench_rows(std::vector<DecoderMicrobenchRow>* rows);
 
+const char* decoder_microbench_cache_mode_name(DecoderMicrobenchCacheMode mode);
+
 // Prepare synthetic tensors matching production AR/DFlash decoder step protocol.
+// cache_mode=Reserved allocates past KV with spare capacity for steady append.
 bool prepare_decoder_microbench_inputs(int context_len,
                                        int query_len,
+                                       DecoderMicrobenchCacheMode cache_mode,
                                        ncnn::Mat* embeds,
                                        ncnn::Mat* mask,
                                        ncnn::Mat* cos,

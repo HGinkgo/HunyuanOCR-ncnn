@@ -1,6 +1,7 @@
 #include "decoder_microbench.h"
 
 #include "hunyuan_ocr/dflash_runtime.h"
+#include "kv_cache_capacity.h"
 #include "precise_sdpa_profile.h"
 #include "text_decoder_step.h"
 
@@ -223,9 +224,14 @@ DecoderMicrobenchTiming compute_timing_stats(const std::vector<double>& samples_
     return timing;
 }
 
+const char* decoder_microbench_cache_mode_name(DecoderMicrobenchCacheMode mode)
+{
+    return mode == DecoderMicrobenchCacheMode::Reserved ? "reserved" : "exact";
+}
+
 std::string decoder_microbench_csv_header()
 {
-    return "context_len,query_len,num_threads,warmup,repeat,min_ms,mean_ms,median_ms,per_query_token_ms";
+    return "context_len,query_len,num_threads,warmup,repeat,cache_mode,min_ms,mean_ms,median_ms,per_query_token_ms";
 }
 
 std::string format_decoder_microbench_csv_row(const DecoderMicrobenchRow& row)
@@ -236,6 +242,7 @@ std::string format_decoder_microbench_csv_row(const DecoderMicrobenchRow& row)
            << row.cell.num_threads << ','
            << row.cell.warmup << ','
            << row.cell.repeat << ','
+           << decoder_microbench_cache_mode_name(row.cell.cache_mode) << ','
            << std::fixed << std::setprecision(3)
            << row.timing.min_ms << ','
            << row.timing.mean_ms << ','
@@ -311,6 +318,7 @@ void sort_decoder_microbench_rows(std::vector<DecoderMicrobenchRow>* rows)
 
 bool prepare_decoder_microbench_inputs(int context_len,
                                        int query_len,
+                                       DecoderMicrobenchCacheMode cache_mode,
                                        ncnn::Mat* embeds,
                                        ncnn::Mat* mask,
                                        ncnn::Mat* cos,
@@ -361,10 +369,36 @@ bool prepare_decoder_microbench_inputs(int context_len,
 
     caches->clear();
     caches->reserve(kTextAttentionLayerCount);
+    // Reserved mode leaves room for at least one DFlash block append without grow.
+    const int reserved_capacity =
+        round_up_kv_capacity_rows(context_len + std::max(query_len, kDFlashBlockSize));
     for (int layer = 0; layer < kTextAttentionLayerCount; ++layer)
     {
-        ncnn::Mat key(kTextHeadDim, context_len, kTextCacheHeads);
-        ncnn::Mat value(kTextHeadDim, context_len, kTextCacheHeads);
+        ncnn::Mat key;
+        ncnn::Mat value;
+        if (cache_mode == DecoderMicrobenchCacheMode::Reserved)
+        {
+            if (!allocate_kv_cache_with_capacity(kTextHeadDim,
+                                                 context_len,
+                                                 reserved_capacity,
+                                                 kTextCacheHeads,
+                                                 &key,
+                                                 error) ||
+                !allocate_kv_cache_with_capacity(kTextHeadDim,
+                                                 context_len,
+                                                 reserved_capacity,
+                                                 kTextCacheHeads,
+                                                 &value,
+                                                 error))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            key.create(kTextHeadDim, context_len, kTextCacheHeads);
+            value.create(kTextHeadDim, context_len, kTextCacheHeads);
+        }
         if (key.empty() || value.empty() ||
             !fill_deterministic(&key, 10.0f + static_cast<float>(layer)) ||
             !fill_deterministic(&value, 20.0f + static_cast<float>(layer)))
@@ -467,6 +501,7 @@ bool run_decoder_microbench_cell(const ncnn::Net& decoder_net,
     DecoderKVCache caches;
     if (!prepare_decoder_microbench_inputs(cell.context_len,
                                            cell.query_len,
+                                           cell.cache_mode,
                                            &embeds,
                                            &mask,
                                            &cos,

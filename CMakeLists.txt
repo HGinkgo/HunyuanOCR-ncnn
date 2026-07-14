@@ -64,6 +64,7 @@ target_sources(hunyuan_ocr
         src/dflash_runtime.cpp
         src/generation_config.cpp
         src/image_preprocessor.cpp
+        src/kv_cache_capacity.cpp
         src/model_layout.cpp
         src/multimodal_rope.cpp
         src/prompt_builder.cpp
@@ -153,6 +154,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_compile_features(hunyuan_ocr_vision_interpolation_test PRIVATE cxx_std_17)
 
     add_executable(hunyuan_ocr_precise_sdpa_test tests/precise_sdpa_test.cpp)
+    target_include_directories(hunyuan_ocr_precise_sdpa_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
     target_link_libraries(hunyuan_ocr_precise_sdpa_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_precise_sdpa_test PRIVATE cxx_std_17)
 
