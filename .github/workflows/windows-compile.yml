@@ -64,7 +64,7 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: Test HunyuanOCR 1.5 custom layers and UTF-8 boundaries
-        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8|dflash_runtime|text_decoder_aux|cli_options|package_model"
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8|dflash_runtime|decoder_microbench_parser|text_decoder_aux|cli_options|package_model"
 
   ucrt64:
     name: UCRT64 compile and UTF-8 tests
@@ -129,4 +129,4 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test HunyuanOCR 1.5 custom layers and UTF-8 CLI
-        run: ctest --test-dir build --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8|dflash_runtime|text_decoder_aux|cli_options|package_model"
+        run: ctest --test-dir build --output-on-failure --no-tests=error -R "precise_sdpa|multimodal_rope|utf8|dflash_runtime|decoder_microbench_parser|text_decoder_aux|cli_options|package_model"
