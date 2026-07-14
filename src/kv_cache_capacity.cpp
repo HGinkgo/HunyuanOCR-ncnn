@@ -304,7 +304,6 @@ bool append_or_grow_kv_cache_profiled(const ncnn::Mat& past_key,
     }
 
     *profile = KvCacheAppendProfile{};
-    profile->grew = !plan.inplace;
     profile->past_copy_bytes = plan.inplace
         ? 0
         : static_cast<std::uint64_t>(past_key.c) *

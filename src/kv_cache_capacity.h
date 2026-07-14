@@ -51,22 +51,6 @@ inline int round_up_kv_capacity_rows(int rows)
     return ((rows + chunk - 1) / chunk) * chunk;
 }
 
-// True when past is a capacity-bearing 3D fp32 pack1 cache with room for
-// additional_rows after its current logical h.
-inline bool kv_cache_can_append_inplace(const ncnn::Mat& past, int additional_rows)
-{
-    if (additional_rows <= 0)
-    {
-        return false;
-    }
-    const int capacity = kv_cache_capacity_rows(past);
-    if (capacity <= 0 || past.h < 0 || past.h > capacity)
-    {
-        return false;
-    }
-    return additional_rows <= capacity - past.h;
-}
-
 // Shallow view over past with logical h set to logical_rows.
 // Keeps data/refcount/cstep so remaining capacity stays addressable.
 // Requires capacity_rows(past) >= logical_rows and past layout compatible.
@@ -115,7 +99,6 @@ struct KvCacheAppendProfile {
     double copy_ms = 0.0;
     std::uint64_t past_copy_bytes = 0;
     std::uint64_t current_copy_bytes = 0;
-    bool grew = false;
 };
 
 // Profile-only variant with real allocation/copy timing. The regular helper

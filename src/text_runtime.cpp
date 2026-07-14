@@ -303,6 +303,43 @@ bool parse_vlm_fixture_meta(const std::filesystem::path& path, VlmFixtureMeta* m
     return true;
 }
 
+struct VlmFixtureInputs {
+    VlmFixtureMeta meta;
+    std::vector<int> input_ids;
+    std::vector<int> position_ids;
+    std::vector<int> expected_tokens;
+};
+
+bool read_vlm_fixture_inputs(const std::filesystem::path& root,
+                             VlmFixtureInputs* fixture,
+                             std::string* error)
+{
+    if (fixture == nullptr)
+    {
+        if (error) *error = "VLM fixture output is null";
+        return false;
+    }
+    VlmFixtureInputs loaded;
+    if (!parse_vlm_fixture_meta(root / "meta.txt", &loaded.meta, error) ||
+        !read_binary_vector(root / "input_ids.i32",
+                            static_cast<size_t>(loaded.meta.seq_len),
+                            &loaded.input_ids,
+                            error) ||
+        !read_binary_vector(root / "position_ids.i32",
+                            static_cast<size_t>(loaded.meta.seq_len) * 4,
+                            &loaded.position_ids,
+                            error) ||
+        !read_binary_vector(root / "expected_tokens.i32",
+                            static_cast<size_t>(loaded.meta.expected_token_count),
+                            &loaded.expected_tokens,
+                            error))
+    {
+        return false;
+    }
+    *fixture = std::move(loaded);
+    return true;
+}
+
 bool extract_or_error(ncnn::Extractor& ex, const char* name, ncnn::Mat* out, std::string* error)
 {
     const int ret = ex.extract(name, *out);
@@ -388,7 +425,131 @@ bool run_text_embed_tokens(const ncnn::Net& net,
     return true;
 }
 
+bool prepare_prompt_embeddings(const ncnn::Net& text_embed_net,
+                               const std::vector<int>& input_ids,
+                               const std::vector<int>& position_ids,
+                               int image_token_id,
+                               const std::vector<float>& vision_features,
+                               int vision_token_count,
+                               std::vector<float>* inputs_embeds,
+                               std::string* error)
+{
+    if (inputs_embeds == nullptr)
+    {
+        if (error) *error = "prompt embedding output is null";
+        return false;
+    }
+    const int seq_len = static_cast<int>(input_ids.size());
+    if (seq_len <= 0)
+    {
+        if (error) *error = "prompt input_ids must not be empty";
+        return false;
+    }
+    if (position_ids.size() != static_cast<size_t>(seq_len) * 4)
+    {
+        if (error) *error = "prompt position_ids size mismatch";
+        return false;
+    }
+    if (vision_token_count <= 0 ||
+        vision_features.size() != static_cast<size_t>(vision_token_count) * kHiddenSize)
+    {
+        if (error) *error = "vision feature size mismatch";
+        return false;
+    }
+    if (!run_text_embed_tokens(text_embed_net, input_ids, seq_len, inputs_embeds, error))
+    {
+        return false;
+    }
+
+    int injected = 0;
+    for (int index = 0; index < seq_len; ++index)
+    {
+        if (input_ids[static_cast<size_t>(index)] != image_token_id)
+        {
+            continue;
+        }
+        if (injected >= vision_token_count)
+        {
+            if (error) *error = "more image tokens than vision features";
+            return false;
+        }
+        std::memcpy(inputs_embeds->data() + static_cast<size_t>(index) * kHiddenSize,
+                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
+                    static_cast<size_t>(kHiddenSize) * sizeof(float));
+        ++injected;
+    }
+    if (injected != vision_token_count)
+    {
+        if (error) {
+            *error = "image token count mismatch: injected " + std::to_string(injected) +
+                     ", expected " + std::to_string(vision_token_count);
+        }
+        return false;
+    }
+    return true;
+}
+
 using KVCache = detail::DecoderKVCache;
+
+bool bind_decoder_inputs(ncnn::Extractor* ex,
+                         const ncnn::Mat& input,
+                         const ncnn::Mat& mask,
+                         const ncnn::Mat& xd_cos,
+                         const ncnn::Mat& xd_sin,
+                         const ncnn::Mat& rope_cos,
+                         const ncnn::Mat& rope_sin,
+                         const char* error_message,
+                         std::string* error)
+{
+    if (ex == nullptr ||
+        ex->input("in0", input) != 0 ||
+        ex->input("in1", mask) != 0 ||
+        ex->input("in2", xd_cos) != 0 ||
+        ex->input("in3", xd_sin) != 0 ||
+        ex->input("in4", rope_cos) != 0 ||
+        ex->input("in5", rope_sin) != 0)
+    {
+        if (error) *error = error_message;
+        return false;
+    }
+    return true;
+}
+
+bool extract_decoder_outputs(ncnn::Extractor* ex,
+                             ncnn::Mat* hidden,
+                             KVCache* caches,
+                             std::array<ncnn::Mat, 4>* target_hidden,
+                             std::string* error)
+{
+    if (ex == nullptr || hidden == nullptr || caches == nullptr)
+    {
+        if (error) *error = "decoder output pointer is null";
+        return false;
+    }
+    caches->clear();
+    caches->reserve(kAttentionLayerCount);
+    for (int layer = 0; layer < kAttentionLayerCount; ++layer)
+    {
+        char name_k[32];
+        char name_v[32];
+        std::snprintf(name_k, sizeof(name_k), "out_cache_k%d", layer);
+        std::snprintf(name_v, sizeof(name_v), "out_cache_v%d", layer);
+        ncnn::Mat key;
+        ncnn::Mat value;
+        if (!extract_or_error(*ex, name_k, &key, error) ||
+            !extract_or_error(*ex, name_v, &value, error))
+        {
+            return false;
+        }
+        caches->emplace_back(std::move(key), std::move(value));
+    }
+    if (target_hidden != nullptr &&
+        !detail::extract_dflash_target_hidden(*ex, target_hidden, error))
+    {
+        return false;
+    }
+    return extract_or_error(*ex, "out0", hidden, error);
+}
 
 bool run_decoder_prefill(const ncnn::Net& net,
                          const ncnn::Mat& inputs_embeds,
@@ -403,40 +564,19 @@ bool run_decoder_prefill(const ncnn::Net& net,
                          std::string* error)
 {
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
-    if (ex.input("in0", inputs_embeds) != 0 ||
-        ex.input("in1", mask) != 0 ||
-        ex.input("in2", xd_cos) != 0 ||
-        ex.input("in3", xd_sin) != 0 ||
-        ex.input("in4", rope_cos) != 0 ||
-        ex.input("in5", rope_sin) != 0)
-    {
-        if (error) *error = "decoder prefill input failed";
-        return false;
-    }
-
-    caches->clear();
-    caches->reserve(kAttentionLayerCount);
-    for (int i = 0; i < kAttentionLayerCount; ++i)
-    {
-        char name_k[32];
-        char name_v[32];
-        std::snprintf(name_k, sizeof(name_k), "out_cache_k%d", i);
-        std::snprintf(name_v, sizeof(name_v), "out_cache_v%d", i);
-        ncnn::Mat key;
-        ncnn::Mat value;
-        if (!extract_or_error(ex, name_k, &key, error) ||
-            !extract_or_error(ex, name_v, &value, error))
-        {
-            return false;
-        }
-        caches->emplace_back(std::move(key), std::move(value));
-    }
-    if (target_hidden != nullptr &&
-        !detail::extract_dflash_target_hidden(ex, target_hidden, error))
+    if (!bind_decoder_inputs(&ex,
+                             inputs_embeds,
+                             mask,
+                             xd_cos,
+                             xd_sin,
+                             rope_cos,
+                             rope_sin,
+                             "decoder prefill input failed",
+                             error))
     {
         return false;
     }
-    return extract_or_error(ex, "out0", hidden, error);
+    return extract_decoder_outputs(&ex, hidden, caches, target_hidden, error);
 }
 
 // Production decoder step used by AR and DFlash verify. Defined in detail so
@@ -453,14 +593,16 @@ bool run_decoder_step_impl(const ncnn::Net& net,
                            std::string* error)
 {
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
-    if (ex.input("in0", current_embed) != 0 ||
-        ex.input("in1", mask) != 0 ||
-        ex.input("in2", cos) != 0 ||
-        ex.input("in3", sin) != 0 ||
-        ex.input("in4", cos) != 0 ||
-        ex.input("in5", sin) != 0)
+    if (!bind_decoder_inputs(&ex,
+                             current_embed,
+                             mask,
+                             cos,
+                             sin,
+                             cos,
+                             sin,
+                             "decoder step input failed",
+                             error))
     {
-        if (error) *error = "decoder step input failed";
         return false;
     }
 
@@ -488,29 +630,7 @@ bool run_decoder_step_impl(const ncnn::Net& net,
         }
     }
 
-    updated->clear();
-    updated->reserve(kAttentionLayerCount);
-    for (int i = 0; i < kAttentionLayerCount; ++i)
-    {
-        char name_k[32];
-        char name_v[32];
-        std::snprintf(name_k, sizeof(name_k), "out_cache_k%d", i);
-        std::snprintf(name_v, sizeof(name_v), "out_cache_v%d", i);
-        ncnn::Mat key;
-        ncnn::Mat value;
-        if (!extract_or_error(ex, name_k, &key, error) ||
-            !extract_or_error(ex, name_v, &value, error))
-        {
-            return false;
-        }
-        updated->emplace_back(std::move(key), std::move(value));
-    }
-    if (target_hidden != nullptr &&
-        !detail::extract_dflash_target_hidden(ex, target_hidden, error))
-    {
-        return false;
-    }
-    return extract_or_error(ex, "out0", hidden, error);
+    return extract_decoder_outputs(&ex, hidden, updated, target_hidden, error);
 }
 
 int select_next_token(const ncnn::Mat& logits, const std::vector<int>& history, float penalty, int* raw_top1)
@@ -1265,52 +1385,17 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                std::string* error)
 {
     const int seq_len = static_cast<int>(input_ids.size());
-    if (seq_len <= 0)
-    {
-        if (error) *error = "prompt input_ids must not be empty";
-        return false;
-    }
-    if (position_ids.size() != static_cast<size_t>(seq_len) * 4)
-    {
-        if (error) *error = "prompt position_ids size mismatch";
-        return false;
-    }
-    if (vision_token_count <= 0 ||
-        vision_features.size() != static_cast<size_t>(vision_token_count) * kHiddenSize)
-    {
-        if (error) *error = "vision feature size mismatch";
-        return false;
-    }
-
     std::vector<float> inputs_embeds;
     const auto text_embed_start = Clock::now();
-    if (!run_text_embed_tokens(text_embed_net, input_ids, seq_len, &inputs_embeds, error))
+    if (!prepare_prompt_embeddings(text_embed_net,
+                                   input_ids,
+                                   position_ids,
+                                   image_token_id,
+                                   vision_features,
+                                   vision_token_count,
+                                   &inputs_embeds,
+                                   error))
     {
-        return false;
-    }
-    int injected = 0;
-    for (int i = 0; i < seq_len; ++i)
-    {
-        if (input_ids[static_cast<size_t>(i)] != image_token_id)
-        {
-            continue;
-        }
-        if (injected >= vision_token_count)
-        {
-            if (error) *error = "more image tokens than vision features";
-            return false;
-        }
-        std::memcpy(inputs_embeds.data() + static_cast<size_t>(i) * kHiddenSize,
-                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
-                    static_cast<size_t>(kHiddenSize) * sizeof(float));
-        ++injected;
-    }
-    if (injected != vision_token_count)
-    {
-        if (error) {
-            *error = "image token count mismatch: injected " + std::to_string(injected) +
-                     ", expected " + std::to_string(vision_token_count);
-        }
         return false;
     }
     if (timing)
@@ -1351,51 +1436,16 @@ bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                       std::string* error)
 {
     const int seq_len = static_cast<int>(input_ids.size());
-    if (seq_len <= 0)
-    {
-        if (error) *error = "prompt input_ids must not be empty";
-        return false;
-    }
-    if (position_ids.size() != static_cast<size_t>(seq_len) * 4)
-    {
-        if (error) *error = "prompt position_ids size mismatch";
-        return false;
-    }
-    if (vision_token_count <= 0 ||
-        vision_features.size() != static_cast<size_t>(vision_token_count) * kHiddenSize)
-    {
-        if (error) *error = "vision feature size mismatch";
-        return false;
-    }
-
     std::vector<float> inputs_embeds;
-    if (!run_text_embed_tokens(text_embed_net, input_ids, seq_len, &inputs_embeds, error))
+    if (!prepare_prompt_embeddings(text_embed_net,
+                                   input_ids,
+                                   position_ids,
+                                   image_token_id,
+                                   vision_features,
+                                   vision_token_count,
+                                   &inputs_embeds,
+                                   error))
     {
-        return false;
-    }
-    int injected = 0;
-    for (int i = 0; i < seq_len; ++i)
-    {
-        if (input_ids[static_cast<size_t>(i)] != image_token_id)
-        {
-            continue;
-        }
-        if (injected >= vision_token_count)
-        {
-            if (error) *error = "more image tokens than vision features";
-            return false;
-        }
-        std::memcpy(inputs_embeds.data() + static_cast<size_t>(i) * kHiddenSize,
-                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
-                    static_cast<size_t>(kHiddenSize) * sizeof(float));
-        ++injected;
-    }
-    if (injected != vision_token_count)
-    {
-        if (error) {
-            *error = "image token count mismatch: injected " + std::to_string(injected) +
-                     ", expected " + std::to_string(vision_token_count);
-        }
         return false;
     }
 
@@ -1446,21 +1496,10 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     {
         return false;
     }
-    if (text_decoder_net_->register_custom_layer("SDPA", create_precise_sdpa_layer) != 0)
-    {
-        if (error) *error = "failed to register precise SDPA layer";
-        return false;
-    }
-    if (text_decoder_net_->register_custom_layer("RotaryEmbed", create_multimodal_rope_layer) != 0)
-    {
-        if (error) *error = "failed to register multimodal RotaryEmbed layer";
-        return false;
-    }
-    if (!load_net(*text_decoder_net_,
-                  root / "text_decoder" / "text_decoder_kv.ncnn.param",
-                  root / "text_decoder" / "text_decoder_kv.ncnn.bin",
-                  num_threads_,
-                  error))
+    if (!detail::load_text_decoder_kv_net(model_root,
+                                          num_threads_,
+                                          text_decoder_net_.get(),
+                                          error))
     {
         return false;
     }
@@ -1651,66 +1690,44 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
     }
 
     const std::filesystem::path root = path_from_utf8(fixture_dir);
-    VlmFixtureMeta meta;
-    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    VlmFixtureInputs fixture;
+    if (!read_vlm_fixture_inputs(root, &fixture, error))
     {
         return false;
     }
 
-    std::vector<int> input_ids;
-    std::vector<int> position_ids;
-    std::vector<int> expected_tokens;
     std::vector<float> vision_features;
-    if (!read_binary_vector(root / "input_ids.i32", static_cast<size_t>(meta.seq_len), &input_ids, error) ||
-        !read_binary_vector(root / "position_ids.i32", static_cast<size_t>(meta.seq_len) * 4, &position_ids, error) ||
-        !read_binary_vector(root / "expected_tokens.i32", static_cast<size_t>(meta.expected_token_count), &expected_tokens, error) ||
-        !read_binary_vector(root / "vision_features.f32", static_cast<size_t>(meta.vision_token_count) * kHiddenSize, &vision_features, error))
+    if (!read_binary_vector(root / "vision_features.f32",
+                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
+                            &vision_features,
+                            error))
     {
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!run_text_embed_tokens(*text_embed_net_, input_ids, meta.seq_len, &inputs_embeds, error))
+    if (!prepare_prompt_embeddings(*text_embed_net_,
+                                   fixture.input_ids,
+                                   fixture.position_ids,
+                                   fixture.meta.image_token_id,
+                                   vision_features,
+                                   fixture.meta.vision_token_count,
+                                   &inputs_embeds,
+                                   error))
     {
-        return false;
-    }
-
-    int injected = 0;
-    for (int i = 0; i < meta.seq_len; ++i)
-    {
-        if (input_ids[static_cast<size_t>(i)] != meta.image_token_id)
-        {
-            continue;
-        }
-        if (injected >= meta.vision_token_count)
-        {
-            if (error) *error = "more image tokens than vision features";
-            return false;
-        }
-        std::memcpy(inputs_embeds.data() + static_cast<size_t>(i) * kHiddenSize,
-                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
-                    static_cast<size_t>(kHiddenSize) * sizeof(float));
-        ++injected;
-    }
-    if (injected != meta.vision_token_count)
-    {
-        if (error) {
-            *error = "image token count mismatch: injected " + std::to_string(injected) +
-                     ", expected " + std::to_string(meta.vision_token_count);
-        }
         return false;
     }
 
     return decode_from_embeddings(*text_embed_net_,
                                   *text_decoder_net_,
                                   *lm_head_net_,
-                                  meta.seq_len,
+                                  fixture.meta.seq_len,
                                   max_tokens,
                                   kDefaultRepetitionPenalty,
                                   inputs_embeds,
-                                  input_ids,
-                                  position_ids,
-                                  expected_tokens,
+                                  fixture.input_ids,
+                                  fixture.position_ids,
+                                  fixture.expected_tokens,
                                   eos_ids_,
                                   result,
                                   &result->timing,
@@ -1738,49 +1755,31 @@ bool TextRuntime::run_vlm_fixture_dflash_probe(const std::string& fixture_dir,
     }
 
     const std::filesystem::path root = path_from_utf8(fixture_dir);
-    VlmFixtureMeta meta;
-    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    VlmFixtureInputs fixture;
+    if (!read_vlm_fixture_inputs(root, &fixture, error))
     {
         return false;
     }
 
-    std::vector<int> input_ids;
-    std::vector<int> position_ids;
-    std::vector<int> expected_tokens;
     std::vector<float> vision_features;
-    if (!read_binary_vector(root / "input_ids.i32", static_cast<size_t>(meta.seq_len), &input_ids, error) ||
-        !read_binary_vector(root / "position_ids.i32", static_cast<size_t>(meta.seq_len) * 4, &position_ids, error) ||
-        !read_binary_vector(root / "expected_tokens.i32", static_cast<size_t>(meta.expected_token_count), &expected_tokens, error) ||
-        !read_binary_vector(root / "vision_features.f32", static_cast<size_t>(meta.vision_token_count) * kHiddenSize, &vision_features, error))
+    if (!read_binary_vector(root / "vision_features.f32",
+                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
+                            &vision_features,
+                            error))
     {
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!run_text_embed_tokens(*text_embed_net_, input_ids, meta.seq_len, &inputs_embeds, error))
+    if (!prepare_prompt_embeddings(*text_embed_net_,
+                                   fixture.input_ids,
+                                   fixture.position_ids,
+                                   fixture.meta.image_token_id,
+                                   vision_features,
+                                   fixture.meta.vision_token_count,
+                                   &inputs_embeds,
+                                   error))
     {
-        return false;
-    }
-    int injected = 0;
-    for (int index = 0; index < meta.seq_len; ++index)
-    {
-        if (input_ids[static_cast<size_t>(index)] != meta.image_token_id)
-        {
-            continue;
-        }
-        if (injected >= meta.vision_token_count)
-        {
-            if (error) *error = "more image tokens than vision features";
-            return false;
-        }
-        std::memcpy(inputs_embeds.data() + static_cast<size_t>(index) * kHiddenSize,
-                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
-                    static_cast<size_t>(kHiddenSize) * sizeof(float));
-        ++injected;
-    }
-    if (injected != meta.vision_token_count)
-    {
-        if (error) *error = "image token count mismatch in DFlash probe";
         return false;
     }
 
@@ -1788,12 +1787,12 @@ bool TextRuntime::run_vlm_fixture_dflash_probe(const std::string& fixture_dir,
                                   *text_decoder_net_,
                                   *lm_head_net_,
                                   *dflash_draft_,
-                                  meta.seq_len,
+                                  fixture.meta.seq_len,
                                   kDefaultRepetitionPenalty,
                                   inputs_embeds,
-                                  input_ids,
-                                  position_ids,
-                                  expected_tokens,
+                                  fixture.input_ids,
+                                  fixture.position_ids,
+                                  fixture.expected_tokens,
                                   result,
                                   error);
 }
@@ -1820,27 +1819,31 @@ bool TextRuntime::run_vlm_fixture_dflash_decode(const std::string& fixture_dir,
     }
 
     const std::filesystem::path root = path_from_utf8(fixture_dir);
-    VlmFixtureMeta meta;
-    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    VlmFixtureInputs fixture;
+    if (!read_vlm_fixture_inputs(root, &fixture, error))
     {
         return false;
     }
 
     std::vector<float> vision_features;
     if (!read_binary_vector(root / "vision_features.f32",
-                            static_cast<size_t>(meta.vision_token_count) * kHiddenSize,
+                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
                             &vision_features,
                             error))
     {
         return false;
     }
 
-    return run_vlm_fixture_dflash_decode_with_features(fixture_dir,
-                                                       vision_features,
-                                                       meta.vision_token_count,
-                                                       max_tokens,
-                                                       result,
-                                                       error);
+    return run_vlm_dflash_decode_with_prompt(fixture.input_ids,
+                                             fixture.position_ids,
+                                             fixture.meta.image_token_id,
+                                             vision_features,
+                                             fixture.meta.vision_token_count,
+                                             fixture.expected_tokens,
+                                             max_tokens,
+                                             kDefaultRepetitionPenalty,
+                                             result,
+                                             error);
 }
 
 bool TextRuntime::run_vlm_fixture_dflash_decode_with_features(
@@ -1868,46 +1871,27 @@ bool TextRuntime::run_vlm_fixture_dflash_decode_with_features(
     }
 
     const std::filesystem::path root = path_from_utf8(fixture_dir);
-    VlmFixtureMeta meta;
-    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    VlmFixtureInputs fixture;
+    if (!read_vlm_fixture_inputs(root, &fixture, error))
     {
         return false;
     }
-    if (vision_token_count != meta.vision_token_count)
+    if (vision_token_count != fixture.meta.vision_token_count)
     {
         if (error) {
             *error = "external vision token count mismatch: got " +
                      std::to_string(vision_token_count) + ", expected " +
-                     std::to_string(meta.vision_token_count);
+                     std::to_string(fixture.meta.vision_token_count);
         }
         return false;
     }
 
-    std::vector<int> input_ids;
-    std::vector<int> position_ids;
-    std::vector<int> expected_tokens;
-    if (!read_binary_vector(root / "input_ids.i32",
-                            static_cast<size_t>(meta.seq_len),
-                            &input_ids,
-                            error) ||
-        !read_binary_vector(root / "position_ids.i32",
-                            static_cast<size_t>(meta.seq_len) * 4,
-                            &position_ids,
-                            error) ||
-        !read_binary_vector(root / "expected_tokens.i32",
-                            static_cast<size_t>(meta.expected_token_count),
-                            &expected_tokens,
-                            error))
-    {
-        return false;
-    }
-
-    return run_vlm_dflash_decode_with_prompt(input_ids,
-                                             position_ids,
-                                             meta.image_token_id,
+    return run_vlm_dflash_decode_with_prompt(fixture.input_ids,
+                                             fixture.position_ids,
+                                             fixture.meta.image_token_id,
                                              vision_features,
                                              vision_token_count,
-                                             expected_tokens,
+                                             fixture.expected_tokens,
                                              max_tokens,
                                              kDefaultRepetitionPenalty,
                                              result,
@@ -1978,80 +1962,51 @@ bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixtur
     }
 
     const std::filesystem::path root = path_from_utf8(fixture_dir);
-    VlmFixtureMeta meta;
-    if (!parse_vlm_fixture_meta(root / "meta.txt", &meta, error))
+    VlmFixtureInputs fixture;
+    if (!read_vlm_fixture_inputs(root, &fixture, error))
     {
         return false;
     }
-    if (vision_token_count != meta.vision_token_count)
+    if (vision_token_count != fixture.meta.vision_token_count)
     {
         if (error) {
             *error = "external vision token count mismatch: got " + std::to_string(vision_token_count) +
-                     ", expected " + std::to_string(meta.vision_token_count);
+                     ", expected " + std::to_string(fixture.meta.vision_token_count);
         }
         return false;
     }
-    if (vision_features.size() != static_cast<size_t>(meta.vision_token_count) * kHiddenSize)
+    if (vision_features.size() != static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize)
     {
         if (error) {
             *error = "external vision feature size mismatch: got " + std::to_string(vision_features.size()) +
-                     ", expected " + std::to_string(static_cast<size_t>(meta.vision_token_count) * kHiddenSize);
+                     ", expected " + std::to_string(static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize);
         }
-        return false;
-    }
-
-    std::vector<int> input_ids;
-    std::vector<int> position_ids;
-    std::vector<int> expected_tokens;
-    if (!read_binary_vector(root / "input_ids.i32", static_cast<size_t>(meta.seq_len), &input_ids, error) ||
-        !read_binary_vector(root / "position_ids.i32", static_cast<size_t>(meta.seq_len) * 4, &position_ids, error) ||
-        !read_binary_vector(root / "expected_tokens.i32", static_cast<size_t>(meta.expected_token_count), &expected_tokens, error))
-    {
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!run_text_embed_tokens(*text_embed_net_, input_ids, meta.seq_len, &inputs_embeds, error))
+    if (!prepare_prompt_embeddings(*text_embed_net_,
+                                   fixture.input_ids,
+                                   fixture.position_ids,
+                                   fixture.meta.image_token_id,
+                                   vision_features,
+                                   fixture.meta.vision_token_count,
+                                   &inputs_embeds,
+                                   error))
     {
-        return false;
-    }
-
-    int injected = 0;
-    for (int i = 0; i < meta.seq_len; ++i)
-    {
-        if (input_ids[static_cast<size_t>(i)] != meta.image_token_id)
-        {
-            continue;
-        }
-        if (injected >= meta.vision_token_count)
-        {
-            if (error) *error = "more image tokens than external vision features";
-            return false;
-        }
-        std::memcpy(inputs_embeds.data() + static_cast<size_t>(i) * kHiddenSize,
-                    vision_features.data() + static_cast<size_t>(injected) * kHiddenSize,
-                    static_cast<size_t>(kHiddenSize) * sizeof(float));
-        ++injected;
-    }
-    if (injected != meta.vision_token_count)
-    {
-        if (error) {
-            *error = "image token count mismatch: injected " + std::to_string(injected) +
-                     ", expected " + std::to_string(meta.vision_token_count);
-        }
         return false;
     }
 
     return decode_from_embeddings(*text_embed_net_,
                                   *text_decoder_net_,
                                   *lm_head_net_,
-                                  meta.seq_len,
+                                  fixture.meta.seq_len,
                                   max_tokens,
                                   kDefaultRepetitionPenalty,
                                   inputs_embeds,
-                                  input_ids,
-                                  position_ids,
-                                  expected_tokens,
+                                  fixture.input_ids,
+                                  fixture.position_ids,
+                                  fixture.expected_tokens,
                                   eos_ids_,
                                   result,
                                   nullptr,

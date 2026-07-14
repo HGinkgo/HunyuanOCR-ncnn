@@ -31,9 +31,7 @@ struct ThreadLocalSdpaProfile {
     double kv_concat_ms = 0.0;
     double kv_alloc_ms = 0.0;
     double kv_copy_ms = 0.0;
-    double qk_score_ms = 0.0;
-    double softmax_ms = 0.0;
-    double pv_ms = 0.0;
+    double attention_compute_ms = 0.0;
     double output_alloc_ms = 0.0;
     std::uint64_t past_kv_copy_bytes = 0;
     std::uint64_t current_kv_copy_bytes = 0;
@@ -61,9 +59,7 @@ void flush_thread_local_profile()
 {
     ThreadLocalSdpaProfile& local = tls_profile();
     if (local.call_count == 0 &&
-        local.qk_score_ms == 0.0 &&
-        local.softmax_ms == 0.0 &&
-        local.pv_ms == 0.0 &&
+        local.attention_compute_ms == 0.0 &&
         local.kv_concat_ms == 0.0 &&
         local.kv_alloc_ms == 0.0 &&
         local.kv_copy_ms == 0.0 &&
@@ -78,9 +74,7 @@ void flush_thread_local_profile()
     g_profile.kv_concat_ms += local.kv_concat_ms;
     g_profile.kv_alloc_ms += local.kv_alloc_ms;
     g_profile.kv_copy_ms += local.kv_copy_ms;
-    g_profile.qk_score_ms += local.qk_score_ms;
-    g_profile.softmax_ms += local.softmax_ms;
-    g_profile.pv_ms += local.pv_ms;
+    g_profile.attention_compute_ms += local.attention_compute_ms;
     g_profile.output_alloc_ms += local.output_alloc_ms;
     g_profile.past_kv_copy_bytes += local.past_kv_copy_bytes;
     g_profile.current_kv_copy_bytes += local.current_kv_copy_bytes;
@@ -190,7 +184,6 @@ public:
         local.output_alloc_ms += elapsed_ms(output_alloc_start, Clock::now());
         // Coarse attention timer: one wall sample around the whole parallel
         // head loop. No per-head/per-row timestamps (keeps profile overhead low).
-        // Stored in qk_score_ms as attention_compute_ms; softmax/pv left 0.
         const auto attention_start = Clock::now();
 #endif
 
@@ -251,7 +244,7 @@ public:
         }
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
         // Full attention body wall time (QK+softmax+PV combined under coarse mode).
-        local.qk_score_ms += elapsed_ms(attention_start, Clock::now());
+        local.attention_compute_ms += elapsed_ms(attention_start, Clock::now());
         local.call_count += 1;
         local.total_ms += elapsed_ms(total_start, Clock::now());
         local.last_query_len = query_len;
@@ -298,10 +291,7 @@ PreciseSdpaProfileSnapshot snapshot_precise_sdpa_profile()
     {
         snapshot.kv_concat_ms = snapshot.kv_alloc_ms + snapshot.kv_copy_ms;
     }
-    // qk_score_ms currently holds coarse attention body wall time when
-    // per-row stage timers are disabled; softmax/pv remain 0 in that mode.
-    const double accounted = snapshot.kv_concat_ms + snapshot.qk_score_ms +
-                             snapshot.softmax_ms + snapshot.pv_ms +
+    const double accounted = snapshot.kv_concat_ms + snapshot.attention_compute_ms +
                              snapshot.output_alloc_ms;
     snapshot.other_ms = std::max(0.0, snapshot.total_ms - accounted);
     return snapshot;

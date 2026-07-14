@@ -174,9 +174,15 @@ int main()
         {
             return fail("SDPA profile CSV header must include kv_alloc_ms, kv_copy_ms, and kv_concat_ms");
         }
-        // Stable column order: ... total_ms,kv_concat_ms,kv_alloc_ms,kv_copy_ms,qk_score_ms ...
+        if (sdpa_header.find("qk_score_ms") != std::string::npos ||
+            sdpa_header.find("softmax_ms") != std::string::npos ||
+            sdpa_header.find("pv_ms") != std::string::npos)
+        {
+            return fail("SDPA profile CSV header must not expose inactive stage columns");
+        }
+        // Stable column order: ... kv_alloc_ms,kv_copy_ms,attention_compute_ms ...
         if (sdpa_header.find(
-                "call_count,total_ms,kv_concat_ms,kv_alloc_ms,kv_copy_ms,qk_score_ms") ==
+                "call_count,total_ms,kv_concat_ms,kv_alloc_ms,kv_copy_ms,attention_compute_ms") ==
             std::string::npos)
         {
             return fail("SDPA profile CSV header column order mismatch for kv split fields");
@@ -188,9 +194,7 @@ int main()
         snap.kv_alloc_ms = 12.5;
         snap.kv_copy_ms = 37.5;
         snap.kv_concat_ms = 50.0; // must remain alloc+copy for compatibility
-        snap.qk_score_ms = 20.0;
-        snap.softmax_ms = 1.0;
-        snap.pv_ms = 25.0;
+        snap.attention_compute_ms = 46.0;
         snap.output_alloc_ms = 0.5;
         snap.other_ms = 3.5;
         snap.past_kv_copy_bytes = 1024;

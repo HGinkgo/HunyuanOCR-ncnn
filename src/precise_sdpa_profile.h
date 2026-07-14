@@ -19,9 +19,7 @@ struct PreciseSdpaProfileSnapshot {
     double kv_concat_ms = 0.0;
     double kv_alloc_ms = 0.0;
     double kv_copy_ms = 0.0;
-    double qk_score_ms = 0.0;
-    double softmax_ms = 0.0;
-    double pv_ms = 0.0;
+    double attention_compute_ms = 0.0;
     double output_alloc_ms = 0.0;
     double other_ms = 0.0;
     std::uint64_t past_kv_copy_bytes = 0;
@@ -36,7 +34,7 @@ inline std::string precise_sdpa_profile_csv_header()
 {
     return "context_len,query_len,num_threads,warmup,repeat,decoder_median_ms,"
            "call_count,total_ms,kv_concat_ms,kv_alloc_ms,kv_copy_ms,"
-           "qk_score_ms,softmax_ms,pv_ms,"
+           "attention_compute_ms,"
            "output_alloc_ms,other_ms,past_kv_copy_bytes,current_kv_copy_bytes,"
            "last_query_len,last_key_len,last_num_heads,last_num_threads";
 }
@@ -63,9 +61,7 @@ inline std::string format_precise_sdpa_profile_csv_row(
            << snapshot.kv_concat_ms << ','
            << snapshot.kv_alloc_ms << ','
            << snapshot.kv_copy_ms << ','
-           << snapshot.qk_score_ms << ','
-           << snapshot.softmax_ms << ','
-           << snapshot.pv_ms << ','
+           << snapshot.attention_compute_ms << ','
            << snapshot.output_alloc_ms << ','
            << snapshot.other_ms << ','
            << snapshot.past_kv_copy_bytes << ','
