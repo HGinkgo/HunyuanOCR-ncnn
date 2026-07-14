@@ -47,6 +47,13 @@ def write_summary(path: Path, **overrides: str) -> None:
 
 
 class PrepareRegressionFixturesTest(unittest.TestCase):
+    def test_imports_without_numpy_and_reports_actionable_error_when_conversion_starts(self) -> None:
+        module = load_module()
+        with mock.patch.object(module, "np", None), self.assertRaisesRegex(
+            SystemExit, "NumPy is required.*python -m pip install numpy"
+        ):
+            module.require_numpy()
+
     def test_accepts_fixed_cpu_fp32_eager_provenance(self) -> None:
         module = load_module()
         with tempfile.TemporaryDirectory() as tmp_text:

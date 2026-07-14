@@ -9,7 +9,10 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
 
 from atomic_output import build_directory_transactionally, lexical_absolute_path, paths_overlap, validate_case_names
 
@@ -71,6 +74,11 @@ def fail(message: str) -> None:
     raise SystemExit(f"error: {message}")
 
 
+def require_numpy() -> None:
+    if np is None:
+        fail("NumPy is required to convert regression fixtures; install it with `python -m pip install numpy`")
+
+
 def require_file(path: Path, label: str) -> None:
     if not path.is_file():
         fail(f"{label} not found: {path}")
@@ -128,14 +136,17 @@ def load_cases(manifest: Path) -> list[Case]:
 
 
 def write_i32(path: Path, values: np.ndarray) -> None:
+    require_numpy()
     np.asarray(values, dtype=np.int32).reshape(-1).tofile(path)
 
 
 def write_f32(path: Path, values: np.ndarray) -> None:
+    require_numpy()
     np.asarray(values, dtype=np.float32).reshape(-1).tofile(path)
 
 
 def prepare_case(baseline_dir: Path, output_dir: Path, case: Case) -> None:
+    require_numpy()
     source = baseline_dir / case.name
     if not source.is_dir():
         fail(f"baseline case directory not found: {source}")
