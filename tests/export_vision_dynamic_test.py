@@ -89,6 +89,29 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="hunyuanocr_export_vision_test_") as tmp_text:
         tmp = Path(tmp_text)
         out_dir = tmp / "out"
+        if not hasattr(mod, "validate_ncnn_param"):
+            print("dynamic vision export is missing ncnn param validation", file=sys.stderr)
+            return 1
+
+        good_param = tmp / "good.ncnn.param"
+        good_param.write_text("7767517\n1 1\nInput in0 0 1 in0\n", encoding="utf-8")
+        mod.validate_ncnn_param(good_param)
+
+        expression_param = tmp / "expression.ncnn.param"
+        expression_param.write_text(
+            "7767517\n1 1\npnnx.Expression expression 0 1 out0\n",
+            encoding="utf-8",
+        )
+        try:
+            mod.validate_ncnn_param(expression_param)
+        except RuntimeError as exc:
+            if "pnnx.Expression" not in str(exc):
+                print(f"unexpected ncnn param validation error: {exc}", file=sys.stderr)
+                return 1
+        else:
+            print("dynamic vision export accepted pnnx.Expression", file=sys.stderr)
+            return 1
+
         args = SimpleNamespace(
             out_dir=out_dir,
             hf_dir=tmp / "hf",
@@ -102,15 +125,41 @@ def main() -> int:
         original_loader = mod.load_model_and_processor
         original_trace = torch.jit.trace
         original_run = subprocess.run
+        captured_commands: list[tuple[list[str], dict[str, object]]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:
+            captured_commands.append((command, kwargs))
+            param_arg = next(value for value in command if value.startswith("ncnnparam="))
+            bin_arg = next(value for value in command if value.startswith("ncnnbin="))
+            Path(param_arg.split("=", 1)[1]).write_text(
+                "7767517\n2 2\nInput in0 0 1 in0\nInput in1 0 1 in1\n",
+                encoding="utf-8",
+            )
+            Path(bin_arg.split("=", 1)[1]).write_bytes(b"")
+            return SimpleNamespace(returncode=0)
+
         try:
             mod.load_model_and_processor = lambda _args: (None, _FakeVit(), _DummyWrapper())
             torch.jit.trace = lambda wrapper, inputs, check_trace=False: _DummyTraced(out_dir / "ncnn" / "vision_dynamic.pt")
-            subprocess.run = lambda *cmd, **kwargs: SimpleNamespace(returncode=0)
+            subprocess.run = fake_run
             mod.run_export(args)
         finally:
             mod.load_model_and_processor = original_loader
             torch.jit.trace = original_trace
             subprocess.run = original_run
+
+        if len(captured_commands) != 1:
+            print(f"expected one pnnx command, got {len(captured_commands)}", file=sys.stderr)
+            return 1
+        command, kwargs = captured_commands[0]
+        expected_shape1 = "inputshape=[1,3,64,96],[1,1152,4,6]"
+        expected_shape2 = "inputshape2=[1,3,32,48],[1,1152,2,3]"
+        if expected_shape1 not in command or expected_shape2 not in command:
+            print(f"pnnx command is missing dynamic trace shapes: {command}", file=sys.stderr)
+            return 1
+        if kwargs.get("check") is not True:
+            print("pnnx command did not preserve checked trace shapes", file=sys.stderr)
+            return 1
 
         pos_embed = out_dir / "ncnn" / "pos_embed.bin"
         if not pos_embed.is_file():

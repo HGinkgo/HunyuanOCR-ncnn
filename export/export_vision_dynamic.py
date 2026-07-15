@@ -465,6 +465,18 @@ def import_ncnn_binding() -> Any:
     return ncnn
 
 
+def validate_ncnn_param(param_path: Path) -> None:
+    if not param_path.is_file():
+        raise FileNotFoundError(f"missing exported ncnn param: {param_path}")
+    for line_number, line in enumerate(param_path.read_text(encoding="utf-8").splitlines(), 1):
+        fields = line.split()
+        if fields and fields[0] == "pnnx.Expression":
+            raise RuntimeError(
+                f"exported ncnn param contains unloadable pnnx.Expression "
+                f"at {param_path}:{line_number}"
+            )
+
+
 @torch.no_grad()
 def run_export(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
@@ -498,6 +510,7 @@ def run_export(args: argparse.Namespace) -> dict[str, Any]:
     ]
     print("[run]", " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=export_dir, check=True)
+    validate_ncnn_param(param_path)
     pos_embed = base_pos_embed(vit).cpu().numpy().astype(np.float32, copy=False)
     pos_embed_path.write_bytes(pos_embed.tobytes())
     summary = {

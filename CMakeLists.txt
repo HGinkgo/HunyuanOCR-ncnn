@@ -103,6 +103,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/../models/tokenizer"
         CACHE PATH "Directory containing exported HunyuanOCR tokenizer files for tests"
     )
+    set(HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR
+        ""
+        CACHE PATH "Optional directory containing vision.ncnn.param/bin and pos_embed.bin for dynamic runtime tests"
+    )
     string(TOUPPER "${HUNYUAN_OCR_BUILD_TOKENIZER_TEST}" _hunyuan_ocr_build_tokenizer_test)
     if(NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "AUTO"
        AND NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "ON"
@@ -153,6 +157,12 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_vision_interpolation_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_vision_interpolation_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_vision_dynamic_runtime_test
+        tests/vision_dynamic_runtime_test.cpp
+    )
+    target_link_libraries(hunyuan_ocr_vision_dynamic_runtime_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_vision_dynamic_runtime_test PRIVATE cxx_std_17)
+
     add_executable(hunyuan_ocr_vision_vulkan_policy_test tests/vision_vulkan_policy_test.cpp)
     target_include_directories(hunyuan_ocr_vision_vulkan_policy_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -181,6 +191,15 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     if(WIN32)
         target_link_libraries(hunyuan_ocr_memory_lifecycle_test PRIVATE psapi)
     endif()
+
+    add_executable(hunyuan_ocr_kv_cache_lifecycle_test
+        tests/kv_cache_lifecycle_test.cpp
+    )
+    target_include_directories(hunyuan_ocr_kv_cache_lifecycle_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(hunyuan_ocr_kv_cache_lifecycle_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_kv_cache_lifecycle_test PRIVATE cxx_std_17)
 
     add_executable(hunyuan_ocr_decoder_microbench_parser_test
         tests/decoder_microbench_parser_test.cpp
@@ -294,6 +313,25 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME vision_interpolation
         COMMAND hunyuan_ocr_vision_interpolation_test
     )
+    if(HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR)
+        foreach(_hunyuan_ocr_dynamic_vision_file
+                vision.ncnn.param vision.ncnn.bin pos_embed.bin)
+            if(NOT EXISTS
+               "${HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR}/${_hunyuan_ocr_dynamic_vision_file}")
+                message(FATAL_ERROR
+                    "HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR is missing "
+                    "${_hunyuan_ocr_dynamic_vision_file}: "
+                    "${HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR}"
+                )
+            endif()
+        endforeach()
+        add_test(NAME vision_dynamic_runtime
+            COMMAND hunyuan_ocr_vision_dynamic_runtime_test
+                    "${HUNYUAN_OCR_TEST_DYNAMIC_VISION_DIR}"
+        )
+    else()
+        message(STATUS "Dynamic vision runtime test disabled; model files not available.")
+    endif()
     add_test(NAME vision_vulkan_policy
         COMMAND hunyuan_ocr_vision_vulkan_policy_test
     )
@@ -308,6 +346,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     add_test(NAME memory_lifecycle
         COMMAND hunyuan_ocr_memory_lifecycle_test
+    )
+    add_test(NAME kv_cache_lifecycle
+        COMMAND hunyuan_ocr_kv_cache_lifecycle_test
     )
     add_test(NAME decoder_microbench_parser
         COMMAND hunyuan_ocr_decoder_microbench_parser_test
