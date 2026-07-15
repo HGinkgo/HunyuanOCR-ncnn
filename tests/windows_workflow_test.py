@@ -43,6 +43,12 @@ def main() -> int:
     if workflow.count("python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn") != 2:
         print("MSVC and UCRT64 jobs must validate the same ncnn patch series", file=sys.stderr)
         return 1
+    ucrt64 = workflow[workflow.index("\n  ucrt64:") :]
+    setup_index = ucrt64.index("- name: Set up MSYS2 UCRT64")
+    patch_index = ucrt64.index("- name: Apply pinned ncnn patches")
+    if setup_index > patch_index:
+        print("UCRT64 must set up the msys2 shell before applying ncnn patches", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -90,9 +90,6 @@ jobs:
           path: _deps/ncnn
           ref: ${{ env.NCNN_REF }}
 
-      - name: Apply pinned ncnn patches
-        run: python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn
-
       - name: Set up MSYS2 UCRT64
         uses: msys2/setup-msys2@v2
         with:
@@ -102,6 +99,9 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+
+      - name: Apply pinned ncnn patches
+        run: python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn
 
       - name: Configure ncnn
         run: >
