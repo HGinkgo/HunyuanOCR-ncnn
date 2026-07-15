@@ -149,40 +149,7 @@ appear under `models/export/vision/`. They are only needed when packaging
 
 ## Runtime Package Layout
 
-The packager rewrites the export workspace into the runtime layout:
-
-```text
-hunyuan_ocr_ncnn_model/
-  model.json
-  tokenizer/
-  text_embed/
-  text_decoder/
-  lm_head/
-  vision/
-    vision.ncnn.param
-    vision.ncnn.bin
-    pos_embed.bin
-    grid_<h>x<w>/
-      vision.ncnn.param
-      vision.ncnn.bin
-```
-
-Dynamic vision uses `vision/vision.ncnn.param`, `vision/vision.ncnn.bin`, and
-`vision/pos_embed.bin`. If fixed-grid artifacts are available, fallback
-directories such as `vision/grid_38x52/` can be packaged alongside them.
-
-Create the package with:
-
-```bash
-python tools/package_model.py \
-  --workspace <workspace> \
-  --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
-  --copy \
-  --force
-```
-
-Current validated exports use the fp32 path, `max_pixels=524288`, and dynamic
-vision by default. Fixed-grid packaging is optional and mainly kept as a
-compatibility fallback. Use `--vision-backend fixed` to reproduce the v0.1
-fixed-grid-only package.
+`tools/package_model.py` rewrites this export workspace into the standard
+runtime package. The canonical directory tree, required files, DFlash options,
+and dynamic/fixed vision packaging commands are documented in
+[`models/README.md`](../models/README.md).

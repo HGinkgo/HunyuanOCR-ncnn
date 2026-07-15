@@ -340,6 +340,61 @@ bool read_vlm_fixture_inputs(const std::filesystem::path& root,
     return true;
 }
 
+bool load_vlm_fixture_inputs(const std::string& fixture_dir,
+                             VlmFixtureInputs* fixture,
+                             std::string* error)
+{
+    return read_vlm_fixture_inputs(path_from_utf8(fixture_dir), fixture, error);
+}
+
+bool load_vlm_fixture_with_features(const std::string& fixture_dir,
+                                    VlmFixtureInputs* fixture,
+                                    std::vector<float>* vision_features,
+                                    std::string* error)
+{
+    const std::filesystem::path root = path_from_utf8(fixture_dir);
+    return read_vlm_fixture_inputs(root, fixture, error) &&
+           read_binary_vector(root / "vision_features.f32",
+                              static_cast<size_t>(fixture->meta.vision_token_count) *
+                                  kHiddenSize,
+                              vision_features,
+                              error);
+}
+
+bool validate_external_vision_token_count(const VlmFixtureInputs& fixture,
+                                          int vision_token_count,
+                                          std::string* error)
+{
+    if (vision_token_count == fixture.meta.vision_token_count)
+    {
+        return true;
+    }
+    if (error) {
+        *error = "external vision token count mismatch: got " +
+                 std::to_string(vision_token_count) + ", expected " +
+                 std::to_string(fixture.meta.vision_token_count);
+    }
+    return false;
+}
+
+bool validate_external_vision_feature_size(const VlmFixtureInputs& fixture,
+                                           const std::vector<float>& vision_features,
+                                           std::string* error)
+{
+    const size_t expected =
+        static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize;
+    if (vision_features.size() == expected)
+    {
+        return true;
+    }
+    if (error) {
+        *error = "external vision feature size mismatch: got " +
+                 std::to_string(vision_features.size()) + ", expected " +
+                 std::to_string(expected);
+    }
+    return false;
+}
+
 bool extract_or_error(ncnn::Extractor& ex, const char* name, ncnn::Mat* out, std::string* error)
 {
     const int ret = ex.extract(name, *out);
@@ -487,6 +542,22 @@ bool prepare_prompt_embeddings(const ncnn::Net& text_embed_net,
         return false;
     }
     return true;
+}
+
+bool prepare_vlm_fixture_embeddings(const ncnn::Net& text_embed_net,
+                                    const VlmFixtureInputs& fixture,
+                                    const std::vector<float>& vision_features,
+                                    std::vector<float>* inputs_embeds,
+                                    std::string* error)
+{
+    return prepare_prompt_embeddings(text_embed_net,
+                                     fixture.input_ids,
+                                     fixture.position_ids,
+                                     fixture.meta.image_token_id,
+                                     vision_features,
+                                     fixture.meta.vision_token_count,
+                                     inputs_embeds,
+                                     error);
 }
 
 using KVCache = detail::DecoderKVCache;
@@ -1465,6 +1536,50 @@ bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                          error);
 }
 
+template <typename Result>
+bool validate_text_runtime_request(bool runtime_ready,
+                                   const Result* result,
+                                   const char* null_result_error,
+                                   std::string* error)
+{
+    if (!runtime_ready)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = null_result_error;
+        return false;
+    }
+    return true;
+}
+
+template <typename Result>
+bool validate_dflash_runtime_request(bool runtime_ready,
+                                     bool dflash_runtime_ready,
+                                     const Result* result,
+                                     const char* null_result_error,
+                                     std::string* error)
+{
+    if (!runtime_ready)
+    {
+        if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (!dflash_runtime_ready)
+    {
+        if (error) *error = "DFlash draft runtime is not loaded";
+        return false;
+    }
+    if (result == nullptr)
+    {
+        if (error) *error = null_result_error;
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 TextRuntime::TextRuntime(int num_threads)
@@ -1622,14 +1737,8 @@ bool TextRuntime::run_fixture_decode(const std::string& fixture_dir,
                                      TextDecodeResult* result,
                                      std::string* error) const
 {
-    if (!ready_)
+    if (!validate_text_runtime_request(ready_, result, "result pointer is null", error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
         return false;
     }
 
@@ -1678,42 +1787,27 @@ bool TextRuntime::run_vlm_fixture_decode(const std::string& fixture_dir,
                                          TextDecodeResult* result,
                                          std::string* error) const
 {
-    if (!ready_)
+    if (!validate_text_runtime_request(ready_, result, "result pointer is null", error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
         return false;
     }
 
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureInputs fixture;
-    if (!read_vlm_fixture_inputs(root, &fixture, error))
-    {
-        return false;
-    }
-
     std::vector<float> vision_features;
-    if (!read_binary_vector(root / "vision_features.f32",
-                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
-                            &vision_features,
-                            error))
+    if (!load_vlm_fixture_with_features(fixture_dir,
+                                        &fixture,
+                                        &vision_features,
+                                        error))
     {
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!prepare_prompt_embeddings(*text_embed_net_,
-                                   fixture.input_ids,
-                                   fixture.position_ids,
-                                   fixture.meta.image_token_id,
-                                   vision_features,
-                                   fixture.meta.vision_token_count,
-                                   &inputs_embeds,
-                                   error))
+    if (!prepare_vlm_fixture_embeddings(*text_embed_net_,
+                                        fixture,
+                                        vision_features,
+                                        &inputs_embeds,
+                                        error))
     {
         return false;
     }
@@ -1738,47 +1832,31 @@ bool TextRuntime::run_vlm_fixture_dflash_probe(const std::string& fixture_dir,
                                                DFlashBlockProbeResult* result,
                                                std::string* error) const
 {
-    if (!ready_)
+    if (!validate_dflash_runtime_request(ready_,
+                                         dflash_ready(),
+                                         result,
+                                         "DFlash probe result pointer is null",
+                                         error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (!dflash_ready())
-    {
-        if (error) *error = "DFlash draft runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "DFlash probe result pointer is null";
         return false;
     }
 
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureInputs fixture;
-    if (!read_vlm_fixture_inputs(root, &fixture, error))
-    {
-        return false;
-    }
-
     std::vector<float> vision_features;
-    if (!read_binary_vector(root / "vision_features.f32",
-                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
-                            &vision_features,
-                            error))
+    if (!load_vlm_fixture_with_features(fixture_dir,
+                                        &fixture,
+                                        &vision_features,
+                                        error))
     {
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!prepare_prompt_embeddings(*text_embed_net_,
-                                   fixture.input_ids,
-                                   fixture.position_ids,
-                                   fixture.meta.image_token_id,
-                                   vision_features,
-                                   fixture.meta.vision_token_count,
-                                   &inputs_embeds,
-                                   error))
+    if (!prepare_vlm_fixture_embeddings(*text_embed_net_,
+                                        fixture,
+                                        vision_features,
+                                        &inputs_embeds,
+                                        error))
     {
         return false;
     }
@@ -1802,34 +1880,21 @@ bool TextRuntime::run_vlm_fixture_dflash_decode(const std::string& fixture_dir,
                                                 DFlashDecodeResult* result,
                                                 std::string* error) const
 {
-    if (!ready_)
+    if (!validate_dflash_runtime_request(ready_,
+                                         dflash_ready(),
+                                         result,
+                                         "DFlash decode result pointer is null",
+                                         error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (!dflash_ready())
-    {
-        if (error) *error = "DFlash draft runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "DFlash decode result pointer is null";
         return false;
     }
 
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureInputs fixture;
-    if (!read_vlm_fixture_inputs(root, &fixture, error))
-    {
-        return false;
-    }
-
     std::vector<float> vision_features;
-    if (!read_binary_vector(root / "vision_features.f32",
-                            static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize,
-                            &vision_features,
-                            error))
+    if (!load_vlm_fixture_with_features(fixture_dir,
+                                        &fixture,
+                                        &vision_features,
+                                        error))
     {
         return false;
     }
@@ -1854,35 +1919,22 @@ bool TextRuntime::run_vlm_fixture_dflash_decode_with_features(
     DFlashDecodeResult* result,
     std::string* error) const
 {
-    if (!ready_)
+    if (!validate_dflash_runtime_request(ready_,
+                                         dflash_ready(),
+                                         result,
+                                         "DFlash decode result pointer is null",
+                                         error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (!dflash_ready())
-    {
-        if (error) *error = "DFlash draft runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "DFlash decode result pointer is null";
         return false;
     }
 
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureInputs fixture;
-    if (!read_vlm_fixture_inputs(root, &fixture, error))
+    if (!load_vlm_fixture_inputs(fixture_dir, &fixture, error))
     {
         return false;
     }
-    if (vision_token_count != fixture.meta.vision_token_count)
+    if (!validate_external_vision_token_count(fixture, vision_token_count, error))
     {
-        if (error) {
-            *error = "external vision token count mismatch: got " +
-                     std::to_string(vision_token_count) + ", expected " +
-                     std::to_string(fixture.meta.vision_token_count);
-        }
         return false;
     }
 
@@ -1910,19 +1962,12 @@ bool TextRuntime::run_vlm_dflash_decode_with_prompt(
     DFlashDecodeResult* result,
     std::string* error) const
 {
-    if (!ready_)
+    if (!validate_dflash_runtime_request(ready_,
+                                         dflash_ready(),
+                                         result,
+                                         "DFlash decode result pointer is null",
+                                         error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (!dflash_ready())
-    {
-        if (error) *error = "DFlash draft runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "DFlash decode result pointer is null";
         return false;
     }
 
@@ -1950,49 +1995,31 @@ bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixtur
                                                        TextDecodeResult* result,
                                                        std::string* error) const
 {
-    if (!ready_)
+    if (!validate_text_runtime_request(ready_, result, "result pointer is null", error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
         return false;
     }
 
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
     VlmFixtureInputs fixture;
-    if (!read_vlm_fixture_inputs(root, &fixture, error))
+    if (!load_vlm_fixture_inputs(fixture_dir, &fixture, error))
     {
         return false;
     }
-    if (vision_token_count != fixture.meta.vision_token_count)
+    if (!validate_external_vision_token_count(fixture, vision_token_count, error))
     {
-        if (error) {
-            *error = "external vision token count mismatch: got " + std::to_string(vision_token_count) +
-                     ", expected " + std::to_string(fixture.meta.vision_token_count);
-        }
         return false;
     }
-    if (vision_features.size() != static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize)
+    if (!validate_external_vision_feature_size(fixture, vision_features, error))
     {
-        if (error) {
-            *error = "external vision feature size mismatch: got " + std::to_string(vision_features.size()) +
-                     ", expected " + std::to_string(static_cast<size_t>(fixture.meta.vision_token_count) * kHiddenSize);
-        }
         return false;
     }
 
     std::vector<float> inputs_embeds;
-    if (!prepare_prompt_embeddings(*text_embed_net_,
-                                   fixture.input_ids,
-                                   fixture.position_ids,
-                                   fixture.meta.image_token_id,
-                                   vision_features,
-                                   fixture.meta.vision_token_count,
-                                   &inputs_embeds,
-                                   error))
+    if (!prepare_vlm_fixture_embeddings(*text_embed_net_,
+                                        fixture,
+                                        vision_features,
+                                        &inputs_embeds,
+                                        error))
     {
         return false;
     }
@@ -2024,14 +2051,8 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
                                              TextDecodeResult* result,
                                              std::string* error) const
 {
-    if (!ready_)
+    if (!validate_text_runtime_request(ready_, result, "result pointer is null", error))
     {
-        if (error) *error = "text runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
         return false;
     }
 
