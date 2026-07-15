@@ -2,13 +2,20 @@
 
 #include "hunyuan_ocr/hunyuan_ocr.h"
 #include "hunyuan_ocr/utf8.h"
+#include "vision_vulkan_policy.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <platform.h>
+#include <layer_type.h>
 #include <utility>
+
+#if NCNN_VULKAN
+#include <gpu.h>
+#endif
 
 namespace hunyuan_ocr {
 
@@ -21,6 +28,34 @@ float bilinear_source_coordinate(int output_index, int input_size, int output_si
            0.5f;
 }
 
+bool vision_vulkan_patchset_compiled()
+{
+#if defined(NCNN_HUNYUAN_VISION_VULKAN_PATCHSET) && NCNN_HUNYUAN_VISION_VULKAN_PATCHSET
+    return true;
+#else
+    return false;
+#endif
+}
+
+VisionVulkanPolicyResult configure_exact_vision_gelu(
+    const std::vector<ncnn::Layer*>& layers,
+    bool exact_gelu_vulkan_available)
+{
+    VisionVulkanPolicyResult result;
+    for (ncnn::Layer* layer : layers)
+    {
+        if (layer->typeindex != ncnn::LayerType::GELU) continue;
+        ++result.gelu_layer_count;
+        if (exact_gelu_vulkan_available) continue;
+
+        // Stock ncnn's Vulkan GELU always uses the fast tanh formula, while
+        // this vision graph requests the exact erf formula.
+        layer->support_vulkan = false;
+        ++result.gelu_cpu_fallback_count;
+    }
+    return result;
+}
+
 } // namespace detail
 
 namespace {
@@ -31,6 +66,37 @@ constexpr int kPatchSize = 16;
 constexpr int kChannelCount = 3;
 constexpr int kVisionHiddenSize = 1152;
 constexpr int kPositionEdge = 128;
+
+bool initialize_vision_vulkan(int device_index, std::string* error)
+{
+#if NCNN_VULKAN
+    if (ncnn::create_gpu_instance() != 0)
+    {
+        if (error) *error = "failed to initialize ncnn Vulkan instance";
+        return false;
+    }
+    const int gpu_count = ncnn::get_gpu_count();
+    if (gpu_count <= 0)
+    {
+        if (error) *error = "no Vulkan device is available";
+        return false;
+    }
+    if (device_index < 0 || device_index >= gpu_count)
+    {
+        if (error)
+        {
+            *error = "vision Vulkan device index " + std::to_string(device_index) +
+                     " is out of range for " + std::to_string(gpu_count) + " device(s)";
+        }
+        return false;
+    }
+    return true;
+#else
+    (void)device_index;
+    if (error) *error = "ncnn was built without Vulkan support";
+    return false;
+#endif
+}
 
 template <typename T>
 bool read_binary_vector(const std::filesystem::path& path, size_t expected_count, std::vector<T>* values, std::string* error)
@@ -243,38 +309,91 @@ void interpolate_pos_embed(const std::vector<float>& base,
 
 } // namespace
 
+bool vision_vulkan_compiled()
+{
+#if NCNN_VULKAN
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool VisionRuntimeResult::matches_expected(float tolerance) const
 {
     return has_expected_features && max_abs_diff_expected <= tolerance;
 }
 
 VisionRuntime::VisionRuntime(int num_threads)
-    : vision_net_(new ncnn::Net),
-      num_threads_(num_threads)
+    : VisionRuntime(VisionRuntimeOptions{num_threads, false, 0})
 {
+}
+
+VisionRuntime::VisionRuntime(const VisionRuntimeOptions& options)
+    : vision_net_(new ncnn::Net),
+      options_(options)
+{
+}
+
+bool VisionRuntime::reset_net(std::string* error)
+{
+    vision_net_.reset(new ncnn::Net);
+    gelu_cpu_fallback_count_ = 0;
+    vision_net_->opt = make_fp32_ncnn_option(options_.num_threads);
+    vision_net_->opt.use_packing_layout = false;
+    if (!options_.use_vulkan) return true;
+    if (!initialize_vision_vulkan(options_.vulkan_device, error)) return false;
+    vision_net_->opt.use_vulkan_compute = true;
+    vision_net_->opt.vulkan_device_index = options_.vulkan_device;
+    return true;
+}
+
+bool VisionRuntime::load_net_files(const std::string& param_path,
+                                   const std::string& bin_path,
+                                   const char* model_label,
+                                   std::string* error)
+{
+    const std::filesystem::path native_param_path = path_from_utf8(param_path);
+    const std::filesystem::path native_bin_path = path_from_utf8(bin_path);
+    if (vision_net_->load_param(native_param_path.c_str()) != 0)
+    {
+        if (error) *error = "failed to load " + std::string(model_label) + " param: " + param_path;
+        return false;
+    }
+    if (options_.use_vulkan)
+    {
+        constexpr int kExpectedGeluCount = 28;
+        const detail::VisionVulkanPolicyResult policy =
+            detail::configure_exact_vision_gelu(
+                vision_net_->layers(),
+                detail::vision_vulkan_patchset_compiled());
+        gelu_cpu_fallback_count_ = policy.gelu_cpu_fallback_count;
+        if (policy.gelu_layer_count != kExpectedGeluCount)
+        {
+            if (error)
+            {
+                *error = "expected " + std::to_string(kExpectedGeluCount) +
+                         " vision GELU layers, found " +
+                         std::to_string(policy.gelu_layer_count);
+            }
+            return false;
+        }
+    }
+    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
+    {
+        if (error) *error = "failed to load " + std::string(model_label) + " bin: " + bin_path;
+        return false;
+    }
+    return true;
 }
 
 bool VisionRuntime::load(const std::string& param_path, const std::string& bin_path, std::string* error)
 {
-    const std::filesystem::path native_param_path = path_from_utf8(param_path);
-    const std::filesystem::path native_bin_path = path_from_utf8(bin_path);
     ready_ = false;
     dynamic_ready_ = false;
     pos_embed_base_.clear();
-    vision_net_.reset(new ncnn::Net);
-    vision_net_->opt = make_fp32_ncnn_option(num_threads_);
-    vision_net_->opt.use_packing_layout = false;
+    if (!reset_net(error)) return false;
 
-    if (vision_net_->load_param(native_param_path.c_str()) != 0)
-    {
-        if (error) *error = "failed to load vision param: " + param_path;
-        return false;
-    }
-    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
-    {
-        if (error) *error = "failed to load vision bin: " + bin_path;
-        return false;
-    }
+    if (!load_net_files(param_path, bin_path, "vision", error)) return false;
     ready_ = true;
     return true;
 }
@@ -284,26 +403,13 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
                                  const std::string& pos_embed_path,
                                  std::string* error)
 {
-    const std::filesystem::path native_param_path = path_from_utf8(param_path);
-    const std::filesystem::path native_bin_path = path_from_utf8(bin_path);
     const std::filesystem::path native_pos_embed_path = path_from_utf8(pos_embed_path);
     ready_ = false;
     dynamic_ready_ = false;
     pos_embed_base_.clear();
-    vision_net_.reset(new ncnn::Net);
-    vision_net_->opt = make_fp32_ncnn_option(num_threads_);
-    vision_net_->opt.use_packing_layout = false;
+    if (!reset_net(error)) return false;
 
-    if (vision_net_->load_param(native_param_path.c_str()) != 0)
-    {
-        if (error) *error = "failed to load dynamic vision param: " + param_path;
-        return false;
-    }
-    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
-    {
-        if (error) *error = "failed to load dynamic vision bin: " + bin_path;
-        return false;
-    }
+    if (!load_net_files(param_path, bin_path, "dynamic vision", error)) return false;
     if (!read_binary_vector(native_pos_embed_path,
                             static_cast<size_t>(kVisionHiddenSize) * kPositionEdge * kPositionEdge,
                             &pos_embed_base_,
@@ -320,6 +426,11 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
 bool VisionRuntime::ready() const
 {
     return ready_;
+}
+
+int VisionRuntime::gelu_cpu_fallback_count() const
+{
+    return gelu_cpu_fallback_count_;
 }
 
 bool VisionRuntime::run_pixel_values(const std::vector<float>& pixel_values,

@@ -6,6 +6,7 @@
 #include "hunyuan_ocr/utf8.h"
 #include "hunyuan_ocr/vision_runtime.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <chrono>
@@ -36,6 +37,26 @@ double elapsed_ms(Clock::time_point start, Clock::time_point end)
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
+hunyuan_ocr::VisionRuntimeOptions make_vision_runtime_options(
+    int num_threads, bool use_vulkan, int vulkan_device)
+{
+    hunyuan_ocr::VisionRuntimeOptions options;
+    options.num_threads = num_threads;
+    options.use_vulkan = use_vulkan;
+    options.vulkan_device = vulkan_device;
+    return options;
+}
+
+void print_vision_compute_backend(const hunyuan_ocr::VisionRuntimeOptions& options,
+                                  const hunyuan_ocr::VisionRuntime& runtime)
+{
+    if (!options.use_vulkan) return;
+    std::cout << "vision_backend: vulkan\n";
+    std::cout << "vision_vulkan_device: " << options.vulkan_device << "\n";
+    std::cout << "vision_gelu_cpu_fallback_count: "
+              << runtime.gelu_cpu_fallback_count() << "\n";
+}
+
 void print_usage(const char* program)
 {
     std::cout
@@ -60,6 +81,8 @@ void print_usage(const char* program)
         << "  --vision-bin PATH      Load a per-grid vision ncnn bin file for fixture validation.\n"
         << "  --vision-fixture PATH  Run pixel_values -> vision_features fixture.\n"
         << "  --vision-tolerance F   Max absolute diff tolerance for expected_vision_features.f32.\n"
+        << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
+        << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
         << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
         << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
@@ -200,6 +223,38 @@ bool read_binary_vector_file(const std::string& path, std::vector<T>& out, std::
             return false;
         }
     }
+    return true;
+}
+
+bool print_fixture_vision_diff(const std::vector<float>& actual,
+                               const std::string& fixture_dir,
+                               std::string& error)
+{
+    if (fixture_dir.empty()) return true;
+
+    std::vector<float> expected;
+    if (!read_binary_vector_file(fixture_dir + "/vision_features.f32", expected, error))
+    {
+        return false;
+    }
+    if (actual.size() != expected.size())
+    {
+        error = "vision feature size mismatch: got " + std::to_string(actual.size()) +
+                ", expected " + std::to_string(expected.size());
+        return false;
+    }
+
+    double sum_abs = 0.0;
+    float max_abs = 0.0f;
+    for (size_t i = 0; i < actual.size(); ++i)
+    {
+        const float diff = std::fabs(actual[i] - expected[i]);
+        max_abs = std::max(max_abs, diff);
+        sum_abs += diff;
+    }
+    const double mean_abs = actual.empty() ? 0.0 : sum_abs / actual.size();
+    std::cout << "vision_feature_max_abs_diff_fixture: " << max_abs << "\n";
+    std::cout << "vision_feature_mean_abs_diff_fixture: " << mean_abs << "\n";
     return true;
 }
 
@@ -645,6 +700,7 @@ int run_image_benchmark(const std::string& model_root,
                         int num_threads,
                         int warmup,
                         int repeat,
+                        const hunyuan_ocr::VisionRuntimeOptions& vision_options,
                         Clock::time_point process_start)
 {
     std::string error;
@@ -681,7 +737,7 @@ int run_image_benchmark(const std::string& model_root,
         return 1;
     }
 
-    hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+    hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
     const auto vision_load_start = Clock::now();
     const bool vision_loaded = use_dynamic_vision
         ? vision_runtime.load_dynamic(resolved_vision_param_path,
@@ -694,6 +750,7 @@ int run_image_benchmark(const std::string& model_root,
         std::cerr << "Benchmark vision load failed: " << error << "\n";
         return 1;
     }
+    print_vision_compute_backend(vision_options, vision_runtime);
     const double vision_load_ms = elapsed_ms(vision_load_start, Clock::now());
 
     hunyuan_ocr::TextRuntime text_runtime(num_threads);
@@ -908,6 +965,9 @@ int main(int argc, char** argv)
     int benchmark_warmup = 0;
     int benchmark_repeat = 1;
     int num_threads = 0;
+    bool vision_vulkan = false;
+    bool vision_vulkan_device_explicit = false;
+    int vision_vulkan_device = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -921,6 +981,9 @@ int main(int argc, char** argv)
         {
             std::cout << "HunyuanOCR-ncnn " << hunyuan_ocr::project_version() << "\n";
             std::cout << "ncnn " << hunyuan_ocr::ncnn_version() << "\n";
+            std::cout << "vision Vulkan support: "
+                      << (hunyuan_ocr::vision_vulkan_compiled() ? "enabled" : "disabled")
+                      << "\n";
             return 0;
         }
         if (arg == "--model")
@@ -1053,6 +1116,30 @@ int main(int argc, char** argv)
                 std::cerr << "--vision-tolerance value must be a float\n";
                 return 1;
             }
+            continue;
+        }
+        if (arg == "--vision-vulkan")
+        {
+            vision_vulkan = true;
+            continue;
+        }
+        if (arg == "--vision-vulkan-device")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--vision-vulkan-device requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                vision_vulkan_device = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--vision-vulkan-device value must be an integer\n";
+                return 1;
+            }
+            vision_vulkan_device_explicit = true;
             continue;
         }
         if (arg == "--image")
@@ -1253,6 +1340,38 @@ int main(int argc, char** argv)
         std::cerr << "--num-threads must be positive when provided\n";
         return 1;
     }
+    if (vision_vulkan_device_explicit && !vision_vulkan)
+    {
+        std::cerr << "--vision-vulkan-device requires --vision-vulkan\n";
+        return 1;
+    }
+    if (vision_vulkan_device < 0)
+    {
+        std::cerr << "--vision-vulkan-device must be non-negative\n";
+        return 1;
+    }
+    const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
+    const bool image_executes_vision =
+        !image_path.empty() &&
+        (benchmark || !prompt_text.empty() || !prompt_mode_text.empty() ||
+         !vlm_fixture_dir.empty() || explicit_vision_paths);
+    const bool fixture_executes_vision =
+        !vision_fixture_dir.empty() ||
+        (explicit_vision_paths &&
+         (!image_file_fixture_dir.empty() || !image_preprocess_fixture_dir.empty()));
+    const bool executes_vision = image_executes_vision || fixture_executes_vision;
+    if (vision_vulkan && !executes_vision)
+    {
+        std::cerr << "--vision-vulkan requires a path that executes vision\n";
+        return 1;
+    }
+    if (vision_vulkan && !hunyuan_ocr::vision_vulkan_compiled())
+    {
+        std::cerr << "ncnn was built without Vulkan support\n";
+        return 1;
+    }
+    const hunyuan_ocr::VisionRuntimeOptions vision_options =
+        make_vision_runtime_options(num_threads, vision_vulkan, vision_vulkan_device);
     if (benchmark_warmup < 0 || benchmark_repeat <= 0)
     {
         std::cerr << "benchmark warmup must be non-negative and repeat must be positive\n";
@@ -1324,6 +1443,7 @@ int main(int argc, char** argv)
                                    num_threads,
                                    benchmark_warmup,
                                    benchmark_repeat,
+                                   vision_options,
                                    process_start);
     }
 
@@ -1543,7 +1663,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+            hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
             if (use_dynamic_vision)
             {
                 if (!vision_runtime.load_dynamic(resolved_vision_param_path,
@@ -1560,6 +1680,7 @@ int main(int argc, char** argv)
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
                 return 1;
             }
+            print_vision_compute_backend(vision_options, vision_runtime);
 
             const int patch_h = image.grid_h / preprocessor.config().merge_size;
             const int patch_w = image.grid_w / preprocessor.config().merge_size;
@@ -1595,6 +1716,12 @@ int main(int argc, char** argv)
             std::cout << "  patch_count: " << vision.patch_count << "\n";
             std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
             std::cout << "  feature_values: " << vision.feature_values << "\n";
+
+            if (!print_fixture_vision_diff(vision.vision_features, vlm_fixture_dir, error))
+            {
+                std::cerr << "Vision fixture comparison failed: " << error << "\n";
+                return 1;
+            }
 
             if (!prompt_mode_text.empty() || !prompt_text.empty())
             {
@@ -1803,12 +1930,13 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+            hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
             if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
             {
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
                 return 1;
             }
+            print_vision_compute_backend(vision_options, vision_runtime);
 
             const int patch_h = image.grid_h / preprocessor.config().merge_size;
             const int patch_w = image.grid_w / preprocessor.config().merge_size;
@@ -1885,12 +2013,13 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+            hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
             if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
             {
                 std::cerr << "Failed to load vision runtime: " << error << "\n";
                 return 1;
             }
+            print_vision_compute_backend(vision_options, vision_runtime);
 
             const int patch_h = image.grid_h / preprocessor.config().merge_size;
             const int patch_w = image.grid_w / preprocessor.config().merge_size;
@@ -1939,12 +2068,13 @@ int main(int argc, char** argv)
         }
 
         std::string error;
-        hunyuan_ocr::VisionRuntime vision_runtime(num_threads);
+        hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
         if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
         {
             std::cerr << "Failed to load vision runtime: " << error << "\n";
             return 1;
         }
+        print_vision_compute_backend(vision_options, vision_runtime);
 
         hunyuan_ocr::VisionRuntimeResult vision;
         if (!vision_runtime.run_fixture(vision_fixture_dir, &vision, &error))

@@ -11,6 +11,7 @@ def main() -> int:
     workflow = (root / ".github/workflows/linux-ci.yml").read_text(encoding="utf-8")
     required = (
         "python3-numpy",
+        "python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn",
         "ctest --test-dir build --output-on-failure",
     )
     missing = [value for value in required if value not in workflow]

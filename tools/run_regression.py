@@ -109,6 +109,17 @@ def parse_args() -> argparse.Namespace:
         default=1.08,
         help="Repetition penalty passed to hunyuan_ocr_cli. Default: 1.08.",
     )
+    parser.add_argument(
+        "--vision-vulkan",
+        action="store_true",
+        help="Run the vision network with ncnn Vulkan fp32.",
+    )
+    parser.add_argument(
+        "--vision-vulkan-device",
+        type=int,
+        default=0,
+        help="Vulkan device index passed to hunyuan_ocr_cli. Default: 0.",
+    )
     return parser.parse_args()
 
 
@@ -174,6 +185,11 @@ def relevant_lines(output: str) -> list[str]:
         "match_fixture_position_ids:",
         "match_expected_tokens:",
         "match_expected_text:",
+        "vision_feature_max_abs_diff_fixture:",
+        "vision_feature_mean_abs_diff_fixture:",
+        "vision_backend:",
+        "vision_vulkan_device:",
+        "vision_gelu_cpu_fallback_count:",
     )
     return [line for line in output.splitlines() if line.startswith(prefixes)]
 
@@ -199,6 +215,14 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
     else:
         cmd.extend(["--prompt-mode", case.prompt_mode or ""])
     cmd.extend(["--vlm-fixture", str(fixture)])
+    if args.vision_vulkan:
+        cmd.extend(
+            [
+                "--vision-vulkan",
+                "--vision-vulkan-device",
+                str(args.vision_vulkan_device),
+            ]
+        )
 
     completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True)
     log_path.write_text(
@@ -238,6 +262,8 @@ def main() -> int:
     args.manifest = args.manifest.resolve()
     if args.repetition_penalty <= 0:
         fail("--repetition-penalty must be positive")
+    if args.vision_vulkan_device < 0:
+        fail("--vision-vulkan-device must be non-negative")
 
     require_file(args.binary, "hunyuan_ocr_cli")
     if args.package:

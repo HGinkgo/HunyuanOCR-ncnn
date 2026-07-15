@@ -27,6 +27,7 @@ print("  match_fixture_input_ids: true")
 print("  match_fixture_position_ids: true")
 print("  match_expected_tokens: true")
 print("  match_expected_text: true")
+print("vision_gelu_cpu_fallback_count: 28")
 """,
         encoding="utf-8",
     )
@@ -149,6 +150,9 @@ def main() -> int:
                 str(manifest),
                 "--log-dir",
                 str(logs),
+                "--vision-vulkan",
+                "--vision-vulkan-device",
+                "2",
             ],
             cwd=repo_root,
             text=True,
@@ -159,6 +163,9 @@ def main() -> int:
             print(completed.stdout, end="")
             print(completed.stderr, end="", file=sys.stderr)
             return completed.returncode
+        if "vision_gelu_cpu_fallback_count: 28" not in completed.stdout:
+            print("regression summary omitted GELU CPU fallback count", file=sys.stderr)
+            return 1
 
         argv = json.loads(argv_log.read_text(encoding="utf-8"))
         if "--prompt" not in argv:
@@ -169,6 +176,13 @@ def main() -> int:
             return 1
         if "--prompt-mode" in argv:
             print(f"unexpected --prompt-mode in argv: {argv}", file=sys.stderr)
+            return 1
+        if "--vision-vulkan" not in argv:
+            print(f"missing --vision-vulkan in argv: {argv}", file=sys.stderr)
+            return 1
+        device_index = argv.index("--vision-vulkan-device") if "--vision-vulkan-device" in argv else -1
+        if device_index < 0 or argv[device_index + 1] != "2":
+            print(f"wrong Vulkan device in argv: {argv}", file=sys.stderr)
             return 1
         penalty_index = argv.index("--repetition-penalty") if "--repetition-penalty" in argv else -1
         if penalty_index < 0 or argv[penalty_index + 1] != "1.08":

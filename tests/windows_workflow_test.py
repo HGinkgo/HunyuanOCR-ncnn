@@ -14,6 +14,7 @@ def main() -> int:
         "runs-on: windows-2022",
         "NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6",
         "ref: ${{ env.NCNN_REF }}",
+        "python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn",
         '-G "Visual Studio 17 2022" -A x64',
         "-DHUNYUAN_OCR_BUILD_TESTS=ON",
         "-DHUNYUAN_OCR_BUILD_TOKENIZER_TEST=OFF",
@@ -38,6 +39,9 @@ def main() -> int:
         return 1
     if workflow.count("NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6") != 2:
         print("MSVC and UCRT64 jobs must use the same pinned ncnn revision", file=sys.stderr)
+        return 1
+    if workflow.count("python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn") != 2:
+        print("MSVC and UCRT64 jobs must validate the same ncnn patch series", file=sys.stderr)
         return 1
     return 0
 

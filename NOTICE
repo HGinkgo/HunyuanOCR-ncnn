@@ -15,9 +15,22 @@ Third-party software and model notices
 1. Tencent ncnn
 
    ncnn is developed by Tencent and licensed under the BSD 3-Clause License.
-   This project links against ncnn but does not vendor ncnn source code.
+   This project links against ncnn and carries an optional patch series under
+   patches/ncnn/. The patched files remain subject to ncnn's BSD 3-Clause
+   License; a copy of the upstream license is provided alongside the patches.
 
    Upstream: https://github.com/Tencent/ncnn
+
+   The Vulkan MatMul patch is derived from the proposed implementation by
+   Cat-myq in Tencent/ncnn pull request #6579. The pull request is not
+   represented as merged upstream.
+
+   Pull request: https://github.com/Tencent/ncnn/pull/6579
+   Source commit: 88e0927f6e6b640fea19bd5721ff5409fcca99ef
+
+   The Vulkan exact-GELU patch was developed for this project and is also
+   distributed under the ncnn BSD 3-Clause License because it modifies ncnn
+   source files.
 
 2. Tencent HunyuanOCR
 
