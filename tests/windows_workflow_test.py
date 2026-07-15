@@ -43,11 +43,23 @@ def main() -> int:
     if workflow.count("python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn") != 2:
         print("MSVC and UCRT64 jobs must validate the same ncnn patch series", file=sys.stderr)
         return 1
+    msvc = workflow[: workflow.index("\n  ucrt64:")]
     ucrt64 = workflow[workflow.index("\n  ucrt64:") :]
+    for job_name, job in (("MSVC", msvc), ("UCRT64", ucrt64)):
+        if job.count("actions/setup-python@v5") != 1 or job.count('python-version: "3.12"') != 1:
+            print(f"{job_name} must explicitly set up Python 3.12 for ncnn patching", file=sys.stderr)
+            return 1
+        if job.index("- name: Set up Python") > job.index("- name: Apply pinned ncnn patches"):
+            print(f"{job_name} must set up Python before applying ncnn patches", file=sys.stderr)
+            return 1
     setup_index = ucrt64.index("- name: Set up MSYS2 UCRT64")
     patch_index = ucrt64.index("- name: Apply pinned ncnn patches")
     if setup_index > patch_index:
         print("UCRT64 must set up the msys2 shell before applying ncnn patches", file=sys.stderr)
+        return 1
+    patch_end = ucrt64.index("\n      - name:", patch_index + 1)
+    if "shell: pwsh" not in ucrt64[patch_index:patch_end]:
+        print("UCRT64 ncnn patching must use the host PowerShell Python", file=sys.stderr)
         return 1
     return 0
 

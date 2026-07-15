@@ -29,6 +29,11 @@ jobs:
           path: _deps/ncnn
           ref: ${{ env.NCNN_REF }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Apply pinned ncnn patches
         run: python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn
 
@@ -100,7 +105,13 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Apply pinned ncnn patches
+        shell: pwsh
         run: python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn
 
       - name: Configure ncnn
