@@ -175,6 +175,13 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_dflash_runtime_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_dflash_runtime_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_memory_lifecycle_test tests/memory_lifecycle_test.cpp)
+    target_link_libraries(hunyuan_ocr_memory_lifecycle_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_memory_lifecycle_test PRIVATE cxx_std_17)
+    if(WIN32)
+        target_link_libraries(hunyuan_ocr_memory_lifecycle_test PRIVATE psapi)
+    endif()
+
     add_executable(hunyuan_ocr_decoder_microbench_parser_test
         tests/decoder_microbench_parser_test.cpp
         tests/decoder_microbench.cpp
@@ -298,6 +305,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     add_test(NAME dflash_runtime
         COMMAND hunyuan_ocr_dflash_runtime_test
+    )
+    add_test(NAME memory_lifecycle
+        COMMAND hunyuan_ocr_memory_lifecycle_test
     )
     add_test(NAME decoder_microbench_parser
         COMMAND hunyuan_ocr_decoder_microbench_parser_test

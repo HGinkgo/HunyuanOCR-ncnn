@@ -36,6 +36,8 @@ ncnn::Option make_fp32_ncnn_option(int num_threads)
     option.use_fp16_arithmetic = false;
     option.use_bf16_packed = false;
     option.use_bf16_storage = false;
+    // Runtime Nets are long-lived, but their inference buffers are request-scoped.
+    option.use_local_pool_allocator = false;
     return option;
 }
 
