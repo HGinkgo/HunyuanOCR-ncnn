@@ -3,6 +3,7 @@ build/
 build-*/
 build_*/
 cmake-build-*/
+.worktrees/
 CMakeCache.txt
 CMakeFiles/
 compile_commands.json
