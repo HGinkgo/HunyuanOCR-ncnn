@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
     <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
-    <img src="https://img.shields.io/badge/backend-CPU%20fp32-4c1.svg" alt="CPU fp32">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32-4c1.svg" alt="CPU fp32 and Vulkan vision fp32">
   </p>
   <p>
     Tencent/ncnn activity entry <a href="https://github.com/Tencent/ncnn/discussions/6808">#6808</a>
@@ -44,6 +44,8 @@ with pnnx and runs the full OCR path in C++.
 - Built-in `spotting` / `document` prompts plus custom `--prompt` text.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - Optional DFlash speculative decoding with AR kept as the default path.
+- Optional fp32 Vulkan vision backend; the 28-case token/text test suite passes
+  without GELU CPU fallback when using the maintained ncnn patch series.
 - CMake build on Linux and Windows; no Python at runtime.
 - The HunyuanOCR 1.5 28-case test suite passes.
 
@@ -188,6 +190,21 @@ Requirements:
 - ncnn `20260106` or newer; validation pins revision
   `244f30c8b995d5b2cf57b59950596490c68813d6`
 
+The default CPU build works with the unmodified pinned ncnn checkout. The
+optional fp32 Vulkan vision backend uses the project-maintained patch series in
+[`patches/ncnn`](patches/ncnn):
+
+```bash
+python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
+```
+
+The Vulkan MatMul implementation is derived from
+[Cat-myq's proposed Tencent/ncnn PR #6579](https://github.com/Tencent/ncnn/pull/6579)
+at commit `88e0927f6e6b640fea19bd5721ff5409fcca99ef`; it is not described here as
+merged upstream. The second patch adds the exact fp32 GELU path required by the
+HunyuanOCR vision encoder. Source attribution and the ncnn BSD 3-Clause license
+are retained in the patch bundle and `NOTICE`.
+
 With an installed ncnn CMake package:
 
 ```bash
@@ -212,6 +229,20 @@ Basic checks:
 ./build/hunyuan_ocr_cli --help
 ./build/hunyuan_ocr_cli --version
 ```
+
+Run the vision encoder with Vulkan after building the patched ncnn SDK:
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --image ./examples/images/hf_demo_tools-dark.png \
+  --prompt-mode spotting \
+  --vision-vulkan \
+  --vision-vulkan-device 0
+```
+
+Only the vision encoder uses Vulkan; text generation continues to use the
+existing CPU fp32 path.
 
 Windows build and packaged-model validation passed. The CLI reads the native
 wide-character command line and uses UTF-8 for prompts, console I/O, and model,

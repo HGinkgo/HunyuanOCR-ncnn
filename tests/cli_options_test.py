@@ -7,6 +7,23 @@ import sys
 from pathlib import Path
 
 
+def require_rejected(binary: Path, args: list[str], marker: str) -> bool:
+    completed = subprocess.run(
+        [str(binary), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode == 0 or marker not in completed.stderr:
+        print(
+            "command was not rejected: "
+            f"args={args!r} rc={completed.returncode} stderr={completed.stderr!r}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: cli_options_test.py /path/to/hunyuan_ocr_cli", file=sys.stderr)
@@ -26,6 +43,13 @@ def main() -> int:
     if "HunyuanOCR-ncnn 0.4.0" not in completed.stdout:
         print("0.4.0 version output missing after --repetition-penalty", file=sys.stderr)
         return 1
+    if (
+        "vision Vulkan support: enabled" not in completed.stdout
+        and "vision Vulkan support: disabled" not in completed.stdout
+    ):
+        print("version output does not report vision Vulkan support", file=sys.stderr)
+        return 1
+    vulkan_compiled = "vision Vulkan support: enabled" in completed.stdout
 
     help_result = subprocess.run(
         [str(binary), "--help"],
@@ -38,11 +62,65 @@ def main() -> int:
         or "Default: 1.08." not in help_result.stdout
         or "--dflash-probe" not in help_result.stdout
         or "--dflash             " not in help_result.stdout
+        or "--vision-vulkan" not in help_result.stdout
+        or "--vision-vulkan-device" not in help_result.stdout
         or "--vlm-fixture or --image with --prompt/--prompt-mode"
         not in help_result.stdout
     ):
         print("CLI help does not report the expected 1.5/DFlash options", file=sys.stderr)
         return 1
+
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vision-vulkan-device", "0"],
+        "--vision-vulkan-device requires --vision-vulkan",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vision-vulkan", "--vision-vulkan-device", "-1"],
+        "--vision-vulkan-device must be non-negative",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vision-vulkan", "--vision-vulkan-device", "gpu"],
+        "--vision-vulkan-device value must be an integer",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vlm-fixture", ".", "--vision-vulkan"],
+        "--vision-vulkan requires a path that executes vision",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--image", "x.png", "--vision-vulkan"],
+        "--vision-vulkan requires a path that executes vision",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--image-file-fixture", ".", "--vision-vulkan"],
+        "--vision-vulkan requires a path that executes vision",
+    ):
+        return 1
+    if not vulkan_compiled:
+        if not require_rejected(
+            binary,
+            [
+                "--model",
+                ".",
+                "--image",
+                "x.png",
+                "--prompt-mode",
+                "document",
+                "--vision-vulkan",
+            ],
+            "ncnn was built without Vulkan support",
+        ):
+            return 1
 
     dflash_without_fixture = subprocess.run(
         [str(binary), "--model", ".", "--dflash"],

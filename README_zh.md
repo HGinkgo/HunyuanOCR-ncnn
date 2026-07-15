@@ -10,7 +10,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
     <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
-    <img src="https://img.shields.io/badge/backend-CPU%20fp32-4c1.svg" alt="CPU fp32">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32-4c1.svg" alt="CPU fp32 和 Vulkan vision fp32">
   </p>
   <p>
     Tencent/ncnn 开源活动作品 <a href="https://github.com/Tencent/ncnn/discussions/6808">#6808</a>
@@ -42,6 +42,8 @@
 - 内置 `spotting` / `document` 两种模式，也支持自定义 `--prompt` 文本。
 - Windows CLI 全链路支持 UTF-8 prompt、模型路径、图片路径和 fixture 路径。
 - 可选 DFlash speculative decoding，默认推理路径仍为 AR。
+- 可选 fp32 Vulkan vision 后端；使用项目维护的 ncnn 补丁集时，28-case
+  token/text 测试通过，且 GELU 不回退到 CPU。
 - CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
 - HunyuanOCR 1.5 的 28-case 测试通过。
 
@@ -172,6 +174,19 @@ scripts/export_and_package_linux.sh \
 - ncnn `20260106` 或更新版本；验证固定 revision 为
   `244f30c8b995d5b2cf57b59950596490c68813d6`
 
+默认 CPU 构建可以直接使用未修改的固定 ncnn checkout。可选的 fp32 Vulkan
+vision 后端使用本项目维护的 [`patches/ncnn`](patches/ncnn) 补丁集：
+
+```bash
+python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
+```
+
+其中 Vulkan MatMul 实现源自 Cat-myq 提交的
+[Tencent/ncnn PR #6579](https://github.com/Tencent/ncnn/pull/6579)，对应 commit
+`88e0927f6e6b640fea19bd5721ff5409fcca99ef`；本文不将该 PR 描述为已经合入
+上游。第二个补丁为 HunyuanOCR vision encoder 增加所需的 exact fp32 GELU
+路径。补丁包和 `NOTICE` 保留了来源说明以及 ncnn BSD 3-Clause 许可证。
+
 如果已经安装 ncnn CMake package：
 
 ```bash
@@ -196,6 +211,20 @@ cmake --build build -j
 ./build/hunyuan_ocr_cli --help
 ./build/hunyuan_ocr_cli --version
 ```
+
+构建补丁版 ncnn SDK 后，可以让 vision encoder 使用 Vulkan：
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --image ./examples/images/hf_demo_tools-dark.png \
+  --prompt-mode spotting \
+  --vision-vulkan \
+  --vision-vulkan-device 0
+```
+
+当前仅 vision encoder 使用 Vulkan；text generation 仍使用原有 CPU fp32
+路径。
 
 Windows 构建和带模型验证均已通过。CLI 从宽字符命令行读取参数，支持中文等
 Unicode prompt 和模型、图片、fixture 路径；控制台输入输出统一使用 UTF-8。

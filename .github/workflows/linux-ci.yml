@@ -25,6 +25,9 @@ jobs:
           path: _deps/ncnn
           ref: ${{ env.NCNN_REF }}
 
+      - name: Apply pinned ncnn patches
+        run: python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn
+
       - name: Install Python test dependencies
         run: |
           sudo apt-get update

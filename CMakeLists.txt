@@ -153,6 +153,13 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     target_link_libraries(hunyuan_ocr_vision_interpolation_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_vision_interpolation_test PRIVATE cxx_std_17)
 
+    add_executable(hunyuan_ocr_vision_vulkan_policy_test tests/vision_vulkan_policy_test.cpp)
+    target_include_directories(hunyuan_ocr_vision_vulkan_policy_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(hunyuan_ocr_vision_vulkan_policy_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_vision_vulkan_policy_test PRIVATE cxx_std_17)
+
     add_executable(hunyuan_ocr_precise_sdpa_test tests/precise_sdpa_test.cpp)
     target_include_directories(hunyuan_ocr_precise_sdpa_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -280,6 +287,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME vision_interpolation
         COMMAND hunyuan_ocr_vision_interpolation_test
     )
+    add_test(NAME vision_vulkan_policy
+        COMMAND hunyuan_ocr_vision_vulkan_policy_test
+    )
     add_test(NAME precise_sdpa
         COMMAND hunyuan_ocr_precise_sdpa_test
     )
@@ -354,6 +364,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME release_metadata
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/release_metadata_test.py"
+    )
+    add_test(NAME ncnn_patch_bundle
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/ncnn_patch_bundle_test.py"
     )
     add_test(NAME artifact_paths
         COMMAND "${Python3_EXECUTABLE}"
