@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 
-NCNN_REVISION = "244f30c8b995d5b2cf57b59950596490c68813d6"
+NCNN_REVISION = "dda2e28bae2a084760361197d87f06e685604e52"
 MATMUL_PR = "https://github.com/Tencent/ncnn/pull/6579"
 MATMUL_COMMIT = "88e0927f6e6b640fea19bd5721ff5409fcca99ef"
 PATCHES = (
@@ -32,6 +32,7 @@ def test_bundle_metadata(root: Path) -> None:
     require(tuple(series) == PATCHES, "ncnn patch series must be ordered and complete")
 
     matmul = (bundle / PATCHES[0]).read_text(encoding="utf-8")
+    require(NCNN_REVISION in matmul, "MatMul patch must record the pinned ncnn revision")
     require(MATMUL_PR in matmul, "MatMul patch must credit upstream PR #6579")
     require(MATMUL_COMMIT in matmul, "MatMul patch must record the source commit")
     require("Cat-myq" in matmul, "MatMul patch must credit Cat-myq")
@@ -52,6 +53,7 @@ def test_bundle_metadata(root: Path) -> None:
 
     for name in ("README.md", "README_en.md"):
         readme = (root / name).read_text(encoding="utf-8")
+        require(NCNN_REVISION in readme, f"{name} must report the pinned ncnn revision")
         require(MATMUL_PR in readme, f"{name} must visibly credit ncnn PR #6579")
         require("patches/ncnn" in readme, f"{name} must explain the carried ncnn patches")
 

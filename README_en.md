@@ -204,7 +204,7 @@ Requirements:
 - CMake 3.18 or newer
 - C++17 compiler
 - ncnn `20260106` or newer; validation pins revision
-  `244f30c8b995d5b2cf57b59950596490c68813d6`
+  `dda2e28bae2a084760361197d87f06e685604e52`
 
 The default CPU build works with the unmodified pinned ncnn checkout. The
 optional fp32 Vulkan vision backend uses the project-maintained patch series in

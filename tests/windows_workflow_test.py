@@ -14,7 +14,7 @@ def main() -> int:
         "runs-on: windows-2022",
         "actions/checkout@v7",
         "actions/setup-python@v6",
-        "NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6",
+        "NCNN_REF: dda2e28bae2a084760361197d87f06e685604e52",
         "ref: ${{ env.NCNN_REF }}",
         "python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn",
         '-G "Visual Studio 17 2022" -A x64',
@@ -39,7 +39,7 @@ def main() -> int:
     if workflow.count(generator) != 2:
         print("Windows workflow must configure both ncnn and HunyuanOCR-ncnn for VS2022 x64", file=sys.stderr)
         return 1
-    if workflow.count("NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6") != 2:
+    if workflow.count("NCNN_REF: dda2e28bae2a084760361197d87f06e685604e52") != 2:
         print("MSVC and UCRT64 jobs must use the same pinned ncnn revision", file=sys.stderr)
         return 1
     if workflow.count("python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn") != 2:

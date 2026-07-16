@@ -6,11 +6,15 @@ import sys
 from pathlib import Path
 
 
+NCNN_REVISION = "dda2e28bae2a084760361197d87f06e685604e52"
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/linux-ci.yml").read_text(encoding="utf-8")
     required = (
         "actions/checkout@v7",
+        f"NCNN_REF: {NCNN_REVISION}",
         "python3-numpy",
         "python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn",
         "ctest --test-dir build --output-on-failure",
@@ -21,6 +25,9 @@ def main() -> int:
         return 1
     if workflow.count("actions/checkout@v7") != 2:
         print("Linux workflow must use Node.js 24 checkout for both repositories", file=sys.stderr)
+        return 1
+    if workflow.count(f"NCNN_REF: {NCNN_REVISION}") != 1:
+        print("Linux workflow must use the pinned ncnn revision", file=sys.stderr)
         return 1
     return 0
 

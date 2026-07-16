@@ -187,7 +187,7 @@ scripts/export_and_package_linux.sh \
 - CMake 3.18 或更新版本
 - 支持 C++17 的编译器
 - ncnn `20260106` 或更新版本；验证固定 revision 为
-  `244f30c8b995d5b2cf57b59950596490c68813d6`
+  `dda2e28bae2a084760361197d87f06e685604e52`
 
 默认 CPU 构建可以直接使用未修改的固定 ncnn checkout。可选的 fp32 Vulkan
 vision 后端使用本项目维护的 [`patches/ncnn`](patches/ncnn) 补丁集：

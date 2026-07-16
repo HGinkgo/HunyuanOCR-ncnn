@@ -4,7 +4,7 @@ Source: https://github.com/Tencent/ncnn/pull/6579
 Source-Commit: 88e0927f6e6b640fea19bd5721ff5409fcca99ef
 Upstream: https://github.com/Tencent/ncnn
 License: BSD 3-Clause
-Local-Note: Carried against ncnn 244f30c8b995d5b2cf57b59950596490c68813d6;
+Local-Note: Carried against ncnn dda2e28bae2a084760361197d87f06e685604e52;
  trailing whitespace was removed without changing the implementation.
 
 diff --git a/src/layer/vulkan/matmul_vulkan.cpp b/src/layer/vulkan/matmul_vulkan.cpp
@@ -1144,4 +1144,3 @@ index 00000000..b8de4ae9
 +        buffer_st1(top_blob_data, oi, total);
 +    }
 +}
-

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-PINNED_NCNN_REVISION = "244f30c8b995d5b2cf57b59950596490c68813d6"
+PINNED_NCNN_REVISION = "dda2e28bae2a084760361197d87f06e685604e52"
 
 
 class PatchError(RuntimeError):
