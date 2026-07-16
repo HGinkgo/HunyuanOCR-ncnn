@@ -60,6 +60,7 @@ endif()
 add_library(hunyuan_ocr STATIC)
 target_sources(hunyuan_ocr
     PRIVATE
+        src/batch_jsonl.cpp
         src/hunyuan_ocr.cpp
         src/dflash_runtime.cpp
         src/generation_config.cpp
@@ -154,6 +155,13 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     )
     target_link_libraries(hunyuan_ocr_runtime_integration_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_runtime_integration_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_batch_jsonl_test tests/batch_jsonl_test.cpp)
+    target_include_directories(hunyuan_ocr_batch_jsonl_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(hunyuan_ocr_batch_jsonl_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_batch_jsonl_test PRIVATE cxx_std_17)
 
     add_executable(hunyuan_ocr_prompt_builder_test tests/prompt_builder_test.cpp)
     target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
@@ -325,6 +333,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
                     "${CMAKE_CURRENT_SOURCE_DIR}/examples/images/hf_demo_tools-dark.png"
         )
     endif()
+    add_test(NAME batch_jsonl
+        COMMAND hunyuan_ocr_batch_jsonl_test
+    )
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
     )

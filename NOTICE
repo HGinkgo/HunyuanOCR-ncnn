@@ -53,3 +53,12 @@ Third-party software and model notices
    stb_image is available under the MIT License or Public Domain.
 
    Upstream: https://github.com/nothings/stb
+
+4. picojson
+
+   This project vendors picojson.h for JSON Lines request and result handling.
+   picojson is licensed under the BSD 2-Clause License. The complete license is
+   retained in third_party/picojson-LICENSE.
+
+   Upstream: https://github.com/kazuho/picojson
+   Source commit: 111c9be5188f7350c2eac9ddaedd8cca3d7bf394
