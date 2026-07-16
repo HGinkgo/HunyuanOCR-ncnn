@@ -8,6 +8,7 @@ namespace hunyuan_ocr {
 enum class PromptMode {
     Spotting,
     Document,
+    Custom,
 };
 
 struct PromptBuildResult {

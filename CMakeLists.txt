@@ -141,6 +141,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         set(_hunyuan_ocr_enable_tokenizer_test TRUE)
     endif()
 
+    add_executable(hunyuan_ocr_api_test tests/hunyuan_ocr_api_test.cpp)
+    target_link_libraries(hunyuan_ocr_api_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_api_test PRIVATE cxx_std_17)
+
     add_executable(hunyuan_ocr_prompt_builder_test tests/prompt_builder_test.cpp)
     target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_prompt_builder_test PRIVATE cxx_std_17)
@@ -301,6 +305,9 @@ if(HUNYUAN_OCR_BUILD_TESTS)
                     "${HUNYUAN_OCR_TEST_TOKENIZER_DIR}"
         )
     endif()
+    add_test(NAME hunyuan_ocr_api
+        COMMAND hunyuan_ocr_api_test
+    )
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
     )
