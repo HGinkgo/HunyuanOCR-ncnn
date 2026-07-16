@@ -50,7 +50,7 @@ def test_bundle_metadata(root: Path) -> None:
     for value in (MATMUL_PR, MATMUL_COMMIT, "Cat-myq"):
         require(value in notice, f"NOTICE must include ncnn patch attribution: {value}")
 
-    for name in ("README.md", "README_zh.md"):
+    for name in ("README.md", "README_en.md"):
         readme = (root / name).read_text(encoding="utf-8")
         require(MATMUL_PR in readme, f"{name} must visibly credit ncnn PR #6579")
         require("patches/ncnn" in readme, f"{name} must explain the carried ncnn patches")

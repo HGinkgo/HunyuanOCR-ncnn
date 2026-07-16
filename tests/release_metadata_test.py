@@ -22,8 +22,11 @@ def main() -> int:
     tests_cmake_path = root / "tests/CMakeLists.txt"
     require(tests_cmake_path.is_file(), "tests/CMakeLists.txt must own test build definitions")
     tests_cmake = tests_cmake_path.read_text(encoding="utf-8")
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    readme_zh = (root / "README_zh.md").read_text(encoding="utf-8")
+    readme_en_path = root / "README_en.md"
+    require(readme_en_path.is_file(), "README_en.md must retain the English documentation")
+    require(not (root / "README_zh.md").exists(), "README_zh.md must be replaced by the default Chinese README.md")
+    readme_en = readme_en_path.read_text(encoding="utf-8")
+    readme_zh = (root / "README.md").read_text(encoding="utf-8")
     model_readme = (root / "models/README.md").read_text(encoding="utf-8")
     tools_readme = (root / "tools/README.md").read_text(encoding="utf-8")
     notice = (root / "NOTICE").read_text(encoding="utf-8")
@@ -39,7 +42,7 @@ def main() -> int:
 
     public_docs = [
         root / "README.md",
-        root / "README_zh.md",
+        root / "README_en.md",
         root / "NOTICE",
         root / "examples/EXPECTED_OUTPUTS.md",
         root / "examples/IMAGE_SOURCES.md",
@@ -56,7 +59,7 @@ def main() -> int:
         )
 
     require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.4\.0", cmake) is not None, "CMake version must be 0.4.0")
-    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+    for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
         require(REVISION in text, f"{label} must record the fixed checkpoint revision")
         require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
         require("v0.2.0" in text, f"{label} must retain the frozen HunyuanOCR 1.0 tag")
@@ -69,42 +72,46 @@ def main() -> int:
         require("picojson" in competition_rows[0], f"{label} competition dependency row must disclose picojson")
     require("picojson" in notice and "BSD 2-Clause" in notice,
             "NOTICE must attribute the vendored JSON parser")
-    require("HunyuanOCR 1.5 preview" in readme, "README must mark HunyuanOCR 1.5 as preview")
-    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+    require("HunyuanOCR 1.5 preview" in readme_en, "README_en must mark HunyuanOCR 1.5 as preview")
+    for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
         require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")
-    require("\n## Status\n" not in readme, "README must not duplicate highlights in a Status section")
-    require("\n## 当前状态\n" not in readme_zh, "README_zh must not duplicate current delivery details")
-    require("Windows build and packaged-model validation passed." in readme, "README must retain Windows validation evidence")
-    require("Windows 构建和带模型验证均已通过。" in readme_zh, "README_zh must retain Windows validation evidence")
-    require("MSVC" not in readme and "UCRT64" not in readme, "README Windows status must not expose toolchain details")
-    require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README_zh Windows status must not expose toolchain details")
-    require("validation pending" not in readme and "still pending" not in readme, "README contains stale pending status")
-    require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README_zh contains stale pending status")
+    require("\n## Status\n" not in readme_en, "README_en must not duplicate highlights in a Status section")
+    require("\n## 当前状态\n" not in readme_zh, "README must not duplicate current delivery details")
+    require('<a href="README_en.md">English</a>' in readme_zh,
+            "README must link to the English documentation")
+    require('<a href="README.md">中文说明</a>' in readme_en,
+            "README_en must link to the default Chinese documentation")
+    require("Windows build and packaged-model validation passed." in readme_en, "README_en must retain Windows validation evidence")
+    require("Windows 构建和带模型验证均已通过。" in readme_zh, "README must retain Windows validation evidence")
+    require("MSVC" not in readme_en and "UCRT64" not in readme_en, "README_en Windows status must not expose toolchain details")
+    require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README Windows status must not expose toolchain details")
+    require("validation pending" not in readme_en and "still pending" not in readme_en, "README_en contains stale pending status")
+    require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README contains stale pending status")
     require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
-    require("Experimental DFlash" in readme, "README must label DFlash as experimental")
-    require("实验性 DFlash" in readme_zh, "README_zh must label DFlash as experimental")
-    require("https://github.com/nihui/ncnn_llm" in readme, "README must reference ncnn_llm")
-    require("https://github.com/nihui/ncnn_llm" in readme_zh, "README_zh must reference ncnn_llm")
-    require("\n## Competition Coverage\n" in readme, "README must map the competition requirements")
-    require("\n## 比赛要求覆盖\n" in readme_zh, "README_zh must map the competition requirements")
-    require("CI covers Linux and Windows builds and lightweight tests" in readme,
-            "README must distinguish CI from packaged-model validation")
-    require("packaged-model validation was completed separately on both platforms" in readme,
-            "README must retain separate packaged-model validation evidence")
+    require("Experimental DFlash" in readme_en, "README_en must label DFlash as experimental")
+    require("实验性 DFlash" in readme_zh, "README must label DFlash as experimental")
+    require("https://github.com/nihui/ncnn_llm" in readme_en, "README_en must reference ncnn_llm")
+    require("https://github.com/nihui/ncnn_llm" in readme_zh, "README must reference ncnn_llm")
+    require("\n## Competition Coverage\n" in readme_en, "README_en must map the competition requirements")
+    require("\n## 比赛要求覆盖\n" in readme_zh, "README must map the competition requirements")
+    require("CI covers Linux and Windows builds and lightweight tests" in readme_en,
+            "README_en must distinguish CI from packaged-model validation")
+    require("packaged-model validation was completed separately on both platforms" in readme_en,
+            "README_en must retain separate packaged-model validation evidence")
     require("CI 覆盖 Linux、Windows 构建和轻量测试" in readme_zh,
-            "README_zh must distinguish CI from packaged-model validation")
+            "README must distinguish CI from packaged-model validation")
     require("带模型验证已在两个平台独立完成" in readme_zh,
-            "README_zh must retain separate packaged-model validation evidence")
-    require("\n## Advanced Engineering\n" in readme, "README must identify advanced engineering work")
-    require("\n## 扩展能力\n" in readme_zh, "README_zh must identify extended capabilities")
-    require("AR remains the default" in readme, "README must retain AR as the default path")
-    require("AR 仍是默认路径" in readme_zh, "README_zh must retain AR as the default path")
-    require("may be slower" in readme, "README must disclose low-acceptance slowdown")
-    require("可能更慢" in readme_zh, "README_zh must disclose low-acceptance slowdown")
+            "README must retain separate packaged-model validation evidence")
+    require("\n## Advanced Engineering\n" in readme_en, "README_en must identify advanced engineering work")
+    require("\n## 扩展能力\n" in readme_zh, "README must identify extended capabilities")
+    require("AR remains the default" in readme_en, "README_en must retain AR as the default path")
+    require("AR 仍是默认路径" in readme_zh, "README must retain AR as the default path")
+    require("may be slower" in readme_en, "README_en must disclose low-acceptance slowdown")
+    require("可能更慢" in readme_zh, "README must disclose low-acceptance slowdown")
     require("DFlash" in model_readme, "model README must document optional DFlash artifacts")
     require("DFlash" in tools_readme, "tools README must document DFlash packaging")
-    for text, label in ((readme, "README"), (readme_zh, "README_zh")):
+    for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
         for image in re.findall(r"--image\s+\./examples/images/(\S+)", text):
             require((root / "examples" / "images" / image).is_file(), f"{label} image does not exist: {image}")
     for image in ("hunyuan_vis_art_16.png", "hunyuan_ie_parallel.png"):
