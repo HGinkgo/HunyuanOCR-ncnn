@@ -12,6 +12,8 @@ def main() -> int:
     required = (
         "workflow_dispatch:",
         "runs-on: windows-2022",
+        "actions/checkout@v7",
+        "actions/setup-python@v6",
         "NCNN_REF: 244f30c8b995d5b2cf57b59950596490c68813d6",
         "ref: ${{ env.NCNN_REF }}",
         "python scripts/apply_ncnn_patches.py --ncnn-dir _deps/ncnn",
@@ -46,7 +48,10 @@ def main() -> int:
     msvc = workflow[: workflow.index("\n  ucrt64:")]
     ucrt64 = workflow[workflow.index("\n  ucrt64:") :]
     for job_name, job in (("MSVC", msvc), ("UCRT64", ucrt64)):
-        if job.count("actions/setup-python@v5") != 1 or job.count('python-version: "3.12"') != 1:
+        if job.count("actions/checkout@v7") != 2:
+            print(f"{job_name} must use Node.js 24 checkout for both repositories", file=sys.stderr)
+            return 1
+        if job.count("actions/setup-python@v6") != 1 or job.count('python-version: "3.12"') != 1:
             print(f"{job_name} must explicitly set up Python 3.12 for ncnn patching", file=sys.stderr)
             return 1
         if job.index("- name: Set up Python") > job.index("- name: Apply pinned ncnn patches"):

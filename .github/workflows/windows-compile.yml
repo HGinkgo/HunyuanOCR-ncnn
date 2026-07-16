@@ -20,17 +20,17 @@ jobs:
 
     steps:
       - name: Checkout HunyuanOCR-ncnn
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout ncnn
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Tencent/ncnn
           path: _deps/ncnn
           ref: ${{ env.NCNN_REF }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -86,10 +86,10 @@ jobs:
 
     steps:
       - name: Checkout HunyuanOCR-ncnn
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout ncnn
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Tencent/ncnn
           path: _deps/ncnn
@@ -106,7 +106,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
