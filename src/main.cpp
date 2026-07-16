@@ -1412,9 +1412,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    hunyuan_ocr::HunyuanOCR runtime;
-    const bool ready = runtime.load(model_root);
-    const auto& report = runtime.layout_report();
+    const hunyuan_ocr::ModelLayoutReport report = hunyuan_ocr::check_model_layout(model_root);
+    const bool ready = report.required_files_present();
 
     if (!benchmark)
     {

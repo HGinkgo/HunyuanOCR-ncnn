@@ -148,7 +148,16 @@ bool parse_prompt_mode(const std::string& text, PromptMode* mode, std::string* e
 
 const char* prompt_mode_name(PromptMode mode)
 {
-    return mode == PromptMode::Spotting ? "spotting" : "document";
+    switch (mode)
+    {
+    case PromptMode::Spotting:
+        return "spotting";
+    case PromptMode::Document:
+        return "document";
+    case PromptMode::Custom:
+        return "custom";
+    }
+    return "unknown";
 }
 
 bool build_hunyuan_ocr_prompt(PromptMode mode,
@@ -158,6 +167,11 @@ bool build_hunyuan_ocr_prompt(PromptMode mode,
                               PromptBuildResult* result,
                               std::string* error)
 {
+    if (mode == PromptMode::Custom)
+    {
+        if (error) *error = "custom prompt mode requires tokenized prompt input";
+        return false;
+    }
     return build_prompt_from_template(template_ids_for_mode(mode), grid_h, grid_w, merge_size, result, error);
 }
 

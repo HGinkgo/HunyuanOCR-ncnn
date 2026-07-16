@@ -107,6 +107,10 @@ if(HUNYUAN_OCR_BUILD_TESTS)
         ""
         CACHE PATH "Optional directory containing vision.ncnn.param/bin and pos_embed.bin for dynamic runtime tests"
     )
+    set(HUNYUAN_OCR_TEST_RUNTIME_MODEL_DIR
+        ""
+        CACHE PATH "Optional packaged model directory for high-level runtime integration tests"
+    )
     string(TOUPPER "${HUNYUAN_OCR_BUILD_TOKENIZER_TEST}" _hunyuan_ocr_build_tokenizer_test)
     if(NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "AUTO"
        AND NOT _hunyuan_ocr_build_tokenizer_test STREQUAL "ON"
@@ -144,6 +148,12 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_executable(hunyuan_ocr_api_test tests/hunyuan_ocr_api_test.cpp)
     target_link_libraries(hunyuan_ocr_api_test PRIVATE hunyuan_ocr)
     target_compile_features(hunyuan_ocr_api_test PRIVATE cxx_std_17)
+
+    add_executable(hunyuan_ocr_runtime_integration_test
+        tests/hunyuan_ocr_runtime_integration_test.cpp
+    )
+    target_link_libraries(hunyuan_ocr_runtime_integration_test PRIVATE hunyuan_ocr)
+    target_compile_features(hunyuan_ocr_runtime_integration_test PRIVATE cxx_std_17)
 
     add_executable(hunyuan_ocr_prompt_builder_test tests/prompt_builder_test.cpp)
     target_link_libraries(hunyuan_ocr_prompt_builder_test PRIVATE hunyuan_ocr)
@@ -308,6 +318,13 @@ if(HUNYUAN_OCR_BUILD_TESTS)
     add_test(NAME hunyuan_ocr_api
         COMMAND hunyuan_ocr_api_test
     )
+    if(HUNYUAN_OCR_TEST_RUNTIME_MODEL_DIR)
+        add_test(NAME runtime_integration
+            COMMAND hunyuan_ocr_runtime_integration_test
+                    "${HUNYUAN_OCR_TEST_RUNTIME_MODEL_DIR}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/images/hf_demo_tools-dark.png"
+        )
+    endif()
     add_test(NAME prompt_builder
         COMMAND hunyuan_ocr_prompt_builder_test
     )

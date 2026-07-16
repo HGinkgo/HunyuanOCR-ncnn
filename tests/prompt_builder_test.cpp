@@ -28,6 +28,25 @@ bool expect_equal(const std::vector<int>& actual,
 
 int main()
 {
+    if (std::string(hunyuan_ocr::prompt_mode_name(hunyuan_ocr::PromptMode::Custom)) != "custom")
+    {
+        std::cerr << "custom prompt mode name mismatch\n";
+        return EXIT_FAILURE;
+    }
+    hunyuan_ocr::PromptBuildResult invalid_custom;
+    std::string invalid_custom_error;
+    if (hunyuan_ocr::build_hunyuan_ocr_prompt(hunyuan_ocr::PromptMode::Custom,
+                                              2,
+                                              4,
+                                              2,
+                                              &invalid_custom,
+                                              &invalid_custom_error) ||
+        invalid_custom_error.empty())
+    {
+        std::cerr << "custom mode must use tokenized prompt builder\n";
+        return EXIT_FAILURE;
+    }
+
     const std::vector<int> prompt_ids = {16883, 11, 2385, 0}; // "Hello, world!"
     hunyuan_ocr::PromptBuildResult prompt;
     std::string error;
