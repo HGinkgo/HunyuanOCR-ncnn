@@ -34,6 +34,8 @@ using BatchInfer = std::function<bool(const BatchRequest& request,
                                       InferenceResult* result,
                                       RuntimeError* error)>;
 
+bool validate_jsonl_batch_io(const BatchOptions& options, RuntimeError* error);
+
 bool run_jsonl_batch(const BatchOptions& options,
                      const BatchInfer& infer,
                      BatchSummary* summary,

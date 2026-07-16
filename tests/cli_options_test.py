@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -150,6 +151,51 @@ def main() -> int:
         "batch mode does not support diagnostic or benchmark options",
     ):
         return 1
+
+    required_model_files = (
+        "tokenizer/vocab.txt",
+        "tokenizer/merges.txt",
+        "tokenizer/special_tokens.json",
+        "tokenizer/eos_ids.json",
+        "text_embed/text_embed.ncnn.param",
+        "text_embed/text_embed.ncnn.bin",
+        "text_decoder/text_decoder_kv.ncnn.param",
+        "text_decoder/text_decoder_kv.ncnn.bin",
+        "lm_head/lm_head.ncnn.param",
+        "lm_head/lm_head.ncnn.bin",
+    )
+    with tempfile.TemporaryDirectory(prefix="hunyuan_batch_preflight_") as temporary:
+        temporary_root = Path(temporary)
+        model_root = temporary_root / "model"
+        for relative_path in required_model_files:
+            path = model_root / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        preflight = subprocess.run(
+            [
+                str(binary),
+                "--model",
+                str(model_root),
+                "--batch-input",
+                str(temporary_root / "missing.jsonl"),
+                "--batch-output",
+                str(temporary_root / "results.jsonl"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            preflight.returncode == 0
+            or "Batch failed at batch_input" not in preflight.stderr
+            or "Runtime load failed" in preflight.stderr
+        ):
+            print(
+                "batch input was not validated before runtime load: "
+                f"rc={preflight.returncode} stderr={preflight.stderr!r}",
+                file=sys.stderr,
+            )
+            return 1
 
     if not require_rejected(
         binary,

@@ -58,7 +58,9 @@ bool test_ordered_continue_and_escaping(const std::filesystem::path& root)
     if (!write_text(input,
                     "{\"id\":\"a\",\"image\":\"images/a.png\",\"prompt_mode\":\"document\",\"max_tokens\":7}\n"
                     "{\n"
-                    "{\"id\":\"c\",\"image\":\"images/c.png\",\"prompt\":\"只输出文字\"}\n"))
+                    "{\"id\":\"c\",\"image\":\"images/c.png\",\"prompt\":\""
+                    "\xE5\x8F\xAA\xE8\xBE\x93\xE5\x87\xBA\xE6\x96\x87\xE5\xAD\x97"
+                    "\"}\n"))
     {
         return expect(false, "failed to write ordered input");
     }

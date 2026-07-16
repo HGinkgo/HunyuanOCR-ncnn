@@ -1498,6 +1498,19 @@ int main(int argc, char** argv)
 
     if (batch_mode)
     {
+        hunyuan_ocr::detail::BatchOptions batch_options;
+        batch_options.input_path = batch_input_path;
+        batch_options.output_path = batch_output_path;
+        batch_options.force = force_batch_output;
+        batch_options.default_max_tokens = max_tokens > 0 ? max_tokens : 128;
+        hunyuan_ocr::RuntimeError runtime_error;
+        if (!hunyuan_ocr::detail::validate_jsonl_batch_io(batch_options, &runtime_error))
+        {
+            std::cerr << "Batch failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+
         hunyuan_ocr::RuntimeOptions runtime_options;
         runtime_options.num_threads = num_threads;
         runtime_options.vision_vulkan = vision_vulkan;
@@ -1505,7 +1518,6 @@ int main(int argc, char** argv)
         runtime_options.dflash = dflash;
         runtime_options.repetition_penalty = repetition_penalty;
 
-        hunyuan_ocr::RuntimeError runtime_error;
         hunyuan_ocr::HunyuanOCR runtime;
         if (!runtime.load(model_root, runtime_options, &runtime_error))
         {
@@ -1514,11 +1526,6 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        hunyuan_ocr::detail::BatchOptions batch_options;
-        batch_options.input_path = batch_input_path;
-        batch_options.output_path = batch_output_path;
-        batch_options.force = force_batch_output;
-        batch_options.default_max_tokens = max_tokens > 0 ? max_tokens : 128;
         hunyuan_ocr::detail::BatchSummary summary;
         const bool batch_ok = hunyuan_ocr::detail::run_jsonl_batch(
             batch_options,

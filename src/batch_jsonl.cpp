@@ -21,6 +21,12 @@ struct ParsedRecord {
     std::string image;
 };
 
+struct BatchPaths {
+    std::filesystem::path input;
+    std::filesystem::path output;
+    std::filesystem::path input_absolute;
+};
+
 void clear_error(RuntimeError* error)
 {
     if (error)
@@ -292,23 +298,8 @@ bool write_line(std::ofstream* output, const std::string& line, RuntimeError* er
     return true;
 }
 
-} // namespace
-
-bool run_jsonl_batch(const BatchOptions& options,
-                     const BatchInfer& infer,
-                     BatchSummary* summary,
-                     RuntimeError* error)
+bool validate_io(const BatchOptions& options, BatchPaths* paths, RuntimeError* error)
 {
-    clear_error(error);
-    if (summary == nullptr)
-    {
-        return fail(error, "argument", "batch summary pointer is null");
-    }
-    *summary = BatchSummary();
-    if (!infer)
-    {
-        return fail(error, "argument", "batch inference callback is empty");
-    }
     if (options.input_path.empty())
     {
         return fail(error, "batch_input", "batch input path must not be empty");
@@ -322,34 +313,35 @@ bool run_jsonl_batch(const BatchOptions& options,
         return fail(error, "batch_options", "default max_tokens must be positive");
     }
 
-    const std::filesystem::path input_path = path_from_utf8(options.input_path);
-    const std::filesystem::path output_path = path_from_utf8(options.output_path);
+    BatchPaths local;
+    local.input = path_from_utf8(options.input_path);
+    local.output = path_from_utf8(options.output_path);
     std::error_code filesystem_error;
-    const std::filesystem::path input_absolute =
-        std::filesystem::absolute(input_path, filesystem_error).lexically_normal();
+    local.input_absolute =
+        std::filesystem::absolute(local.input, filesystem_error).lexically_normal();
     if (filesystem_error)
     {
         return fail(error, "batch_input", "failed to resolve batch input path");
     }
     filesystem_error.clear();
     const std::filesystem::path output_absolute =
-        std::filesystem::absolute(output_path, filesystem_error).lexically_normal();
+        std::filesystem::absolute(local.output, filesystem_error).lexically_normal();
     if (filesystem_error)
     {
         return fail(error, "batch_output", "failed to resolve batch output path");
     }
-    if (input_absolute == output_absolute)
+    if (local.input_absolute == output_absolute)
     {
         return fail(error, "batch_output", "batch input and output paths must differ");
     }
 
-    std::ifstream input(input_path, std::ios::binary);
+    std::ifstream input(local.input, std::ios::binary);
     if (!input.is_open())
     {
         return fail(error, "batch_input", "failed to open batch input: " + options.input_path);
     }
     filesystem_error.clear();
-    const bool output_exists = std::filesystem::exists(output_path, filesystem_error);
+    const bool output_exists = std::filesystem::exists(local.output, filesystem_error);
     if (filesystem_error)
     {
         return fail(error, "batch_output", "failed to inspect batch output path");
@@ -357,8 +349,8 @@ bool run_jsonl_batch(const BatchOptions& options,
     if (output_exists)
     {
         filesystem_error.clear();
-        const bool same_file = std::filesystem::equivalent(input_path,
-                                                           output_path,
+        const bool same_file = std::filesystem::equivalent(local.input,
+                                                           local.output,
                                                            filesystem_error);
         if (filesystem_error)
         {
@@ -376,14 +368,53 @@ bool run_jsonl_batch(const BatchOptions& options,
         }
     }
 
-    std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+    *paths = std::move(local);
+    return true;
+}
+
+} // namespace
+
+bool validate_jsonl_batch_io(const BatchOptions& options, RuntimeError* error)
+{
+    clear_error(error);
+    BatchPaths paths;
+    return validate_io(options, &paths, error);
+}
+
+bool run_jsonl_batch(const BatchOptions& options,
+                     const BatchInfer& infer,
+                     BatchSummary* summary,
+                     RuntimeError* error)
+{
+    clear_error(error);
+    if (summary == nullptr)
+    {
+        return fail(error, "argument", "batch summary pointer is null");
+    }
+    *summary = BatchSummary();
+    if (!infer)
+    {
+        return fail(error, "argument", "batch inference callback is empty");
+    }
+    BatchPaths paths;
+    if (!validate_io(options, &paths, error))
+    {
+        return false;
+    }
+
+    std::ifstream input(paths.input, std::ios::binary);
+    if (!input.is_open())
+    {
+        return fail(error, "batch_input", "failed to reopen batch input: " + options.input_path);
+    }
+    std::ofstream output(paths.output, std::ios::binary | std::ios::trunc);
     if (!output.is_open())
     {
         return fail(error, "batch_output", "failed to open batch output: " + options.output_path);
     }
 
     std::set<std::string> seen_ids;
-    const std::filesystem::path input_directory = input_absolute.parent_path();
+    const std::filesystem::path input_directory = paths.input_absolute.parent_path();
     std::string line;
     size_t line_number = 0;
     while (std::getline(input, line))
