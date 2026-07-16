@@ -262,6 +262,65 @@ Windows build and packaged-model validation passed. The CLI reads the native
 wide-character command line and uses UTF-8 for prompts, console I/O, and model,
 image, and fixture paths.
 
+## Reusable C++ Runtime
+
+The `hunyuan_ocr` static target owns the loaded model and can process multiple
+requests without reloading its ncnn networks. Add the source tree and link it:
+
+```cmake
+add_subdirectory(path/to/HunyuanOCR-ncnn)
+target_link_libraries(my_ocr_app PRIVATE hunyuan_ocr)
+```
+
+```cpp
+#include "hunyuan_ocr/hunyuan_ocr.h"
+
+hunyuan_ocr::RuntimeOptions options;
+options.num_threads = 8;
+
+hunyuan_ocr::RuntimeError error;
+hunyuan_ocr::HunyuanOCR runtime;
+if (!runtime.load("./hunyuan_ocr_ncnn_model", options, &error)) return 1;
+
+hunyuan_ocr::InferenceRequest request;
+request.prompt_mode = hunyuan_ocr::PromptMode::Document;
+request.max_tokens = 128;
+
+hunyuan_ocr::InferenceResult result;
+if (!runtime.infer_file("document.png", request, &result, &error)) return 2;
+```
+
+`infer_rgb` accepts a contiguous RGB byte vector when the caller already owns
+decoded pixels. One runtime processes requests sequentially and is not safe for
+concurrent calls; create independent instances when duplicated model memory is
+acceptable. Request-local image tensors, features, and KV caches are released
+after each call.
+
+## JSONL Batch Inference
+
+Batch mode loads the model once and writes one ordered result for every physical
+input line:
+
+```json
+{"id":"page-1","image":"images/page-1.png","prompt_mode":"document","max_tokens":256}
+{"id":"page-2","image":"images/page-2.png","prompt":"Only return the invoice number."}
+```
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --batch-input requests.jsonl \
+  --batch-output results.jsonl \
+  --num-threads 8
+```
+
+`id` must be non-empty and unique. Each record contains exactly one of
+`prompt_mode` (`spotting` or `document`) and `prompt`; `max_tokens` is optional.
+Relative image paths are resolved from the input JSONL directory. Invalid or
+failed records are written with `ok: false` and processing continues, while the
+final process exit code is nonzero if any record failed. Existing output files
+are rejected unless `--force` is supplied.
+
 ## Run Examples
 
 List bundled images:
@@ -366,7 +425,7 @@ models/                Tracked config template only
 
 Original code in this repository is licensed under Apache-2.0. See `LICENSE`
 and `NOTICE`. Vendored `stb_image.h` keeps its upstream MIT/Public Domain
-license notice.
+license notice, and vendored picojson keeps its BSD 2-Clause license.
 
 HunyuanOCR model files are governed by the Tencent Hunyuan Community License
 Agreement.

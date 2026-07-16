@@ -242,6 +242,61 @@ cmake --build build -j
 Windows 构建和带模型验证均已通过。CLI 从宽字符命令行读取参数，支持中文等
 Unicode prompt 和模型、图片、fixture 路径；控制台输入输出统一使用 UTF-8。
 
+## 可复用 C++ Runtime
+
+`hunyuan_ocr` 静态库目标持有已加载的模型，可以连续处理多次请求而不重新加载
+ncnn 网络。源码方式接入如下：
+
+```cmake
+add_subdirectory(path/to/HunyuanOCR-ncnn)
+target_link_libraries(my_ocr_app PRIVATE hunyuan_ocr)
+```
+
+```cpp
+#include "hunyuan_ocr/hunyuan_ocr.h"
+
+hunyuan_ocr::RuntimeOptions options;
+options.num_threads = 8;
+
+hunyuan_ocr::RuntimeError error;
+hunyuan_ocr::HunyuanOCR runtime;
+if (!runtime.load("./hunyuan_ocr_ncnn_model", options, &error)) return 1;
+
+hunyuan_ocr::InferenceRequest request;
+request.prompt_mode = hunyuan_ocr::PromptMode::Document;
+request.max_tokens = 128;
+
+hunyuan_ocr::InferenceResult result;
+if (!runtime.infer_file("document.png", request, &result, &error)) return 2;
+```
+
+调用方已经持有解码后像素时，可以使用接收连续 RGB 字节的 `infer_rgb`。同一个
+Runtime 按顺序处理请求，不保证并发调用安全；需要并发时可创建多个实例，但会占用
+多份模型内存。每次请求结束后，图片张量、vision features 和 KV cache 都会释放。
+
+## JSONL 批量推理
+
+批量模式只加载一次模型，并为每个物理输入行按顺序写出一条结果：
+
+```json
+{"id":"page-1","image":"images/page-1.png","prompt_mode":"document","max_tokens":256}
+{"id":"page-2","image":"images/page-2.png","prompt":"只输出发票号码"}
+```
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --batch-input requests.jsonl \
+  --batch-output results.jsonl \
+  --num-threads 8
+```
+
+`id` 必须非空且唯一。每条记录必须在 `prompt_mode`（`spotting` 或 `document`）
+与 `prompt` 中二选一，`max_tokens` 可以省略。相对图片路径以输入 JSONL 所在目录
+为基准。无效或推理失败的记录会写成 `ok: false`，后续记录仍继续执行；只要存在
+失败记录，进程最终返回非零退出码。输出文件已存在时默认拒绝覆盖，显式传入
+`--force` 才会重写。
+
 ## 运行示例
 
 查看内置示例图：
@@ -320,6 +375,7 @@ python tools/benchmark.py \
 
 ## 许可证
 
-本仓库原创代码使用 Apache-2.0。`third_party/stb_image.h` 保留上游 MIT/Public Domain 许可说明。
+本仓库原创代码使用 Apache-2.0。`third_party/stb_image.h` 保留上游 MIT/Public Domain
+许可说明，vendored picojson 保留 BSD 2-Clause 许可说明。
 
 HunyuanOCR 模型文件遵循 Tencent Hunyuan Community License Agreement。

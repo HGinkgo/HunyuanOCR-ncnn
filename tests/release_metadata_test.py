@@ -23,6 +23,7 @@ def main() -> int:
     readme_zh = (root / "README_zh.md").read_text(encoding="utf-8")
     model_readme = (root / "models/README.md").read_text(encoding="utf-8")
     tools_readme = (root / "tools/README.md").read_text(encoding="utf-8")
+    notice = (root / "NOTICE").read_text(encoding="utf-8")
     image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
     expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
 
@@ -31,6 +32,12 @@ def main() -> int:
         require(REVISION in text, f"{label} must record the fixed checkpoint revision")
         require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
         require("v0.2.0" in text, f"{label} must retain the frozen HunyuanOCR 1.0 tag")
+        require("--batch-input" in text, f"{label} must document JSONL batch input")
+        require("--batch-output" in text, f"{label} must document JSONL batch output")
+        require("infer_file" in text, f"{label} must document the reusable C++ API")
+        require("add_subdirectory" in text, f"{label} must document source-tree library use")
+    require("picojson" in notice and "BSD 2-Clause" in notice,
+            "NOTICE must attribute the vendored JSON parser")
     require("HunyuanOCR 1.5 preview" in readme, "README must mark HunyuanOCR 1.5 as preview")
     for text, label in ((readme, "README"), (readme_zh, "README_zh")):
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
