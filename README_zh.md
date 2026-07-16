@@ -47,7 +47,7 @@
 HunyuanOCR 1.5 适配及其验证由本仓库维护；上面的 ncnn_llm 链接用于明确记录
 任务要求中的参考项目，并不表示本仓库是 ncnn_llm 的上游分支。
 
-## 高阶工程能力
+## 扩展能力
 
 - 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包。
 - append-only、带容量的 KV cache 避免稳态 past-cache 拷贝，并以独立生命周期测试

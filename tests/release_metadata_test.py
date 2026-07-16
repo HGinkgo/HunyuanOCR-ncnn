@@ -89,7 +89,7 @@ def main() -> int:
     require("\n## Competition Coverage\n" in readme, "README must map the competition requirements")
     require("\n## 比赛要求覆盖\n" in readme_zh, "README_zh must map the competition requirements")
     require("\n## Advanced Engineering\n" in readme, "README must identify advanced engineering work")
-    require("\n## 高阶工程能力\n" in readme_zh, "README_zh must identify advanced engineering work")
+    require("\n## 扩展能力\n" in readme_zh, "README_zh must identify extended capabilities")
     require("AR remains the default" in readme, "README must retain AR as the default path")
     require("AR 仍是默认路径" in readme_zh, "README_zh must retain AR as the default path")
     require("may be slower" in readme, "README must disclose low-acceptance slowdown")
