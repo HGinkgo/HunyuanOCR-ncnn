@@ -26,7 +26,7 @@ int main(int argc, char** argv)
     }
 
     hunyuan_ocr::RuntimeOptions options;
-    options.num_threads = 2;
+    options.num_threads = 16;
 
     hunyuan_ocr::RuntimeError error;
     hunyuan_ocr::HunyuanOCR runtime;
