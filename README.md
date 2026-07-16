@@ -36,18 +36,32 @@ with pnnx and runs the full OCR path in C++.
 | `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | preserved compatibility branch |
 | `v0.2.0` | HunyuanOCR 1.0 | frozen release |
 
-## Highlights
+## Competition Coverage
 
-- End-to-end PNG/JPEG input to OCR text in C++17.
+| Requirement | Evidence in this repository |
+| --- | --- |
+| Convert HunyuanOCR with pnnx | Reproducible module exports under `export/` and packaging through `tools/package_model.py` |
+| C++ LLM decoding with few dependencies | The runtime and KV-cache decoder use [ncnn_llm](https://github.com/nihui/ncnn_llm) as an architecture reference; the C++17 executable needs ncnn and the bundled `stb_image` only |
+| Match the PyTorch final text | The pinned Transformers 5.13.0 CPU fp32 reference and ncnn runtime pass all 28 token/text cases for the verified 128-token window |
+| CMake on at least two platforms | Linux and Windows build, test, and packaged-model validation are covered by CI |
+| Publish a technical summary | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) links back to this repository |
+
+The HunyuanOCR 1.5 adapter and its validation are maintained in this repository;
+the ncnn_llm link above records the required reference project rather than
+claiming that this repository is an upstream ncnn_llm branch.
+
+## Advanced Engineering
+
 - One dynamic vision package for exported image sizes, with fixed-grid fallback.
-- KV-cache text decoder, greedy decoding, and repetition penalty.
-- Built-in `spotting` / `document` prompts plus custom `--prompt` text.
+- Append-only, capacity-bearing KV caches avoid steady-state past-cache copies;
+  dedicated lifecycle tests cover growth, logical views, and repeated requests.
+- Built-in `spotting` / `document` prompts plus custom UTF-8 `--prompt` text.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - Optional DFlash speculative decoding with AR kept as the default path.
 - Optional fp32 Vulkan vision backend; the 28-case token/text test suite passes
   without GELU CPU fallback when using the maintained ncnn patch series.
-- CMake build on Linux and Windows; no Python at runtime.
-- The HunyuanOCR 1.5 28-case test suite passes.
+- A 100-round RSS regression and ASAN/UBSAN test gate audit request-scoped
+  ncnn buffer release for long-lived vision, text, and DFlash runtimes.
 
 ## Quick Links
 

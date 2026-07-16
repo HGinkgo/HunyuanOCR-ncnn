@@ -34,18 +34,31 @@
 | `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | 保留的兼容分支 |
 | `v0.2.0` | HunyuanOCR 1.0 | 冻结版本 |
 
-## 当前交付能力
+## 比赛要求覆盖
 
-- C++17 端到端完成 PNG/JPEG 图片输入到 OCR 文本输出。
+| 任务要求 | 仓库内证据 |
+| --- | --- |
+| 使用 pnnx 转换 HunyuanOCR | `export/` 提供可复现的子模块导出流程，`tools/package_model.py` 负责运行时模型打包 |
+| 参考 ncnn_llm，以少量依赖实现 C++ LLM 解码 | runtime 和 KV-cache decoder 以 [ncnn_llm](https://github.com/nihui/ncnn_llm) 为架构参考；C++17 可执行程序运行时仅需要 ncnn 和仓库内的 `stb_image` |
+| 最终文本与 PyTorch 原版一致 | 固定的 Transformers 5.13.0 CPU fp32 参考与 ncnn runtime 在已验证的 128-token 窗口内通过全部 28 个 token/text case |
+| CMake 至少覆盖两个平台 | CI 覆盖 Linux、Windows 的构建、测试和带模型验证 |
+| 发表技术总结并提供仓库地址 | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) 已链接本仓库 |
+
+HunyuanOCR 1.5 适配及其验证由本仓库维护；上面的 ncnn_llm 链接用于明确记录
+任务要求中的参考项目，并不表示本仓库是 ncnn_llm 的上游分支。
+
+## 高阶工程能力
+
 - 支持已导出范围内的不同图片尺寸，并保留 fixed-grid 回退包。
-- KV cache text decoder、greedy decoding 和 repetition penalty。
-- 内置 `spotting` / `document` 两种模式，也支持自定义 `--prompt` 文本。
+- append-only、带容量的 KV cache 避免稳态 past-cache 拷贝，并以独立生命周期测试
+  覆盖扩容、逻辑 view 和重复请求。
+- 内置 `spotting` / `document` 两种模式，也支持自定义 UTF-8 `--prompt` 文本。
 - Windows CLI 全链路支持 UTF-8 prompt、模型路径、图片路径和 fixture 路径。
 - 可选 DFlash speculative decoding，默认推理路径仍为 AR。
 - 可选 fp32 Vulkan vision 后端；使用项目维护的 ncnn 补丁集时，28-case
   token/text 测试通过，且 GELU 不回退到 CPU。
-- CMake 构建，Linux / Windows 均已验证；运行时不依赖 Python。
-- HunyuanOCR 1.5 的 28-case 测试通过。
+- 100 轮 RSS 回归和 ASAN/UBSAN 门禁审计长期存活的 vision、text、DFlash
+  runtime 是否在请求结束后释放 ncnn 临时缓冲区。
 
 ## 常用入口
 
