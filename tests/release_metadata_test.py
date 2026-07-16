@@ -27,6 +27,24 @@ def main() -> int:
     image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
     expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
 
+    public_docs = [
+        root / "README.md",
+        root / "README_zh.md",
+        root / "NOTICE",
+        root / "examples/EXPECTED_OUTPUTS.md",
+        root / "examples/IMAGE_SOURCES.md",
+        root / "examples/README.md",
+        root / "export/README.md",
+        root / "models/README.md",
+        root / "tools/README.md",
+    ]
+    public_docs.extend(sorted((root / "docs").rglob("*.md")))
+    for path in public_docs:
+        require(
+            "/root/" not in path.read_text(encoding="utf-8"),
+            f"public documentation must not contain a local /root path: {path.relative_to(root)}",
+        )
+
     require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.4\.0", cmake) is not None, "CMake version must be 0.4.0")
     for text, label in ((readme, "README"), (readme_zh, "README_zh")):
         require(REVISION in text, f"{label} must record the fixed checkpoint revision")
@@ -36,6 +54,9 @@ def main() -> int:
         require("--batch-output" in text, f"{label} must document JSONL batch output")
         require("infer_file" in text, f"{label} must document the reusable C++ API")
         require("add_subdirectory" in text, f"{label} must document source-tree library use")
+        competition_rows = [line for line in text.splitlines() if line.startswith("|") and "ncnn_llm" in line]
+        require(len(competition_rows) == 1, f"{label} must contain one ncnn_llm competition row")
+        require("picojson" in competition_rows[0], f"{label} competition dependency row must disclose picojson")
     require("picojson" in notice and "BSD 2-Clause" in notice,
             "NOTICE must attribute the vendored JSON parser")
     require("HunyuanOCR 1.5 preview" in readme, "README must mark HunyuanOCR 1.5 as preview")

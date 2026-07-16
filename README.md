@@ -41,7 +41,7 @@ with pnnx and runs the full OCR path in C++.
 | Requirement | Evidence in this repository |
 | --- | --- |
 | Convert HunyuanOCR with pnnx | Reproducible module exports under `export/` and packaging through `tools/package_model.py` |
-| C++ LLM decoding with few dependencies | The runtime and KV-cache decoder use [ncnn_llm](https://github.com/nihui/ncnn_llm) as an architecture reference; the C++17 executable needs ncnn and the bundled `stb_image` only |
+| C++ LLM decoding with few dependencies | The runtime and KV-cache decoder use [ncnn_llm](https://github.com/nihui/ncnn_llm) as an architecture reference; the C++17 executable uses ncnn plus the bundled `stb_image` and `picojson` |
 | Match the PyTorch final text | The pinned Transformers 5.13.0 CPU fp32 reference and ncnn runtime pass all 28 token/text cases for the verified 128-token window |
 | CMake on at least two platforms | Linux and Windows build, test, and packaged-model validation are covered by CI |
 | Publish a technical summary | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) links back to this repository |
@@ -56,6 +56,8 @@ claiming that this repository is an upstream ncnn_llm branch.
 - Append-only, capacity-bearing KV caches avoid steady-state past-cache copies;
   dedicated lifecycle tests cover growth, logical views, and repeated requests.
 - Built-in `spotting` / `document` prompts plus custom UTF-8 `--prompt` text.
+- A reusable C++ runtime keeps model networks loaded across sequential requests;
+  strict JSONL batch processing preserves input order and reports per-record errors.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - Optional DFlash speculative decoding with AR kept as the default path.
 - Optional fp32 Vulkan vision backend; the 28-case token/text test suite passes
