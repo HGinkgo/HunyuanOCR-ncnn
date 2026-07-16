@@ -64,10 +64,91 @@ def main() -> int:
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
+        or "--batch-input" not in help_result.stdout
+        or "--batch-output" not in help_result.stdout
+        or "--force" not in help_result.stdout
         or "--vlm-fixture or --image with --prompt/--prompt-mode"
         not in help_result.stdout
     ):
         print("CLI help does not report the expected 1.5/DFlash options", file=sys.stderr)
+        return 1
+
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--batch-input", "requests.jsonl"],
+        "--batch-input and --batch-output must be provided together",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--batch-output", "results.jsonl"],
+        "--batch-input and --batch-output must be provided together",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        [
+            "--model",
+            ".",
+            "--batch-input",
+            "requests.jsonl",
+            "--batch-output",
+            "results.jsonl",
+            "--image",
+            "x.png",
+        ],
+        "--batch-input and --image are mutually exclusive",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        [
+            "--model",
+            ".",
+            "--batch-input",
+            "requests.jsonl",
+            "--batch-output",
+            "results.jsonl",
+            "--prompt-mode",
+            "document",
+        ],
+        "batch prompts must be specified in JSONL records",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--force"],
+        "--force requires batch mode",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        [
+            "--model",
+            ".",
+            "--batch-input",
+            "requests.jsonl",
+            "--batch-output",
+            "results.jsonl",
+            "--benchmark",
+        ],
+        "batch mode does not support diagnostic or benchmark options",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        [
+            "--model",
+            ".",
+            "--batch-input",
+            "requests.jsonl",
+            "--batch-output",
+            "results.jsonl",
+            "--vlm-fixture",
+            ".",
+        ],
+        "batch mode does not support diagnostic or benchmark options",
+    ):
         return 1
 
     if not require_rejected(

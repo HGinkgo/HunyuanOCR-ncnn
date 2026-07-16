@@ -6,6 +6,8 @@
 #include "hunyuan_ocr/utf8.h"
 #include "hunyuan_ocr/vision_runtime.h"
 
+#include "batch_jsonl.h"
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -84,6 +86,9 @@ void print_usage(const char* program)
         << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
         << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
+        << "  --batch-input PATH     Read ordered inference requests from a JSONL file.\n"
+        << "  --batch-output PATH    Write one ordered JSON result per input line.\n"
+        << "  --force                Replace an existing --batch-output file.\n"
         << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
         << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
         << "  --benchmark            Run cold-start and same-process warm inference timing.\n"
@@ -954,6 +959,9 @@ int main(int argc, char** argv)
     std::string vision_fixture_dir;
     float vision_tolerance = 0.002f;
     std::string image_path;
+    std::string batch_input_path;
+    std::string batch_output_path;
+    bool force_batch_output = false;
     std::string prompt_mode_text;
     std::string prompt_text;
     std::string image_preprocess_fixture_dir;
@@ -1152,6 +1160,31 @@ int main(int argc, char** argv)
             image_path = argv[++i];
             continue;
         }
+        if (arg == "--batch-input")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--batch-input requires a path\n";
+                return 1;
+            }
+            batch_input_path = argv[++i];
+            continue;
+        }
+        if (arg == "--batch-output")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--batch-output requires a path\n";
+                return 1;
+            }
+            batch_output_path = argv[++i];
+            continue;
+        }
+        if (arg == "--force")
+        {
+            force_batch_output = true;
+            continue;
+        }
         if (arg == "--prompt-mode")
         {
             if (i + 1 >= argc)
@@ -1335,6 +1368,40 @@ int main(int argc, char** argv)
         std::cerr << "--prompt and --prompt-mode are mutually exclusive\n";
         return 1;
     }
+    const bool has_batch_input = !batch_input_path.empty();
+    const bool has_batch_output = !batch_output_path.empty();
+    if (has_batch_input != has_batch_output)
+    {
+        std::cerr << "--batch-input and --batch-output must be provided together\n";
+        return 1;
+    }
+    const bool batch_mode = has_batch_input && has_batch_output;
+    if (force_batch_output && !batch_mode)
+    {
+        std::cerr << "--force requires batch mode\n";
+        return 1;
+    }
+    if (batch_mode && !image_path.empty())
+    {
+        std::cerr << "--batch-input and --image are mutually exclusive\n";
+        return 1;
+    }
+    if (batch_mode && (!prompt_text.empty() || !prompt_mode_text.empty()))
+    {
+        std::cerr << "batch prompts must be specified in JSONL records\n";
+        return 1;
+    }
+    const bool batch_has_diagnostic_options =
+        !decode_ids_text.empty() || !decode_ids_file.empty() || run_text_smoke ||
+        !text_fixture_dir.empty() || !vlm_fixture_dir.empty() || dflash_probe ||
+        !vision_param_path.empty() || !vision_bin_path.empty() ||
+        !vision_fixture_dir.empty() || !image_preprocess_fixture_dir.empty() ||
+        !image_file_fixture_dir.empty() || benchmark;
+    if (batch_mode && batch_has_diagnostic_options)
+    {
+        std::cerr << "batch mode does not support diagnostic or benchmark options\n";
+        return 1;
+    }
     if (num_threads < 0)
     {
         std::cerr << "--num-threads must be positive when provided\n";
@@ -1359,7 +1426,7 @@ int main(int argc, char** argv)
         !vision_fixture_dir.empty() ||
         (explicit_vision_paths &&
          (!image_file_fixture_dir.empty() || !image_preprocess_fixture_dir.empty()));
-    const bool executes_vision = image_executes_vision || fixture_executes_vision;
+    const bool executes_vision = batch_mode || image_executes_vision || fixture_executes_vision;
     if (vision_vulkan && !executes_vision)
     {
         std::cerr << "--vision-vulkan requires a path that executes vision\n";
@@ -1401,7 +1468,7 @@ int main(int argc, char** argv)
     }
     const bool has_image_prompt =
         !image_path.empty() && (!prompt_text.empty() || !prompt_mode_text.empty());
-    if (dflash && vlm_fixture_dir.empty() && !has_image_prompt)
+    if (dflash && vlm_fixture_dir.empty() && !has_image_prompt && !batch_mode)
     {
         std::cerr << "--dflash requires --vlm-fixture or --image with --prompt/--prompt-mode\n";
         return 1;
@@ -1429,6 +1496,53 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    if (batch_mode)
+    {
+        hunyuan_ocr::RuntimeOptions runtime_options;
+        runtime_options.num_threads = num_threads;
+        runtime_options.vision_vulkan = vision_vulkan;
+        runtime_options.vision_vulkan_device = vision_vulkan_device;
+        runtime_options.dflash = dflash;
+        runtime_options.repetition_penalty = repetition_penalty;
+
+        hunyuan_ocr::RuntimeError runtime_error;
+        hunyuan_ocr::HunyuanOCR runtime;
+        if (!runtime.load(model_root, runtime_options, &runtime_error))
+        {
+            std::cerr << "Runtime load failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+
+        hunyuan_ocr::detail::BatchOptions batch_options;
+        batch_options.input_path = batch_input_path;
+        batch_options.output_path = batch_output_path;
+        batch_options.force = force_batch_output;
+        batch_options.default_max_tokens = max_tokens > 0 ? max_tokens : 128;
+        hunyuan_ocr::detail::BatchSummary summary;
+        const bool batch_ok = hunyuan_ocr::detail::run_jsonl_batch(
+            batch_options,
+            [&](const hunyuan_ocr::detail::BatchRequest& request,
+                hunyuan_ocr::InferenceResult* result,
+                hunyuan_ocr::RuntimeError* error) {
+                return runtime.infer_file(request.resolved_image,
+                                          request.request,
+                                          result,
+                                          error);
+            },
+            &summary,
+            &runtime_error);
+        if (!runtime_error.stage.empty())
+        {
+            std::cerr << "Batch failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+        std::cout << "Batch summary: " << summary.succeeded << "/" << summary.total
+                  << " succeeded, " << summary.failed << " failed\n";
+        return batch_ok ? 0 : 3;
+    }
+
     if (benchmark)
     {
         return run_image_benchmark(model_root,
@@ -1447,6 +1561,78 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Model layout check passed for the current runtime files.\n";
+
+    const bool plain_image_inference =
+        has_image_prompt && vlm_fixture_dir.empty() && !explicit_vision_paths;
+    if (plain_image_inference)
+    {
+        hunyuan_ocr::RuntimeOptions runtime_options;
+        runtime_options.num_threads = num_threads;
+        runtime_options.vision_vulkan = vision_vulkan;
+        runtime_options.vision_vulkan_device = vision_vulkan_device;
+        runtime_options.dflash = dflash;
+        runtime_options.repetition_penalty = repetition_penalty;
+
+        hunyuan_ocr::RuntimeError runtime_error;
+        hunyuan_ocr::HunyuanOCR runtime;
+        if (!runtime.load(model_root, runtime_options, &runtime_error))
+        {
+            std::cerr << "Runtime load failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+
+        hunyuan_ocr::InferenceRequest request;
+        request.max_tokens = max_tokens > 0 ? max_tokens : 128;
+        if (!prompt_text.empty())
+        {
+            request.prompt_mode = hunyuan_ocr::PromptMode::Custom;
+            request.prompt = prompt_text;
+        }
+        else
+        {
+            std::string prompt_error;
+            if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text,
+                                                &request.prompt_mode,
+                                                &prompt_error))
+            {
+                std::cerr << "Prompt mode failed: " << prompt_error << "\n";
+                return 1;
+            }
+        }
+
+        hunyuan_ocr::InferenceResult result;
+        if (!runtime.infer_file(image_path, request, &result, &runtime_error))
+        {
+            std::cerr << "Inference failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+
+        std::cout << "Image:\n";
+        std::cout << "  path: " << image_path << "\n";
+        std::cout << "Inference:\n";
+        std::cout << "  decoder: "
+                  << (result.decoder.mode == hunyuan_ocr::DecoderMode::DFlash ? "dflash" : "ar")
+                  << "\n";
+        std::cout << "  generated_token_count: " << result.token_ids.size() << "\n";
+        std::cout << std::fixed << std::setprecision(3);
+        std::cout << "  timing_preprocess_ms: " << result.timing.preprocess_ms << "\n";
+        std::cout << "  timing_vision_ms: " << result.timing.vision_ms << "\n";
+        std::cout << "  timing_text_ms: " << result.timing.text_ms << "\n";
+        std::cout << "  timing_total_ms: " << result.timing.total_ms << "\n";
+        if (result.decoder.mode == hunyuan_ocr::DecoderMode::DFlash)
+        {
+            std::cout << "  dflash_blocks: " << result.decoder.block_count << "\n";
+            std::cout << "  dflash_drafted_tokens: "
+                      << result.decoder.drafted_token_count << "\n";
+            std::cout << "  dflash_accepted_tokens: "
+                      << result.decoder.accepted_draft_token_count << "\n";
+        }
+        print_token_vector("  generated_tokens: ", result.token_ids);
+        std::cout << "Decoded text:\n" << result.text << "\n";
+        return 0;
+    }
 
     if (dflash_probe)
     {
