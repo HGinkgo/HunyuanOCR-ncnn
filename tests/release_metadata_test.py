@@ -19,6 +19,9 @@ def require(condition: bool, message: str) -> None:
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+    tests_cmake_path = root / "tests/CMakeLists.txt"
+    require(tests_cmake_path.is_file(), "tests/CMakeLists.txt must own test build definitions")
+    tests_cmake = tests_cmake_path.read_text(encoding="utf-8")
     readme = (root / "README.md").read_text(encoding="utf-8")
     readme_zh = (root / "README_zh.md").read_text(encoding="utf-8")
     model_readme = (root / "models/README.md").read_text(encoding="utf-8")
@@ -26,6 +29,13 @@ def main() -> int:
     notice = (root / "NOTICE").read_text(encoding="utf-8")
     image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
     expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
+
+    require("add_subdirectory(tests)" in cmake, "root CMake must delegate test definitions")
+    require("add_test(" not in cmake, "root CMake must not register individual tests")
+    require("add_executable(hunyuan_ocr_api_test" in tests_cmake,
+            "tests CMake must own C++ test targets")
+    require("add_test(NAME cli_options" in tests_cmake,
+            "tests CMake must own Python integration tests")
 
     public_docs = [
         root / "README.md",
