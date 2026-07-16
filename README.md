@@ -43,7 +43,7 @@ with pnnx and runs the full OCR path in C++.
 | Convert HunyuanOCR with pnnx | Reproducible module exports under `export/` and packaging through `tools/package_model.py` |
 | C++ LLM decoding with few dependencies | The runtime and KV-cache decoder use [ncnn_llm](https://github.com/nihui/ncnn_llm) as an architecture reference; the C++17 executable uses ncnn plus the bundled `stb_image` and `picojson` |
 | Match the PyTorch final text | The pinned Transformers 5.13.0 CPU fp32 reference and ncnn runtime pass all 28 token/text cases for the verified 128-token window |
-| CMake on at least two platforms | Linux and Windows build, test, and packaged-model validation are covered by CI |
+| CMake on at least two platforms | CI covers Linux and Windows builds and lightweight tests; packaged-model validation was completed separately on both platforms |
 | Publish a technical summary | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) links back to this repository |
 
 The HunyuanOCR 1.5 adapter and its validation are maintained in this repository;

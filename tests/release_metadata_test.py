@@ -88,6 +88,14 @@ def main() -> int:
     require("https://github.com/nihui/ncnn_llm" in readme_zh, "README_zh must reference ncnn_llm")
     require("\n## Competition Coverage\n" in readme, "README must map the competition requirements")
     require("\n## 比赛要求覆盖\n" in readme_zh, "README_zh must map the competition requirements")
+    require("CI covers Linux and Windows builds and lightweight tests" in readme,
+            "README must distinguish CI from packaged-model validation")
+    require("packaged-model validation was completed separately on both platforms" in readme,
+            "README must retain separate packaged-model validation evidence")
+    require("CI 覆盖 Linux、Windows 构建和轻量测试" in readme_zh,
+            "README_zh must distinguish CI from packaged-model validation")
+    require("带模型验证已在两个平台独立完成" in readme_zh,
+            "README_zh must retain separate packaged-model validation evidence")
     require("\n## Advanced Engineering\n" in readme, "README must identify advanced engineering work")
     require("\n## 扩展能力\n" in readme_zh, "README_zh must identify extended capabilities")
     require("AR remains the default" in readme, "README must retain AR as the default path")

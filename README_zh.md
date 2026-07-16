@@ -41,7 +41,7 @@
 | 使用 pnnx 转换 HunyuanOCR | `export/` 提供可复现的子模块导出流程，`tools/package_model.py` 负责运行时模型打包 |
 | 参考 ncnn_llm，以少量依赖实现 C++ LLM 解码 | runtime 和 KV-cache decoder 以 [ncnn_llm](https://github.com/nihui/ncnn_llm) 为架构参考；C++17 可执行程序使用 ncnn 以及仓库内的 `stb_image`、`picojson` |
 | 最终文本与 PyTorch 原版一致 | 固定的 Transformers 5.13.0 CPU fp32 参考与 ncnn runtime 在已验证的 128-token 窗口内通过全部 28 个 token/text case |
-| CMake 至少覆盖两个平台 | CI 覆盖 Linux、Windows 的构建、测试和带模型验证 |
+| CMake 至少覆盖两个平台 | CI 覆盖 Linux、Windows 构建和轻量测试；带模型验证已在两个平台独立完成 |
 | 发表技术总结并提供仓库地址 | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) 已链接本仓库 |
 
 HunyuanOCR 1.5 适配及其验证由本仓库维护；上面的 ncnn_llm 链接用于明确记录
