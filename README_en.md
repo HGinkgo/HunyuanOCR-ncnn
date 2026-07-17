@@ -86,7 +86,7 @@ above to get started.
 - UTF-8 prompts, model paths, and image paths on both Linux and Windows.
 - Optional DFlash speculative decoding, read-only mmap weights, and fp32 Vulkan vision.
 
-## Experimental DFlash
+## DFlash
 
 `--dflash` enables the optional DFlash speculative decoder for greedy generation;
 the ModelScope package includes the required files. AR remains the default and

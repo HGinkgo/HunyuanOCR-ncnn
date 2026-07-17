@@ -93,8 +93,10 @@ def main() -> int:
     require("validation pending" not in readme_en and "still pending" not in readme_en, "README_en contains stale pending status")
     require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README contains stale pending status")
     require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
-    require("Experimental DFlash" in readme_en, "README_en must label DFlash as experimental")
-    require("实验性 DFlash" in readme_zh, "README must label DFlash as experimental")
+    require("\n## DFlash\n" in readme_en, "README_en must use the concise DFlash heading")
+    require("\n## DFlash\n" in readme_zh, "README must use the concise DFlash heading")
+    require("Experimental DFlash" not in readme_en, "README_en must not label DFlash as experimental")
+    require("实验性 DFlash" not in readme_zh, "README must not label DFlash as experimental")
     require("\n## Competition Coverage\n" not in readme_en,
             "README_en must leave competition details to the Discussion")
     require("\n## 比赛要求覆盖\n" not in readme_zh,

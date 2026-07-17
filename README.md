@@ -82,7 +82,7 @@ scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 - Linux 和 Windows CLI 均支持 UTF-8 prompt、模型路径和图片路径。
 - 可选 DFlash speculative decoding、只读 mmap 权重加载和 fp32 Vulkan vision。
 
-## 实验性 DFlash
+## DFlash
 
 `--dflash` 可以为 greedy generation 显式启用 DFlash speculative decoder，
 ModelScope 模型包已包含所需文件。AR 仍是默认路径，运行时不会自动切换解码方式。
