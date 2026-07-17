@@ -24,11 +24,8 @@
 This repository exports the Hugging Face HunyuanOCR model into ncnn submodules
 with pnnx and runs the full OCR path in C++.
 
-> **HunyuanOCR 1.5 preview (`0.4.0`):** the current development branch targets
-> checkpoint revision `9e01f897bf8956f77a80c350dc0491d6bbbd43e6`. The strict
-> reference uses Transformers 5.13.0 with CPU fp32 eager attention. Linux and
-> Windows validation passed, including the 28-case test suite. Tag `v0.2.0`
-> remains the frozen HunyuanOCR 1.0 release.
+> **HunyuanOCR 1.5 preview (`0.4.0`):** `main` is paired with the ModelScope
+> package below. Tag `v0.2.0` remains the frozen HunyuanOCR 1.0 release.
 
 | Line | Model | Status |
 | --- | --- | --- |
@@ -66,10 +63,8 @@ To smoke-test one image after building:
 scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 ```
 
-The source repository does not embed model weights. Most users can download the
-runtime package above. Developers who need to reproduce the pnnx conversion or
-adapt another checkpoint can follow the export, package, build, and run sections
-below.
+The source repository does not embed model weights. Download the runtime package
+above to get started.
 
 ## Quick Links
 
@@ -77,75 +72,28 @@ below.
 | --- | --- |
 | Download the pre-converted model | [ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn) |
 | Build and run one image | `scripts/quickstart_existing_model.sh` |
-| Package converted artifacts | `tools/package_model.py` |
-| Export from HF weights | `export/README.md` |
 | Run examples | `tools/run_example.py`, `tools/run_examples.py` |
-| Run strict regression | `tools/run_regression.py` |
+| JSONL batch inference | `--batch-input`, `--batch-output` |
+| C++ integration | `hunyuan_ocr` static library |
 | Benchmark runtime | `tools/benchmark.py`, `tools/README.md#benchmark` |
-| Model layout | `models/README.md`, `models/model.json.example` |
 
-## Competition Coverage
+## Features
 
-See [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
-for the full visual demonstration and technical report. This section retains
-only the requirement mapping that can be checked directly in the repository.
-
-| Requirement | Evidence in this repository |
-| --- | --- |
-| Convert HunyuanOCR with pnnx | Reproducible module exports under `export/` and packaging through `tools/package_model.py` |
-| C++ LLM decoding with few dependencies | The runtime and KV-cache decoder use [ncnn_llm](https://github.com/nihui/ncnn_llm) as an architecture reference; the C++17 executable uses ncnn plus the bundled `stb_image` and `picojson` |
-| Match the PyTorch final text | The pinned Transformers 5.13.0 CPU fp32 reference and ncnn runtime pass all 28 token/text cases for the verified 128-token window |
-| CMake on at least two platforms | CI covers Linux and Windows builds and lightweight tests; packaged-model validation was completed separately on both platforms |
-| Publish a technical summary | [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808) links back to this repository |
-
-The HunyuanOCR 1.5 adapter and its validation are maintained in this repository;
-the ncnn_llm link above records the required reference project rather than
-claiming that this repository is an upstream ncnn_llm branch.
-
-## Advanced Engineering
-
-- One dynamic vision package for exported image sizes, with fixed-grid fallback.
-- Append-only, capacity-bearing KV caches avoid steady-state past-cache copies;
-  dedicated lifecycle tests cover growth, logical views, and repeated requests.
-- Built-in `spotting` / `document` prompts plus custom UTF-8 `--prompt` text.
-- A reusable C++ runtime keeps model networks loaded across sequential requests;
-  strict JSONL batch processing preserves input order and reports per-record errors.
-- Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
-- Optional DFlash speculative decoding with AR kept as the default path.
-- Optional read-only mmap weight loading for lower cold-start copying and
-  anonymous memory use; disabled by default.
-- Optional fp32 Vulkan vision backend; the 28-case token/text test suite passes
-  without GELU CPU fallback when using the maintained ncnn patch series.
-- A 100-round RSS regression and ASAN/UBSAN test gate audit request-scoped
-  ncnn buffer release for long-lived vision, text, and DFlash runtimes.
-
-The current verified configuration uses `max_pixels=524288` because development
-and validation were limited to a single RTX 3090 (24 GB), requiring bounded GPU
-memory use during model conversion and testing. This is the project's verified
-scope, not a theoretical limit of HunyuanOCR or ncnn. In practice, the dynamic
-vision package covers image sizes inside the exported processor range, and
-fixed-grid packages are kept as a compatibility fallback. See `models/README.md`
-for package layout details.
-
-This version does not cover the original high-resolution route.
-
-PNG is used as the canonical strict input for JPEG cases that are sensitive to
-decoder rounding. JPEG remains supported for normal inference, but Pillow/
-libjpeg-turbo and `stb_image` may decode lossy JPEG pixels slightly differently;
-cross-decoder token identity is therefore not guaranteed for every JPEG.
+- PNG/JPEG input and dynamic image sizes within the exported range.
+- Built-in `spotting` / `document` modes plus custom UTF-8 `--prompt` text.
+- Reusable C++ runtime for processing multiple images without reloading models.
+- Ordered JSONL batch inference with a separate error result for each failed row.
+- UTF-8 prompts, model paths, and image paths on both Linux and Windows.
+- Optional DFlash speculative decoding, read-only mmap weights, and fp32 Vulkan vision.
 
 ## Experimental DFlash
 
-`--dflash` enables the optional DFlash speculative decoder for greedy generation.
-It requires a package containing `dflash/dflash.ncnn.param/bin` and the auxiliary
-text decoder exported with `out1` through `out4`. AR remains the default and the
-runtime does not switch decoding methods automatically.
+`--dflash` enables the optional DFlash speculative decoder for greedy generation;
+the ModelScope package includes the required files. AR remains the default and
+the runtime does not switch decoding methods automatically.
 
-Linux and Windows validation passed with token/text output identical to AR. The
-performance gain is input-dependent: in the current three-case CPU benchmark,
-warm speedup ranged from `0.64x` to `1.20x` as draft acceptance increased from
-`2.71%` to `17.04%`. DFlash may be slower on low-acceptance inputs, so it remains
-an explicit development/preview option rather than a general acceleration claim.
+Performance depends on the input. DFlash may be slower on low-acceptance inputs,
+so it is not presented as a general acceleration option.
 
 ```bash
 ./build/hunyuan_ocr_cli \
@@ -158,11 +106,8 @@ an explicit development/preview option rather than a general acceleration claim.
 ## Optional mmap Weight Loading
 
 `--mmap-weights` loads the vision, text, and DFlash ncnn weights from read-only
-file mappings. The existing loader remains the default. In the current Linux
-CPU environment, the median of five AR load-only runs fell from about `2508 ms`
-to `497 ms`, with roughly `1.55 GB` less anonymous PSS. Across three fresh-process
-first-inference runs, median wall time fell from `11.49 s` to `8.77 s` while
-generated tokens remained identical.
+file mappings. The existing loader remains the default. This option reduces
+model-loading copies and anonymous memory use.
 
 ```bash
 ./build/hunyuan_ocr_cli \
@@ -172,74 +117,8 @@ generated tokens remained identical.
   --mmap-weights
 ```
 
-C++ callers can set `RuntimeOptions::mmap_weights = true`. Touched mappings are
-reclaimable file-backed pages, but Linux includes them in process RSS/PSS, so
-total RSS may increase. Memory comparisons should inspect `RssAnon` / `Pss_Anon`
-alongside file-backed metrics. This option reduces load-time copying and
-anonymous memory; it does not shrink model files or change inference numerics.
-
-## Rebuild From the HF Model (Developers)
-
-The scripts in `export/` use pnnx to convert the Hugging Face model into
-tokenizer files and ncnn submodule artifacts:
-
-```bash
-python export/export_all.py \
-  --hf-dir /path/to/HunyuanOCR-hf \
-  --pnnx /path/to/pnnx \
-  --workspace .
-```
-
-See `export/README.md` for the module-level commands.
-
-## Package the ncnn Runtime Model (Developers)
-
-`tools/package_model.py` arranges exported artifacts into the runtime model
-package consumed by the CLI:
-
-```text
-hunyuan_ocr_ncnn_model/
-  model.json
-  tokenizer/
-  text_embed/
-  text_decoder/
-  lm_head/
-  vision/
-    vision.ncnn.param
-    vision.ncnn.bin
-    pos_embed.bin
-    grid_<grid_h>x<grid_w>/
-```
-
-```bash
-python tools/package_model.py \
-  --workspace <workspace> \
-  --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
-  --copy \
-  --force
-```
-
-Add `--dflash` to package the draft network and auxiliary decoder from their
-default export directories. `--dflash-dir`, `--dflash-decoder-dir`, and
-`--base-runtime-dir` allow those inputs to be supplied explicitly.
-
-Here `<workspace>` means the directory containing `models/tokenizer/` and
-`models/export/`. Use symlinks instead of copies by omitting `--copy`. Use
-`--vision-backend fixed` for the v0.1 fixed-grid package, or `both` to include
-dynamic vision and fixed-grid fallback files in one model directory. See
-`models/README.md` for the `model.json` schema and backend selection rules.
-
-On Linux, the helper below combines build, export, packaging, and an example run:
-
-```bash
-scripts/export_and_package_linux.sh \
-  --hf-dir /path/to/HunyuanOCR-hf \
-  --pnnx /path/to/pnnx \
-  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn \
-  --output ./hunyuan_ocr_ncnn_model \
-  --copy
-```
+C++ callers can set `RuntimeOptions::mmap_weights = true`. This option does not
+shrink model files or change inference numerics.
 
 ## Build
 
@@ -257,13 +136,6 @@ optional fp32 Vulkan vision backend uses the project-maintained patch series in
 ```bash
 python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
 ```
-
-The Vulkan MatMul implementation is derived from
-[Cat-myq's proposed Tencent/ncnn PR #6579](https://github.com/Tencent/ncnn/pull/6579)
-at commit `88e0927f6e6b640fea19bd5721ff5409fcca99ef`; it is not described here as
-merged upstream. The second patch adds the exact fp32 GELU path required by the
-HunyuanOCR vision encoder. Source attribution and the ncnn BSD 3-Clause license
-are retained in the patch bundle and `NOTICE`.
 
 With an installed ncnn CMake package:
 
@@ -304,9 +176,8 @@ Run the vision encoder with Vulkan after building the patched ncnn SDK:
 Only the vision encoder uses Vulkan; text generation continues to use the
 existing CPU fp32 path.
 
-Windows build and packaged-model validation passed. The CLI reads the native
-wide-character command line and uses UTF-8 for prompts, console I/O, and model,
-image, and fixture paths.
+The Windows CLI supports Unicode prompts, model paths, and image paths, and uses
+UTF-8 for console input and output.
 
 ## Reusable C++ Runtime
 
@@ -403,28 +274,9 @@ Dynamic vision packages support different image sizes within the exported
 processor range. Fixed-grid fallback packages use the `grid_<h>x<w>` naming
 convention, for example `vision/grid_38x52/`.
 
-## Regression
-
-For full token/text regression after preparing fixtures:
-
-```bash
-python tools/run_regression.py \
-  --package \
-  --package-vision-backend dynamic
-```
-
-Expected summary:
-
-```text
-summary: 28/28 passed
-```
-
-This regression compares prompt ids, position ids, generated token ids, and
-decoded text.
-
 ## Benchmark
 
-After building the CLI and preparing a packaged model:
+After building the CLI and downloading the model:
 
 ```bash
 python tools/benchmark.py \
@@ -454,18 +306,14 @@ models/                Tracked config template only
 
 ## Limitations
 
-- The dynamic vision backend is verified on the bundled 28-image regression set
-  under `max_pixels=524288` for the first 128 generated tokens.
-- HunyuanOCR 1.5 remains a preview tied to the pinned checkpoint revision and
-  the validated 128-token window.
-- Lossy JPEG decoder rounding may change generated tokens in decision-sensitive
-  cases; canonical lossless inputs are used where strict parity requires them.
-- Custom prompt text is supported through the C++ tokenizer encode path; broader
-  tokenizer edge cases still need more HF parity tests.
-- The current delivery scope uses `max_pixels=524288`; it does not include the
-  original high-resolution route.
-- The public example runner checks runtime execution. Fixture regression is
-  used for token/text equality.
+- HunyuanOCR 1.5 remains a `0.4.0` preview; use the model package linked in this README.
+- The current package uses `max_pixels=524288` and does not include the original
+  high-resolution route.
+- JPEG decoder rounding can affect a small number of decision-sensitive images;
+  use PNG when stable reproduction matters.
+- Custom UTF-8 prompts are supported, but not every tokenizer edge input has
+  been covered.
+- Vulkan is limited to the vision encoder; text generation remains on CPU fp32.
 
 ## License
 

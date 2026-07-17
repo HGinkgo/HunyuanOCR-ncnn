@@ -9,6 +9,8 @@ from pathlib import Path
 
 VERSION = "0.4.0"
 REVISION = "9e01f897bf8956f77a80c350dc0491d6bbbd43e6"
+MODELSCOPE_MODEL = "https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn"
+DISCUSSION = "https://github.com/Tencent/ncnn/discussions/6808"
 
 
 def require(condition: bool, message: str) -> None:
@@ -60,16 +62,20 @@ def main() -> int:
 
     require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.4\.0", cmake) is not None, "CMake version must be 0.4.0")
     for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
-        require(REVISION in text, f"{label} must record the fixed checkpoint revision")
-        require("Transformers 5.13.0" in text, f"{label} must record Transformers 5.13.0")
         require("v0.2.0" in text, f"{label} must retain the frozen HunyuanOCR 1.0 tag")
         require("--batch-input" in text, f"{label} must document JSONL batch input")
         require("--batch-output" in text, f"{label} must document JSONL batch output")
         require("infer_file" in text, f"{label} must document the reusable C++ API")
         require("add_subdirectory" in text, f"{label} must document source-tree library use")
-        competition_rows = [line for line in text.splitlines() if line.startswith("|") and "ncnn_llm" in line]
-        require(len(competition_rows) == 1, f"{label} must contain one ncnn_llm competition row")
-        require("picojson" in competition_rows[0], f"{label} competition dependency row must disclose picojson")
+        require(MODELSCOPE_MODEL in text, f"{label} must link the pre-converted ModelScope model")
+        require("modelscope download" in text, f"{label} must document the ModelScope download command")
+        require(DISCUSSION in text, f"{label} must link the technical Discussion")
+        require("--dflash" in text, f"{label} must document optional DFlash use")
+        require("--mmap-weights" in text, f"{label} must document optional mmap loading")
+        require("--vision-vulkan" in text, f"{label} must document optional Vulkan vision use")
+        for developer_entry in ("export/export_all.py", "tools/package_model.py", "tools/run_regression.py"):
+            require(developer_entry not in text,
+                    f"{label} must keep developer workflow out of the user README: {developer_entry}")
     require("picojson" in notice and "BSD 2-Clause" in notice,
             "NOTICE must attribute the vendored JSON parser")
     require("HunyuanOCR 1.5 preview" in readme_en, "README_en must mark HunyuanOCR 1.5 as preview")
@@ -82,8 +88,6 @@ def main() -> int:
             "README must link to the English documentation")
     require('<a href="README.md">中文说明</a>' in readme_en,
             "README_en must link to the default Chinese documentation")
-    require("Windows build and packaged-model validation passed." in readme_en, "README_en must retain Windows validation evidence")
-    require("Windows 构建和带模型验证均已通过。" in readme_zh, "README must retain Windows validation evidence")
     require("MSVC" not in readme_en and "UCRT64" not in readme_en, "README_en Windows status must not expose toolchain details")
     require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README Windows status must not expose toolchain details")
     require("validation pending" not in readme_en and "still pending" not in readme_en, "README_en contains stale pending status")
@@ -91,38 +95,35 @@ def main() -> int:
     require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
     require("Experimental DFlash" in readme_en, "README_en must label DFlash as experimental")
     require("实验性 DFlash" in readme_zh, "README must label DFlash as experimental")
-    require("https://github.com/nihui/ncnn_llm" in readme_en, "README_en must reference ncnn_llm")
-    require("https://github.com/nihui/ncnn_llm" in readme_zh, "README must reference ncnn_llm")
-    require("\n## Competition Coverage\n" in readme_en, "README_en must map the competition requirements")
-    require("\n## 比赛要求覆盖\n" in readme_zh, "README must map the competition requirements")
-    for text, label, quick_start, competition, advanced in (
+    require("\n## Competition Coverage\n" not in readme_en,
+            "README_en must leave competition details to the Discussion")
+    require("\n## 比赛要求覆盖\n" not in readme_zh,
+            "README must leave competition details to the Discussion")
+    for text, label, quick_start, features, build, examples, limitations in (
         (
             readme_en,
             "README_en",
             "## Quick Start",
-            "## Competition Coverage",
-            "## Advanced Engineering",
+            "## Features",
+            "## Build",
+            "## Run Examples",
+            "## Limitations",
         ),
-        (readme_zh, "README", "## 快速开始", "## 比赛要求覆盖", "## 扩展能力"),
+        (readme_zh, "README", "## 快速开始", "## 功能特性", "## 构建", "## 运行示例", "## 当前限制"),
     ):
         require(
             text.count(quick_start) == 1,
             f"{label} must contain exactly one quick-start section",
         )
         require(
-            text.index(quick_start) < text.index(competition) < text.index(advanced),
-            f"{label} must lead with user onboarding before competition and engineering details",
+            text.index(quick_start) < text.index(features) < text.index(build)
+            < text.index(examples) < text.index(limitations),
+            f"{label} must follow the user path from onboarding to features, build, examples, and limits",
         )
-    require("CI covers Linux and Windows builds and lightweight tests" in readme_en,
-            "README_en must distinguish CI from packaged-model validation")
-    require("packaged-model validation was completed separately on both platforms" in readme_en,
-            "README_en must retain separate packaged-model validation evidence")
-    require("CI 覆盖 Linux、Windows 构建和轻量测试" in readme_zh,
-            "README must distinguish CI from packaged-model validation")
-    require("带模型验证已在两个平台独立完成" in readme_zh,
-            "README must retain separate packaged-model validation evidence")
-    require("\n## Advanced Engineering\n" in readme_en, "README_en must identify advanced engineering work")
-    require("\n## 扩展能力\n" in readme_zh, "README must identify extended capabilities")
+    require("\n## Advanced Engineering\n" not in readme_en,
+            "README_en must present user features instead of engineering audit details")
+    require("\n## 扩展能力\n" not in readme_zh,
+            "README must present user features instead of engineering audit details")
     require("AR remains the default" in readme_en, "README_en must retain AR as the default path")
     require("AR 仍是默认路径" in readme_zh, "README must retain AR as the default path")
     require("may be slower" in readme_en, "README_en must disclose low-acceptance slowdown")

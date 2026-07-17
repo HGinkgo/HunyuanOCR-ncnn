@@ -54,7 +54,6 @@ def test_bundle_metadata(root: Path) -> None:
     for name in ("README.md", "README_en.md"):
         readme = (root / name).read_text(encoding="utf-8")
         require(NCNN_REVISION in readme, f"{name} must report the pinned ncnn revision")
-        require(MATMUL_PR in readme, f"{name} must visibly credit ncnn PR #6579")
         require("patches/ncnn" in readme, f"{name} must explain the carried ncnn patches")
 
 
