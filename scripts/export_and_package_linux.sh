@@ -68,7 +68,6 @@ python "$REPO_ROOT/export/export_all.py" \
 python "$REPO_ROOT/tools/package_model.py" \
   --workspace "$WORKSPACE" \
   --output "$OUTPUT" \
-  --vision-backend dynamic \
   $COPY_FLAG \
   --force
 

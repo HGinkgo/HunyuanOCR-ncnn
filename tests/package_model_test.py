@@ -83,8 +83,6 @@ def run_package(workspace: Path, output: Path, extra: list[str]) -> subprocess.C
         str(workspace),
         "--output",
         str(output),
-        "--vision-backend",
-        "dynamic",
         "--copy",
         *extra,
     ]
@@ -92,6 +90,17 @@ def run_package(workspace: Path, output: Path, extra: list[str]) -> subprocess.C
 
 
 class PackageModelTest(unittest.TestCase):
+    def test_only_canonical_dynamic_vision_is_exposed(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(PACKAGE_MODEL), "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--vision-backend", result.stdout)
+        self.assertNotIn("--vision-summary", result.stdout)
+
     def test_default_uses_base_decoder_without_dflash(self) -> None:
         with tempfile.TemporaryDirectory(prefix="package_model_default_") as tmp:
             root = Path(tmp)
@@ -241,7 +250,7 @@ class PackageModelTest(unittest.TestCase):
                 "runtime-decoder-param\n",
             )
             self.assertFalse((output / "dflash").exists())
-            # Vision still comes from --vision-backend, not base runtime vision/.
+            # Vision still comes from the canonical dynamic export, not base runtime vision/.
             self.assertEqual(
                 (output / "vision/vision.ncnn.param").read_text(encoding="utf-8"),
                 "vision-param\n",

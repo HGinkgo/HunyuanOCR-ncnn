@@ -63,7 +63,7 @@ def verify_packaged_dynamic_manifest(repo_root: Path, output: Path) -> bool:
         return False
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module.write_dynamic_manifest(repo_root, output, False, [])
+    module.write_dynamic_manifest(repo_root, output)
     manifest = json.loads((output / "model.json").read_text(encoding="utf-8"))
     interpolation = manifest["networks"]["vision"]["pos_embed_interpolation"]
     if interpolation.get("size") != ["grid_h", "grid_w"] or "scale_factor" in interpolation:
@@ -82,8 +82,9 @@ def verify_hunyuan_1_5_model_defaults(repo_root: Path) -> bool:
         print(f"model default EOS ids must be [120020], got: {baseline.get('eos_ids')}", file=sys.stderr)
         return False
     vision = manifest.get("networks", {}).get("vision", {})
-    if vision.get("backend") != "dynamic" or vision.get("available_grids") != []:
-        print("HunyuanOCR 1.5 model template must use dynamic vision without stale fixed grids", file=sys.stderr)
+    stale_fixed_keys = {"fallback_backend", "directory_pattern", "param_name", "bin_name", "available_grids"}
+    if vision.get("backend") != "dynamic" or stale_fixed_keys.intersection(vision):
+        print("HunyuanOCR 1.5 model template must use only canonical dynamic vision", file=sys.stderr)
         return False
     interpolation = vision.get("pos_embed_interpolation", {})
     if interpolation.get("size") != ["grid_h", "grid_w"] or "scale_factor" in interpolation:

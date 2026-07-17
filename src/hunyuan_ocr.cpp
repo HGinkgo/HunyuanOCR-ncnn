@@ -13,7 +13,6 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
-#include <map>
 #include <utility>
 
 namespace hunyuan_ocr {
@@ -81,38 +80,7 @@ bool resolve_dynamic_vision_paths(const std::string& model_root,
         return true;
     }
 
-    const std::filesystem::path legacy_param = vision_dir / "vision_dynamic.ncnn.param";
-    const std::filesystem::path legacy_bin = vision_dir / "vision_dynamic.ncnn.bin";
-    if (!regular_file_exists(legacy_param) || !regular_file_exists(legacy_bin) ||
-        !regular_file_exists(pos))
-    {
-        return false;
-    }
-    *param_path = path_to_utf8(legacy_param);
-    *bin_path = path_to_utf8(legacy_bin);
-    *pos_embed_path = path_to_utf8(pos);
-    return true;
-}
-
-bool resolve_fixed_vision_paths(const std::string& model_root,
-                                int grid_h,
-                                int grid_w,
-                                std::string* param_path,
-                                std::string* bin_path)
-{
-    const std::string grid_name =
-        "grid_" + std::to_string(grid_h) + "x" + std::to_string(grid_w);
-    const std::filesystem::path vision_dir =
-        path_from_utf8(model_root) / "vision" / grid_name;
-    const std::filesystem::path param = vision_dir / "vision.ncnn.param";
-    const std::filesystem::path bin = vision_dir / "vision.ncnn.bin";
-    if (!regular_file_exists(param) || !regular_file_exists(bin))
-    {
-        return false;
-    }
-    *param_path = path_to_utf8(param);
-    *bin_path = path_to_utf8(bin);
-    return true;
+    return false;
 }
 
 double elapsed_ms(std::chrono::steady_clock::time_point start,
@@ -125,8 +93,6 @@ double elapsed_ms(std::chrono::steady_clock::time_point start,
 
 class HunyuanOCR::Impl {
 public:
-    using VisionKey = std::pair<int, int>;
-
     std::unique_ptr<VisionRuntime> make_vision_runtime() const
     {
         VisionRuntimeOptions vision_options;
@@ -137,77 +103,21 @@ public:
         return std::unique_ptr<VisionRuntime>(new VisionRuntime(vision_options));
     }
 
-    VisionRuntime* fixed_vision_runtime(int grid_h, int grid_w, RuntimeError* error)
-    {
-        const VisionKey key(grid_h, grid_w);
-        const auto existing = fixed_vision_runtimes.find(key);
-        if (existing != fixed_vision_runtimes.end())
-        {
-            return existing->second.get();
-        }
-
-        std::string param_path;
-        std::string bin_path;
-        if (!resolve_fixed_vision_paths(model_root,
-                                        grid_h,
-                                        grid_w,
-                                        &param_path,
-                                        &bin_path))
-        {
-            fail(error,
-                 "vision_load",
-                 "no dynamic or fixed-grid vision model is available for grid_" +
-                     std::to_string(grid_h) + "x" + std::to_string(grid_w));
-            return nullptr;
-        }
-
-        std::unique_ptr<VisionRuntime> runtime = make_vision_runtime();
-        std::string runtime_error;
-        if (!runtime->load(param_path, bin_path, &runtime_error))
-        {
-            fail(error, "vision_load", runtime_error);
-            return nullptr;
-        }
-        VisionRuntime* loaded = runtime.get();
-        fixed_vision_runtimes.emplace(key, std::move(runtime));
-        return loaded;
-    }
-
     bool infer_preprocessed(const ImagePreprocessResult& image,
                             const InferenceRequest& request,
                             InferenceResult* result,
                             RuntimeError* error)
     {
         const auto vision_start = std::chrono::steady_clock::now();
-        VisionRuntime* active_vision = dynamic_vision.get();
-        if (active_vision == nullptr)
-        {
-            active_vision = fixed_vision_runtime(image.grid_h, image.grid_w, error);
-            if (active_vision == nullptr)
-            {
-                return false;
-            }
-        }
-
         const int merge_size = preprocessor.config().merge_size;
-        const int patch_h = image.grid_h / merge_size;
-        const int patch_w = image.grid_w / merge_size;
-        const int vision_token_count = patch_h * (patch_w + 1) + 2;
         VisionRuntimeResult vision;
         std::string runtime_error;
-        const bool vision_ok = dynamic_vision
-            ? active_vision->run_dynamic_pixel_values(image.pixel_values,
+        if (!dynamic_vision->run_dynamic_pixel_values(image.pixel_values,
                                                       image.grid_h,
                                                       image.grid_w,
                                                       merge_size,
                                                       &vision,
-                                                      &runtime_error)
-            : active_vision->run_pixel_values(image.pixel_values,
-                                              image.patch_count,
-                                              vision_token_count,
-                                              &vision,
-                                              &runtime_error);
-        if (!vision_ok)
+                                                      &runtime_error))
         {
             return fail(error, "vision", runtime_error);
         }
@@ -309,10 +219,6 @@ public:
         {
             bytes += dynamic_vision->mapped_weight_bytes();
         }
-        for (const auto& entry : fixed_vision_runtimes)
-        {
-            bytes += entry.second->mapped_weight_bytes();
-        }
         return bytes;
     }
 
@@ -323,7 +229,6 @@ public:
     ImagePreprocessor preprocessor;
     Tokenizer tokenizer;
     std::unique_ptr<VisionRuntime> dynamic_vision;
-    std::map<VisionKey, std::unique_ptr<VisionRuntime>> fixed_vision_runtimes;
     std::unique_ptr<TextRuntime> text_runtime;
 };
 
@@ -417,17 +322,18 @@ bool HunyuanOCR::load(const std::string& model_root,
     std::string vision_param;
     std::string vision_bin;
     std::string pos_embed;
-    if (resolve_dynamic_vision_paths(model_root, &vision_param, &vision_bin, &pos_embed))
+    if (!resolve_dynamic_vision_paths(model_root, &vision_param, &vision_bin, &pos_embed))
     {
-        impl_->dynamic_vision = impl_->make_vision_runtime();
-        if (!impl_->dynamic_vision->load_dynamic(vision_param,
-                                                 vision_bin,
-                                                 pos_embed,
-                                                 &runtime_error))
-        {
-            impl_->dynamic_vision.reset();
-            return fail(error, "vision_load", runtime_error);
-        }
+        return fail(error, "vision_load", "canonical dynamic vision files are missing");
+    }
+    impl_->dynamic_vision = impl_->make_vision_runtime();
+    if (!impl_->dynamic_vision->load_dynamic(vision_param,
+                                             vision_bin,
+                                             pos_embed,
+                                             &runtime_error))
+    {
+        impl_->dynamic_vision.reset();
+        return fail(error, "vision_load", runtime_error);
     }
 
     impl_->text_runtime.reset(new TextRuntime(options.num_threads, options.mmap_weights));

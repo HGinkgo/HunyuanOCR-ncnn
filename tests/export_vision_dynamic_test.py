@@ -165,6 +165,16 @@ def main() -> int:
         if not pos_embed.is_file():
             print(f"missing pos_embed.bin: {pos_embed}", file=sys.stderr)
             return 1
+        canonical_param = out_dir / "ncnn" / "vision.ncnn.param"
+        canonical_bin = out_dir / "ncnn" / "vision.ncnn.bin"
+        if not canonical_param.is_file() or not canonical_bin.is_file():
+            print("dynamic vision export must use canonical vision.ncnn.param/bin names", file=sys.stderr)
+            return 1
+        if (out_dir / "ncnn" / "vision_dynamic.ncnn.param").exists() or (
+            out_dir / "ncnn" / "vision_dynamic.ncnn.bin"
+        ).exists():
+            print("dynamic vision export retained legacy vision_dynamic.ncnn files", file=sys.stderr)
+            return 1
 
         actual = np.frombuffer(pos_embed.read_bytes(), dtype=np.float32).copy()
         expected = mod.base_pos_embed(_FakeVit()).cpu().numpy().reshape(-1)

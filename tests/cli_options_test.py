@@ -170,6 +170,9 @@ def main() -> int:
         "text_decoder/text_decoder_kv.ncnn.bin",
         "lm_head/lm_head.ncnn.param",
         "lm_head/lm_head.ncnn.bin",
+        "vision/vision.ncnn.param",
+        "vision/vision.ncnn.bin",
+        "vision/pos_embed.bin",
     )
     with tempfile.TemporaryDirectory(prefix="hunyuan_batch_preflight_") as temporary:
         temporary_root = Path(temporary)

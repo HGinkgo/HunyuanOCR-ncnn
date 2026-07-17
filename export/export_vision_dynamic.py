@@ -486,8 +486,8 @@ def run_export(args: argparse.Namespace) -> dict[str, Any]:
     export_dir = args.out_dir / "ncnn"
     export_dir.mkdir(parents=True, exist_ok=True)
     pt_path = export_dir / "vision_dynamic.pt"
-    param_path = export_dir / "vision_dynamic.ncnn.param"
-    bin_path = export_dir / "vision_dynamic.ncnn.bin"
+    param_path = export_dir / "vision.ncnn.param"
+    bin_path = export_dir / "vision.ncnn.bin"
     pos_embed_path = export_dir / "pos_embed.bin"
 
     pos1 = torch.zeros(1, 1152, args.export_h1 // 16, args.export_w1 // 16, dtype=torch.float32)
@@ -552,8 +552,8 @@ def run_ncnn_case(param_path: Path, bin_path: Path, image_chw: np.ndarray, pos_e
 def run_ncnn_compare(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
     methods = ["scale", "size"] if args.pos_method == "both" else [args.pos_method]
-    param_path = args.out_dir / "ncnn" / "vision_dynamic.ncnn.param"
-    bin_path = args.out_dir / "ncnn" / "vision_dynamic.ncnn.bin"
+    param_path = args.out_dir / "ncnn" / "vision.ncnn.param"
+    bin_path = args.out_dir / "ncnn" / "vision.ncnn.bin"
     if not param_path.is_file() or not bin_path.is_file():
         raise FileNotFoundError(f"missing ncnn files under {param_path.parent}")
 

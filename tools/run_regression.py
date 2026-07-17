@@ -92,12 +92,6 @@ def parse_args() -> argparse.Namespace:
         help="Pass --copy to package_model.py when --package is set.",
     )
     parser.add_argument(
-        "--package-vision-backend",
-        choices=("fixed", "dynamic", "both"),
-        default="fixed",
-        help="Vision backend passed to package_model.py when --package is set.",
-    )
-    parser.add_argument(
         "--dynamic-vision-dir",
         type=Path,
         default=None,
@@ -163,8 +157,6 @@ def run_packager(repo_root: Path, args: argparse.Namespace) -> None:
     ]
     if args.copy_package:
         cmd.append("--copy")
-    if args.package_vision_backend != "fixed":
-        cmd.extend(["--vision-backend", args.package_vision_backend])
     if args.dynamic_vision_dir is not None:
         cmd.extend(["--dynamic-vision-dir", str(args.dynamic_vision_dir)])
     print("+ " + " ".join(cmd))

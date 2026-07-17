@@ -31,6 +31,27 @@ int main()
     static_assert(std::is_move_assignable<hunyuan_ocr::HunyuanOCR>::value,
                   "runtime must be move assignable");
 
+    bool required_dynamic_param = false;
+    bool required_dynamic_bin = false;
+    bool required_pos_embed = false;
+    bool retained_fixed_grid = false;
+    for (const hunyuan_ocr::ModelFile& file : hunyuan_ocr::expected_model_files())
+    {
+        if (file.relative_path == "vision/vision.ncnn.param") required_dynamic_param = file.required;
+        if (file.relative_path == "vision/vision.ncnn.bin") required_dynamic_bin = file.required;
+        if (file.relative_path == "vision/pos_embed.bin") required_pos_embed = file.required;
+        if (file.relative_path.find("grid_<grid_h>x<grid_w>") != std::string::npos)
+        {
+            retained_fixed_grid = true;
+        }
+    }
+    if (!expect(required_dynamic_param && required_dynamic_bin && required_pos_embed,
+                "canonical dynamic vision files must be required") ||
+        !expect(!retained_fixed_grid, "fixed-grid model layout must be removed"))
+    {
+        return 1;
+    }
+
     const hunyuan_ocr::RuntimeOptions runtime_options;
     const hunyuan_ocr::RuntimeOptions aggregate_options{4, false, 0, false, 1.25f};
     if (!expect(runtime_options.num_threads == 0, "default thread count mismatch") ||

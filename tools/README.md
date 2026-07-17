@@ -5,8 +5,8 @@ verification helpers for the C++ runtime.
 
 `package_model.py` builds the standard runtime model directory from exported
 workspace artifacts. It creates symlinks by default and supports `--copy` for
-portable bundles. Use `--vision-backend fixed`, `dynamic`, or `both` to choose
-the packaged vision layout. Use `--dflash` to include the optional DFlash draft
+portable bundles. The package always uses the canonical dynamic vision layout.
+Use `--dflash` to include the optional DFlash draft
 and auxiliary decoder; `--base-runtime-dir` can provide an existing 1.5 runtime
 instead of the stock export layout.
 
@@ -60,7 +60,7 @@ Reported fields:
 - `vision_load_ms`: one-time vision network and position embedding load.
 - `text_load_ms`: one-time text subnetwork load.
 - `preprocess_ms`: PNG/JPEG decode, resize, normalize, and patch flatten.
-- `vision_infer_ms`: dynamic/fixed vision inference only.
+- `vision_infer_ms`: dynamic vision inference only.
 - `prompt_ms`: tokenizer encode for custom prompts or built-in prompt assembly.
 - `text_embed_ms`: prompt token embedding and image feature injection.
 - `prefill_ms`: decoder cache-prefill pass.
@@ -84,9 +84,8 @@ runtime model directory produced by `tools/package_model.py`.
 `run_regression.py` runs the bundled regression image cases against a
 packaged model directory. It requires exported fixture directories from the
 baseline/export workflow. Pass `--package` to rebuild the packaged model first;
-`--package-vision-backend dynamic` runs the same regression through the dynamic
-vision package. Manifest cases may use either a built-in `prompt_mode` or a
-literal custom `prompt`.
+the package always uses the canonical dynamic vision files. Manifest cases may
+use either a built-in `prompt_mode` or a literal custom `prompt`.
 
 `run_hf_baseline.py` creates PyTorch fp32 baseline outputs for a manifest. This
 is mainly used to create strict regression fixtures for custom prompts:

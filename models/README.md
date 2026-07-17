@@ -27,15 +27,12 @@ hunyuan_ocr_ncnn_model/
     vision.ncnn.param
     vision.ncnn.bin
     pos_embed.bin
-    grid_<grid_h>x<grid_w>/
-      vision.ncnn.param
-      vision.ncnn.bin
 ```
 
 ## Required Files
 
 The current runtime requires tokenizer files, `text_embed`, `text_decoder`,
-`lm_head`, and one supported vision backend.
+`lm_head`, and the canonical dynamic vision files.
 
 `model.json` records the expected relative paths. See
 `models/model.json.example` for the current schema.
@@ -50,9 +47,9 @@ base decoder param with the auxiliary export that exposes `out1` through `out4`.
 The decoder weights are unchanged. Packages without these optional files continue
 to use the default AR path.
 
-## Vision Backends
+## Vision Backend
 
-`tools/package_model.py --vision-backend dynamic` creates:
+`tools/package_model.py` creates:
 
 ```text
 vision/vision.ncnn.param
@@ -60,21 +57,8 @@ vision/vision.ncnn.bin
 vision/pos_embed.bin
 ```
 
-This is the default path. It supports image grids inside the exported processor
+This path supports image grids inside the exported processor
 range and interpolates the base position embedding at runtime.
-
-`tools/package_model.py --vision-backend fixed` creates per-grid directories:
-
-```text
-vision/grid_38x52/vision.ncnn.param
-vision/grid_38x52/vision.ncnn.bin
-```
-
-Fixed-grid packages only run images whose `image_grid_thw=[1,h,w]` has a
-matching `vision/grid_<h>x<w>/` directory.
-
-`tools/package_model.py --vision-backend both` includes dynamic vision and the
-fixed-grid fallback files in the same package.
 
 ## Packaging
 
@@ -82,7 +66,6 @@ fixed-grid fallback files in the same package.
 python tools/package_model.py \
   --workspace <workspace> \
   --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
   --copy \
   --force
 ```

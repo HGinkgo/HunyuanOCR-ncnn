@@ -149,31 +149,6 @@ bool file_exists(const std::filesystem::path& path)
     return std::filesystem::is_regular_file(path, ec);
 }
 
-bool resolve_fixed_grid_vision_paths(const std::string& model_root,
-                                     int grid_h,
-                                     int grid_w,
-                                     std::string& param_path,
-                                     std::string& bin_path)
-{
-    if (!param_path.empty() || !bin_path.empty())
-    {
-        return !param_path.empty() && !bin_path.empty();
-    }
-
-    const std::string grid_name = "grid_" + std::to_string(grid_h) + "x" + std::to_string(grid_w);
-    const std::filesystem::path vision_dir = hunyuan_ocr::path_from_utf8(model_root) / "vision" / grid_name;
-    const std::filesystem::path candidate_param = vision_dir / "vision.ncnn.param";
-    const std::filesystem::path candidate_bin = vision_dir / "vision.ncnn.bin";
-    if (!file_exists(candidate_param) || !file_exists(candidate_bin))
-    {
-        return false;
-    }
-
-    param_path = hunyuan_ocr::path_to_utf8(candidate_param);
-    bin_path = hunyuan_ocr::path_to_utf8(candidate_bin);
-    return true;
-}
-
 bool resolve_dynamic_vision_paths(const std::string& model_root,
                                   std::string& param_path,
                                   std::string& bin_path,
@@ -187,16 +162,6 @@ bool resolve_dynamic_vision_paths(const std::string& model_root,
     {
         param_path = hunyuan_ocr::path_to_utf8(candidate_param);
         bin_path = hunyuan_ocr::path_to_utf8(candidate_bin);
-        pos_embed_path = hunyuan_ocr::path_to_utf8(pos_path);
-        return true;
-    }
-
-    const std::filesystem::path legacy_param = vision_dir / "vision_dynamic.ncnn.param";
-    const std::filesystem::path legacy_bin = vision_dir / "vision_dynamic.ncnn.bin";
-    if (file_exists(legacy_param) && file_exists(legacy_bin) && file_exists(pos_path))
-    {
-        param_path = hunyuan_ocr::path_to_utf8(legacy_param);
-        bin_path = hunyuan_ocr::path_to_utf8(legacy_bin);
         pos_embed_path = hunyuan_ocr::path_to_utf8(pos_path);
         return true;
     }
@@ -734,14 +699,9 @@ int run_image_benchmark(const std::string& model_root,
                                                           resolved_vision_bin_path,
                                                           resolved_pos_embed_path);
     }
-    if (!use_dynamic_vision &&
-        !resolve_fixed_grid_vision_paths(model_root,
-                                         probe_image.grid_h,
-                                         probe_image.grid_w,
-                                         resolved_vision_param_path,
-                                         resolved_vision_bin_path))
+    if (!use_dynamic_vision && !explicit_vision_paths)
     {
-        std::cerr << "Benchmark could not resolve a dynamic or fixed-grid vision model\n";
+        std::cerr << "Benchmark could not resolve the canonical dynamic vision model\n";
         return 1;
     }
 
@@ -1839,27 +1799,10 @@ int main(int argc, char** argv)
                                                               resolved_vision_bin_path,
                                                               resolved_pos_embed_path);
         }
-        if (wants_image_decode &&
-            !use_dynamic_vision &&
-            !resolve_fixed_grid_vision_paths(model_root,
-                                             image.grid_h,
-                                             image.grid_w,
-                                             resolved_vision_param_path,
-                                             resolved_vision_bin_path))
+        if (wants_image_decode && !use_dynamic_vision && !explicit_vision_paths)
         {
-            if (vision_param_path.empty() && vision_bin_path.empty())
-            {
-                std::cerr << "No dynamic or fixed-grid vision artifact found for image_grid_thw=["
-                          << image.grid_t << "," << image.grid_h << "," << image.grid_w << "]"
-                          << " under " << model_root << "/vision. Expected either vision/vision.ncnn.param,"
-                          << " vision/vision.ncnn.bin, vision/pos_embed.bin, or vision/grid_"
-                          << image.grid_h << "x" << image.grid_w
-                          << "/vision.ncnn.param/bin. Pass --vision-param and --vision-bin or package a supported vision backend.\n";
-            }
-            else
-            {
-                std::cerr << "--image with vision requires both --vision-param and --vision-bin\n";
-            }
+            std::cerr << "Canonical dynamic vision files are missing under "
+                      << model_root << "/vision\n";
             return 1;
         }
 

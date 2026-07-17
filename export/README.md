@@ -33,7 +33,6 @@ Then package the runtime directory:
 python tools/package_model.py \
   --workspace . \
   --output ./hunyuan_ocr_ncnn_model \
-  --vision-backend dynamic \
   --copy \
   --force
 ```
@@ -138,18 +137,14 @@ layout:
         lm_head.ncnn.bin
       vision_dynamic/
         ncnn/
-          vision_dynamic.ncnn.param
-          vision_dynamic.ncnn.bin
+          vision.ncnn.param
+          vision.ncnn.bin
           pos_embed.bin
 ```
-
-Optional fixed-grid artifacts from older regression/export workflows may also
-appear under `models/export/vision/`. They are only needed when packaging
-`--vision-backend fixed` or `--vision-backend both`.
 
 ## Runtime Package Layout
 
 `tools/package_model.py` rewrites this export workspace into the standard
 runtime package. The canonical directory tree, required files, DFlash options,
-and dynamic/fixed vision packaging commands are documented in
+and dynamic vision package are documented in
 [`models/README.md`](../models/README.md).

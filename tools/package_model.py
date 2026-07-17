@@ -80,22 +80,10 @@ def parse_args() -> argparse.Namespace:
         help="Destination packaged model directory. It should stay outside git-tracked source.",
     )
     parser.add_argument(
-        "--vision-summary",
-        type=Path,
-        default=None,
-        help="Vision export summary JSON. Default: <workspace>/models/export/vision/fp32_p512k/summary.json",
-    )
-    parser.add_argument(
-        "--vision-backend",
-        choices=("fixed", "dynamic", "both"),
-        default="fixed",
-        help="Vision artifacts to package. Default keeps the v0.1 fixed-grid layout.",
-    )
-    parser.add_argument(
         "--dynamic-vision-dir",
         type=Path,
         default=None,
-        help="Directory containing vision_dynamic.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic/ncnn",
+        help="Directory containing vision.ncnn.param/bin and pos_embed.bin. Default: <workspace>/models/export/vision_dynamic/ncnn",
     )
     parser.add_argument(
         "--base-runtime-dir",
@@ -188,46 +176,6 @@ def read_json(path: Path) -> Any:
         fail(f"invalid JSON in {path}: {exc}")
 
 
-def unique_vision_grids(summary_path: Path) -> list[dict[str, Any]]:
-    summary = read_json(summary_path)
-    cases = summary.get("cases")
-    if not isinstance(cases, list) or not cases:
-        fail(f"vision summary has no cases: {summary_path}")
-
-    grids: dict[tuple[int, int], dict[str, Any]] = {}
-    for case in cases:
-        grid_thw = case.get("image_grid_thw")
-        if (
-            not isinstance(grid_thw, list)
-            or not grid_thw
-            or not isinstance(grid_thw[0], list)
-            or len(grid_thw[0]) != 3
-        ):
-            fail(f"invalid image_grid_thw in vision summary case: {case.get('case', '<unknown>')}")
-        _, grid_h_raw, grid_w_raw = grid_thw[0]
-        grid_h = int(grid_h_raw)
-        grid_w = int(grid_w_raw)
-        key = (grid_h, grid_w)
-        if key in grids:
-            continue
-
-        param = Path(str(case.get("param", "")))
-        bin_file = Path(str(case.get("bin", "")))
-        require_file(param)
-        require_file(bin_file)
-        grids[key] = {
-            "case": case.get("case", ""),
-            "grid_h": grid_h,
-            "grid_w": grid_w,
-            "param_src": param,
-            "bin_src": bin_file,
-            "param": f"vision/grid_{grid_h}x{grid_w}/vision.ncnn.param",
-            "bin": f"vision/grid_{grid_h}x{grid_w}/vision.ncnn.bin",
-        }
-
-    return [grids[key] for key in sorted(grids)]
-
-
 def load_manifest_template(repo_root: Path) -> dict[str, Any]:
     template_path = repo_root / "models/model.json.example"
     require_file(template_path)
@@ -237,46 +185,16 @@ def load_manifest_template(repo_root: Path) -> dict[str, Any]:
     return manifest
 
 
-def write_manifest(repo_root: Path, output: Path, grids: list[dict[str, Any]]) -> None:
-    manifest = load_manifest_template(repo_root)
-    vision = manifest.setdefault("networks", {}).setdefault("vision", {})
-    vision["status"] = "fixed_grid_vision_exports"
-    vision["backend"] = "fixed_grid"
-    vision["available_grids"] = [
-        {
-            "grid_h": grid["grid_h"],
-            "grid_w": grid["grid_w"],
-            "param": grid["param"],
-            "bin": grid["bin"],
-        }
-        for grid in grids
-    ]
-    (output / "model.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-
-
 def dynamic_vision_files(dynamic_vision_dir: Path) -> dict[str, Path]:
-    candidates = {
-        "param": [
-            dynamic_vision_dir / "vision.ncnn.param",
-            dynamic_vision_dir / "vision_dynamic.ncnn.param",
-        ],
-        "bin": [
-            dynamic_vision_dir / "vision.ncnn.bin",
-            dynamic_vision_dir / "vision_dynamic.ncnn.bin",
-        ],
-        "pos_embed": [
-            dynamic_vision_dir / "pos_embed.bin",
-        ],
+    paths = {
+        "param": dynamic_vision_dir / "vision.ncnn.param",
+        "bin": dynamic_vision_dir / "vision.ncnn.bin",
+        "pos_embed": dynamic_vision_dir / "pos_embed.bin",
     }
-    resolved: dict[str, Path] = {}
-    for key, paths in candidates.items():
-        for path in paths:
-            if path.is_file():
-                resolved[key] = path
-                break
-        if key not in resolved:
+    for key, path in paths.items():
+        if not path.is_file():
             fail(f"dynamic vision {key} file not found under: {dynamic_vision_dir}")
-    return resolved
+    return paths
 
 
 def install_dynamic_vision(dynamic_vision_dir: Path, output: Path, copy_mode: bool) -> int:
@@ -287,10 +205,10 @@ def install_dynamic_vision(dynamic_vision_dir: Path, output: Path, copy_mode: bo
     return 3
 
 
-def write_dynamic_manifest(repo_root: Path, output: Path, include_fixed: bool, grids: list[dict[str, Any]]) -> None:
+def write_dynamic_manifest(repo_root: Path, output: Path) -> None:
     manifest = load_manifest_template(repo_root)
     vision = manifest.setdefault("networks", {}).setdefault("vision", {})
-    vision["status"] = "dynamic_vision" if not include_fixed else "dynamic_vision_with_fixed_grid_fallback"
+    vision["status"] = "dynamic_vision"
     vision["backend"] = "dynamic"
     vision["param"] = "vision/vision.ncnn.param"
     vision["bin"] = "vision/vision.ncnn.bin"
@@ -301,19 +219,6 @@ def write_dynamic_manifest(repo_root: Path, output: Path, include_fixed: bool, g
         "align_corners": False,
         "size": ["grid_h", "grid_w"],
     }
-    if include_fixed:
-        vision["fallback_backend"] = "fixed_grid"
-        vision["available_grids"] = [
-            {
-                "grid_h": grid["grid_h"],
-                "grid_w": grid["grid_w"],
-                "param": grid["param"],
-                "bin": grid["bin"],
-            }
-            for grid in grids
-        ]
-    else:
-        vision["available_grids"] = []
     (output / "model.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
@@ -322,11 +227,6 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     workspace = args.workspace.resolve()
     output = args.output.resolve()
-    vision_summary = (
-        args.vision_summary.resolve()
-        if args.vision_summary is not None
-        else workspace / "models/export/vision/fp32_p512k/summary.json"
-    )
     dynamic_vision_dir = (
         args.dynamic_vision_dir.resolve()
         if args.dynamic_vision_dir is not None
@@ -348,9 +248,6 @@ def main() -> int:
 
     if (args.dflash_dir is not None or args.dflash_decoder_dir is not None) and not args.dflash:
         fail("--dflash-dir and --dflash-decoder-dir require --dflash")
-
-    if args.vision_backend in ("fixed", "both"):
-        require_file(vision_summary)
 
     # List of (src_path, dst_rel) for non-vision core runtime files.
     core_sources: list[tuple[Path, str]] = []
@@ -385,9 +282,7 @@ def main() -> int:
             ]
         )
 
-    grids = unique_vision_grids(vision_summary) if args.vision_backend in ("fixed", "both") else []
-    if args.vision_backend in ("dynamic", "both"):
-        dynamic_vision_files(dynamic_vision_dir)
+    dynamic_vision_files(dynamic_vision_dir)
     safe_prepare_output(output, workspace, repo_root, args.force)
 
     copied_files = 0
@@ -395,26 +290,15 @@ def main() -> int:
         install_file(src_path, output / dst_rel, args.copy)
         copied_files += 1
 
-    if args.vision_backend in ("fixed", "both"):
-        for grid in grids:
-            install_file(grid["param_src"], output / grid["param"], args.copy)
-            install_file(grid["bin_src"], output / grid["bin"], args.copy)
-            copied_files += 2
-
-    if args.vision_backend in ("dynamic", "both"):
-        copied_files += install_dynamic_vision(dynamic_vision_dir, output, args.copy)
-        write_dynamic_manifest(repo_root, output, args.vision_backend == "both", grids)
-    else:
-        write_manifest(repo_root, output, grids)
+    copied_files += install_dynamic_vision(dynamic_vision_dir, output, args.copy)
+    write_dynamic_manifest(repo_root, output)
     copied_files += 1
 
     mode = "copy" if args.copy else "symlink"
-    grid_names = ", ".join(f"{grid['grid_h']}x{grid['grid_w']}" for grid in grids) if grids else "(none)"
     print(f"packaged_model: {output}")
     print(f"mode: {mode}")
-    print(f"vision_backend: {args.vision_backend}")
+    print("vision_backend: dynamic")
     print(f"runtime_files: {copied_files}")
-    print(f"vision_grids: {grid_names}")
     print(f"dflash: {'enabled' if args.dflash else 'disabled'}")
     print(
         "base_runtime_dir: "

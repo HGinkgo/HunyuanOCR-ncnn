@@ -37,11 +37,9 @@ std::vector<ModelFile> expected_model_files()
         {"lm_head/lm_head.ncnn.bin", true, "ncnn lm_head tied embedding weights."},
         {"dflash/dflash.ncnn.param", false, "Optional DFlash draft network."},
         {"dflash/dflash.ncnn.bin", false, "Optional DFlash draft weights."},
-        {"vision/vision.ncnn.param", false, "Optional dynamic vision network."},
-        {"vision/vision.ncnn.bin", false, "Optional dynamic vision weights."},
-        {"vision/pos_embed.bin", false, "Optional dynamic vision base position embedding [1152,128,128]."},
-        {"vision/grid_<grid_h>x<grid_w>/vision.ncnn.param", false, "Optional fixed-grid vision network selected from image_grid_thw."},
-        {"vision/grid_<grid_h>x<grid_w>/vision.ncnn.bin", false, "Optional fixed-grid vision weights selected from image_grid_thw."},
+        {"vision/vision.ncnn.param", true, "Dynamic vision network."},
+        {"vision/vision.ncnn.bin", true, "Dynamic vision weights."},
+        {"vision/pos_embed.bin", true, "Dynamic vision base position embedding [1152,128,128]."},
     };
 }
 

@@ -42,12 +42,7 @@
           "grid_h",
           "grid_w"
         ]
-      },
-      "fallback_backend": "fixed_grid",
-      "directory_pattern": "vision/grid_<grid_h>x<grid_w>/",
-      "param_name": "vision.ncnn.param",
-      "bin_name": "vision.ncnn.bin",
-      "available_grids": []
+      }
     }
   }
 }
