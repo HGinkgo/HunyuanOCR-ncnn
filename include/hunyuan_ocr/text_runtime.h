@@ -3,6 +3,7 @@
 #include "hunyuan_ocr/dflash_runtime.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,6 +12,8 @@
 #include <net.h>
 
 namespace hunyuan_ocr {
+
+using TextTokenCallback = std::function<void(int)>;
 
 namespace detail {
 
@@ -131,7 +134,8 @@ public:
         int max_tokens,
         float repetition_penalty,
         DFlashDecodeResult* result,
-        std::string* error) const;
+        std::string* error,
+        const TextTokenCallback& token_callback = {}) const;
     bool run_vlm_fixture_decode_with_features(const std::string& fixture_dir,
                                               const std::vector<float>& vision_features,
                                               int vision_token_count,
@@ -147,7 +151,8 @@ public:
                                     int max_tokens,
                                     float repetition_penalty,
                                     TextDecodeResult* result,
-                                    std::string* error) const;
+                                    std::string* error,
+                                    const TextTokenCallback& token_callback = {}) const;
 
 private:
     std::unique_ptr<ncnn::Net> text_embed_net_;

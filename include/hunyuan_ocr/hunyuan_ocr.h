@@ -3,6 +3,7 @@
 #include "hunyuan_ocr/model_layout.h"
 #include "hunyuan_ocr/prompt_builder.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,10 +26,19 @@ struct RuntimeOptions {
     float repetition_penalty = 1.08f;
 };
 
+struct InferenceChunk {
+    int token_id = -1;
+    std::string text_delta;
+};
+
+using InferenceCallback = std::function<void(const InferenceChunk&)>;
+
 struct InferenceRequest {
     PromptMode prompt_mode = PromptMode::Document;
     std::string prompt;
     int max_tokens = 128;
+    // Invoked synchronously for each committed token; special tokens may have an empty text delta.
+    InferenceCallback stream_callback;
 };
 
 struct InferenceTiming {

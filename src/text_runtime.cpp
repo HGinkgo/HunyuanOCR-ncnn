@@ -1123,7 +1123,8 @@ bool decode_dflash_from_embeddings(const ncnn::Net& text_embed_net,
                                    const std::vector<int>& expected_tokens,
                                    const std::vector<int>& eos_ids,
                                    DFlashDecodeResult* result,
-                                   std::string* error)
+                                   std::string* error,
+                                   const TextTokenCallback& token_callback = {})
 {
     if (result == nullptr)
     {
@@ -1202,6 +1203,10 @@ bool decode_dflash_from_embeddings(const ncnn::Net& text_embed_net,
         {
             const int token = block.proposed_tokens[static_cast<size_t>(index)];
             local.decode.generated_tokens.push_back(token);
+            if (token_callback)
+            {
+                token_callback(token);
+            }
             if (is_eos_token(token, eos_ids))
             {
                 committed = index + 1;
@@ -1283,7 +1288,8 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
                             const std::vector<int>& eos_ids,
                             TextDecodeResult* result,
                             TextDecodeTiming* timing,
-                            std::string* error)
+                            std::string* error,
+                            const TextTokenCallback& token_callback = {})
 {
     const auto total_start = Clock::now();
     if (seq_len <= 0)
@@ -1371,6 +1377,10 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         local.generated_tokens.push_back(current_token);
         local.raw_top1_tokens.push_back(raw_top1);
         history.push_back(current_token);
+        if (token_callback)
+        {
+            token_callback(current_token);
+        }
 
         if (is_eos_token(current_token, eos_ids) || out_index + 1 >= max_tokens)
         {
@@ -1455,7 +1465,8 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                float repetition_penalty,
                                TextDecodeResult* result,
                                TextDecodeTiming* timing,
-                               std::string* error)
+                               std::string* error,
+                               const TextTokenCallback& token_callback)
 {
     const int seq_len = static_cast<int>(input_ids.size());
     std::vector<float> inputs_embeds;
@@ -1489,7 +1500,8 @@ bool decode_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                   eos_ids,
                                   result,
                                   timing,
-                                  error);
+                                  error,
+                                  token_callback);
 }
 
 bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
@@ -1506,7 +1518,8 @@ bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                       int max_tokens,
                                       float repetition_penalty,
                                       DFlashDecodeResult* result,
-                                      std::string* error)
+                                      std::string* error,
+                                      const TextTokenCallback& token_callback)
 {
     const int seq_len = static_cast<int>(input_ids.size());
     std::vector<float> inputs_embeds;
@@ -1535,7 +1548,8 @@ bool decode_dflash_from_prompt_tokens(const ncnn::Net& text_embed_net,
                                          expected_tokens,
                                          eos_ids,
                                          result,
-                                         error);
+                                         error,
+                                         token_callback);
 }
 
 template <typename Result>
@@ -1962,7 +1976,8 @@ bool TextRuntime::run_vlm_dflash_decode_with_prompt(
     int max_tokens,
     float repetition_penalty,
     DFlashDecodeResult* result,
-    std::string* error) const
+    std::string* error,
+    const TextTokenCallback& token_callback) const
 {
     if (!validate_dflash_runtime_request(ready_,
                                          dflash_ready(),
@@ -1987,7 +2002,8 @@ bool TextRuntime::run_vlm_dflash_decode_with_prompt(
                                             max_tokens,
                                             repetition_penalty,
                                             result,
-                                            error);
+                                            error,
+                                            token_callback);
 }
 
 bool TextRuntime::run_vlm_fixture_decode_with_features(const std::string& fixture_dir,
@@ -2051,7 +2067,8 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
                                              int max_tokens,
                                              float repetition_penalty,
                                              TextDecodeResult* result,
-                                             std::string* error) const
+                                             std::string* error,
+                                             const TextTokenCallback& token_callback) const
 {
     if (!validate_text_runtime_request(ready_, result, "result pointer is null", error))
     {
@@ -2074,7 +2091,8 @@ bool TextRuntime::run_vlm_decode_with_prompt(const std::vector<int>& input_ids,
                                               repetition_penalty,
                                               result,
                                               &timing,
-                                              error);
+                                              error,
+                                              token_callback);
     if (ok)
     {
         timing.total_ms = elapsed_ms(total_start, Clock::now());

@@ -123,6 +123,25 @@ int main(int argc, char** argv)
             std::cerr << test_case.label << " decode roundtrip mismatch\n";
             return EXIT_FAILURE;
         }
+
+        std::string streamed_text;
+        for (const int token_id : actual)
+        {
+            streamed_text += tokenizer.decode({token_id}, true);
+        }
+        if (streamed_text != tokenizer.decode(actual, true))
+        {
+            std::cerr << test_case.label << " streamed decode mismatch\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    constexpr int end_of_sentence_id = 120001;
+    if (!tokenizer.decode({end_of_sentence_id}, true).empty() ||
+        tokenizer.decode({end_of_sentence_id}, false).empty())
+    {
+        std::cerr << "special token streaming policy mismatch\n";
+        return EXIT_FAILURE;
     }
 
     std::cout << "tokenizer encode cases passed: " << cases.size() << "\n";

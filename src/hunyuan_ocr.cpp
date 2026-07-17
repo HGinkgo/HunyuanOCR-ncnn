@@ -243,6 +243,15 @@ public:
 
         const auto text_start = std::chrono::steady_clock::now();
         const std::vector<int> no_expected_tokens;
+        TextTokenCallback token_callback;
+        if (request.stream_callback)
+        {
+            const InferenceCallback stream_callback = request.stream_callback;
+            token_callback = [this, stream_callback](int token_id) {
+                const std::vector<int> token_ids{token_id};
+                stream_callback({token_id, tokenizer.decode(token_ids, true)});
+            };
+        }
         if (options.dflash)
         {
             DFlashDecodeResult decode;
@@ -256,7 +265,8 @@ public:
                     request.max_tokens,
                     options.repetition_penalty,
                     &decode,
-                    &runtime_error))
+                    &runtime_error,
+                    token_callback))
             {
                 return fail(error, "text_generation", runtime_error);
             }
@@ -278,7 +288,8 @@ public:
                                                           request.max_tokens,
                                                           options.repetition_penalty,
                                                           &decode,
-                                                          &runtime_error))
+                                                          &runtime_error,
+                                                          token_callback))
             {
                 return fail(error, "text_generation", runtime_error);
             }

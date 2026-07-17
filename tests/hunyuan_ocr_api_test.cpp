@@ -46,9 +46,30 @@ int main()
     if (!expect(request.prompt_mode == hunyuan_ocr::PromptMode::Document,
                 "default prompt mode mismatch") ||
         !expect(request.prompt.empty(), "default custom prompt must be empty") ||
-        !expect(request.max_tokens == 128, "default max token count mismatch"))
+        !expect(request.max_tokens == 128, "default max token count mismatch") ||
+        !expect(!request.stream_callback, "stream callback must default empty"))
     {
         return 2;
+    }
+
+    const hunyuan_ocr::InferenceChunk default_chunk;
+    if (!expect(default_chunk.token_id == -1, "default stream token mismatch") ||
+        !expect(default_chunk.text_delta.empty(), "default stream text must be empty"))
+    {
+        return 3;
+    }
+
+    hunyuan_ocr::InferenceChunk observed_chunk;
+    hunyuan_ocr::InferenceRequest streaming_request;
+    streaming_request.stream_callback =
+        [&observed_chunk](const hunyuan_ocr::InferenceChunk& chunk) {
+            observed_chunk = chunk;
+        };
+    streaming_request.stream_callback({42, "delta"});
+    if (!expect(observed_chunk.token_id == 42, "stream callback token mismatch") ||
+        !expect(observed_chunk.text_delta == "delta", "stream callback text mismatch"))
+    {
+        return 4;
     }
 
     hunyuan_ocr::HunyuanOCR runtime;
@@ -60,7 +81,7 @@ int main()
         !expect(error.stage == "runtime_state", "pre-load error stage mismatch") ||
         !expect(!error.message.empty(), "pre-load error message must not be empty"))
     {
-        return 3;
+        return 5;
     }
 
     const std::filesystem::path incomplete_model =
@@ -71,7 +92,7 @@ int main()
     std::filesystem::create_directories(incomplete_model, filesystem_error);
     if (!expect(!filesystem_error, "failed to create incomplete model directory"))
     {
-        return 4;
+        return 6;
     }
 
     if (!expect(!runtime.load(incomplete_model.string(), runtime_options, &error),
@@ -82,7 +103,7 @@ int main()
                 "incomplete model report must list required files"))
     {
         std::filesystem::remove_all(incomplete_model, filesystem_error);
-        return 5;
+        return 7;
     }
     std::filesystem::remove_all(incomplete_model, filesystem_error);
 
@@ -92,7 +113,7 @@ int main()
                 "zero max_tokens must fail") ||
         !expect(error.stage == "request", "max_tokens error stage mismatch"))
     {
-        return 6;
+        return 8;
     }
 
     invalid_request = hunyuan_ocr::InferenceRequest();
@@ -101,7 +122,7 @@ int main()
                 "empty custom prompt must fail") ||
         !expect(error.stage == "request", "custom prompt error stage mismatch"))
     {
-        return 7;
+        return 9;
     }
 
     invalid_request = hunyuan_ocr::InferenceRequest();
@@ -110,14 +131,14 @@ int main()
                 "built-in mode with custom text must fail") ||
         !expect(error.stage == "request", "built-in prompt error stage mismatch"))
     {
-        return 8;
+        return 10;
     }
 
     if (!expect(!runtime.infer_file("", request, &result, &error),
                 "empty image path must fail") ||
         !expect(error.stage == "image_input", "empty image path error stage mismatch"))
     {
-        return 9;
+        return 11;
     }
 
     const std::vector<unsigned char> invalid_rgb(11, 0);
@@ -125,7 +146,7 @@ int main()
                 "wrong RGB byte count must fail") ||
         !expect(error.stage == "image_input", "RGB byte count error stage mismatch"))
     {
-        return 10;
+        return 12;
     }
 
     const std::vector<unsigned char> empty_rgb;
@@ -138,7 +159,7 @@ int main()
                 "overflowing RGB dimensions must fail") ||
         !expect(error.stage == "image_input", "RGB overflow error stage mismatch"))
     {
-        return 11;
+        return 13;
     }
 
     const std::vector<unsigned char> valid_rgb(12, 0);
@@ -146,7 +167,7 @@ int main()
                 "valid RGB inference before load must fail") ||
         !expect(error.stage == "runtime_state", "valid RGB pre-load error stage mismatch"))
     {
-        return 12;
+        return 14;
     }
 
     std::cout << "public runtime API contract passed\n";
