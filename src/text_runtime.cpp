@@ -436,8 +436,10 @@ bool run_text_embed_tokens(const ncnn::Net& net,
                            std::vector<float>* embeddings,
                            std::string* error)
 {
-    ncnn::Mat input_ids_mat(seq_len, 1, const_cast<int*>(input_ids.data()));
-    input_ids_mat = input_ids_mat.clone();
+    ncnn::Mat input_ids_mat(seq_len, 1);
+    std::memcpy(input_ids_mat.data,
+                input_ids.data(),
+                static_cast<size_t>(seq_len) * sizeof(int));
 
     ncnn::Mat output;
     ncnn::Extractor ex = const_cast<ncnn::Net&>(net).create_extractor();
