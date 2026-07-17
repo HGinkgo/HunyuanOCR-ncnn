@@ -65,26 +65,15 @@ void print_usage(const char* program)
     std::cout
         << "Usage: " << program << " [--help] [--version] [--model PATH]\n"
         << "\n"
-        << "HunyuanOCR-ncnn CLI. It validates model layout, runs development\n"
-        << "fixtures, and executes the PNG/JPEG image path.\n"
+        << "HunyuanOCR-ncnn CLI for PNG/JPEG and JSONL inference.\n"
         << "\n"
         << "Options:\n"
         << "  --help          Show this help message.\n"
         << "  --version       Print project and ncnn version information.\n"
         << "  --model PATH    Check a HunyuanOCR ncnn model directory.\n"
-        << "  --decode-ids IDS       Decode comma/space separated token ids with tokenizer files under --model.\n"
-        << "  --decode-ids-file PATH Decode token ids read from a text file.\n"
-        << "  --no-skip-special      Keep special tokens when decoding token ids.\n"
-        << "  --smoke-text TOKEN_ID  Load text ncnn nets and run text_embed + lm_head smoke.\n"
-        << "  --text-fixture PATH    Run decoder prefill/KV greedy decode from a raw tensor fixture.\n"
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
         << "  --dflash               Run DFlash with --vlm-fixture or --image with --prompt/--prompt-mode.\n"
-        << "  --dflash-probe         Run one 16-token DFlash block with --vlm-fixture.\n"
         << "  --mmap-weights         Load model weights from read-only file mappings.\n"
-        << "  --vision-param PATH    Load a per-grid vision ncnn param file for fixture validation.\n"
-        << "  --vision-bin PATH      Load a per-grid vision ncnn bin file for fixture validation.\n"
-        << "  --vision-fixture PATH  Run pixel_values -> vision_features fixture.\n"
-        << "  --vision-tolerance F   Max absolute diff tolerance for expected_vision_features.f32.\n"
         << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
         << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
         << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
@@ -98,9 +87,6 @@ void print_usage(const char* program)
         << "  --benchmark-repeat N   Same-process measured iterations. Default: 1.\n"
         << "  --num-threads N        ncnn thread count for all submodels.\n"
         << "  --repetition-penalty F Greedy decode repetition penalty. Default: 1.08.\n"
-        << "  --image-preprocess-fixture PATH Run resized RGB -> flattened pixel_values fixture.\n"
-        << "  --image-preprocess-tolerance F  Max absolute diff tolerance for expected_pixel_values.f32.\n"
-        << "  --image-file-fixture PATH Run original RGB -> resize -> flattened pixel_values fixture.\n"
         << "  --max-tokens N         Limit fixture generated token count.\n";
 }
 
@@ -564,7 +550,6 @@ bool run_benchmark_iteration(const std::string& image_path,
                              const std::string& prompt_text,
                              int max_tokens,
                              float repetition_penalty,
-                             bool use_dynamic_vision,
                              const hunyuan_ocr::ImagePreprocessor& preprocessor,
                              const hunyuan_ocr::VisionRuntime& vision_runtime,
                              const hunyuan_ocr::TextRuntime& text_runtime,
@@ -594,24 +579,14 @@ bool run_benchmark_iteration(const std::string& image_path,
         local.timing.preprocess_ms = prepared_preprocess_ms;
     }
 
-    const int patch_h = image->grid_h / preprocessor.config().merge_size;
-    const int patch_w = image->grid_w / preprocessor.config().merge_size;
-    const int vision_token_count = patch_h * (patch_w + 1) + 2;
     hunyuan_ocr::VisionRuntimeResult vision;
     const auto vision_start = Clock::now();
-    const bool vision_ok = use_dynamic_vision
-        ? vision_runtime.run_dynamic_pixel_values(image->pixel_values,
-                                                  image->grid_h,
-                                                  image->grid_w,
-                                                  preprocessor.config().merge_size,
-                                                  &vision,
-                                                  error)
-        : vision_runtime.run_pixel_values(image->pixel_values,
-                                          image->patch_count,
-                                          vision_token_count,
-                                          &vision,
-                                          error);
-    if (!vision_ok)
+    if (!vision_runtime.run_dynamic_pixel_values(image->pixel_values,
+                                                 image->grid_h,
+                                                 image->grid_w,
+                                                 preprocessor.config().merge_size,
+                                                 &vision,
+                                                 error))
     {
         return false;
     }
@@ -666,8 +641,6 @@ int run_image_benchmark(const std::string& model_root,
                         const std::string& image_path,
                         const std::string& prompt_mode_text,
                         const std::string& prompt_text,
-                        const std::string& vision_param_path,
-                        const std::string& vision_bin_path,
                         int max_tokens,
                         float repetition_penalty,
                         int num_threads,
@@ -687,19 +660,13 @@ int run_image_benchmark(const std::string& model_root,
     }
     const double probe_preprocess_ms = elapsed_ms(probe_preprocess_start, Clock::now());
 
-    std::string resolved_vision_param_path = vision_param_path;
-    std::string resolved_vision_bin_path = vision_bin_path;
+    std::string resolved_vision_param_path;
+    std::string resolved_vision_bin_path;
     std::string resolved_pos_embed_path;
-    bool use_dynamic_vision = false;
-    const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
-    if (!explicit_vision_paths)
-    {
-        use_dynamic_vision = resolve_dynamic_vision_paths(model_root,
-                                                          resolved_vision_param_path,
-                                                          resolved_vision_bin_path,
-                                                          resolved_pos_embed_path);
-    }
-    if (!use_dynamic_vision && !explicit_vision_paths)
+    if (!resolve_dynamic_vision_paths(model_root,
+                                      resolved_vision_param_path,
+                                      resolved_vision_bin_path,
+                                      resolved_pos_embed_path))
     {
         std::cerr << "Benchmark could not resolve the canonical dynamic vision model\n";
         return 1;
@@ -707,13 +674,10 @@ int run_image_benchmark(const std::string& model_root,
 
     hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
     const auto vision_load_start = Clock::now();
-    const bool vision_loaded = use_dynamic_vision
-        ? vision_runtime.load_dynamic(resolved_vision_param_path,
-                                      resolved_vision_bin_path,
-                                      resolved_pos_embed_path,
-                                      &error)
-        : vision_runtime.load(resolved_vision_param_path, resolved_vision_bin_path, &error);
-    if (!vision_loaded)
+    if (!vision_runtime.load_dynamic(resolved_vision_param_path,
+                                     resolved_vision_bin_path,
+                                     resolved_pos_embed_path,
+                                     &error))
     {
         std::cerr << "Benchmark vision load failed: " << error << "\n";
         return 1;
@@ -750,7 +714,6 @@ int run_image_benchmark(const std::string& model_root,
                                  prompt_text,
                                  max_tokens,
                                  repetition_penalty,
-                                 use_dynamic_vision,
                                  preprocessor,
                                  vision_runtime,
                                  text_runtime,
@@ -773,7 +736,6 @@ int run_image_benchmark(const std::string& model_root,
                                      prompt_text,
                                      max_tokens,
                                      repetition_penalty,
-                                     use_dynamic_vision,
                                      preprocessor,
                                      vision_runtime,
                                      text_runtime,
@@ -803,7 +765,6 @@ int run_image_benchmark(const std::string& model_root,
                                      prompt_text,
                                      max_tokens,
                                      repetition_penalty,
-                                     use_dynamic_vision,
                                      preprocessor,
                                      vision_runtime,
                                      text_runtime,
@@ -912,29 +873,15 @@ int main(int argc, char** argv)
 #endif
     const auto process_start = Clock::now();
     std::string model_root;
-    std::string decode_ids_text;
-    std::string decode_ids_file;
-    bool skip_special_tokens = true;
-    bool run_text_smoke = false;
-    int smoke_token_id = 0;
-    std::string text_fixture_dir;
     std::string vlm_fixture_dir;
     bool dflash = false;
-    bool dflash_probe = false;
     bool mmap_weights = false;
-    std::string vision_param_path;
-    std::string vision_bin_path;
-    std::string vision_fixture_dir;
-    float vision_tolerance = 0.002f;
     std::string image_path;
     std::string batch_input_path;
     std::string batch_output_path;
     bool force_batch_output = false;
     std::string prompt_mode_text;
     std::string prompt_text;
-    std::string image_preprocess_fixture_dir;
-    std::string image_file_fixture_dir;
-    float image_preprocess_tolerance = 0.000001f;
     int max_tokens = 0;
     float repetition_penalty = 1.08f;
     bool benchmark = false;
@@ -972,60 +919,6 @@ int main(int argc, char** argv)
             model_root = argv[++i];
             continue;
         }
-        if (arg == "--decode-ids")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--decode-ids requires a token id list\n";
-                return 1;
-            }
-            decode_ids_text = argv[++i];
-            continue;
-        }
-        if (arg == "--decode-ids-file")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--decode-ids-file requires a path\n";
-                return 1;
-            }
-            decode_ids_file = argv[++i];
-            continue;
-        }
-        if (arg == "--no-skip-special")
-        {
-            skip_special_tokens = false;
-            continue;
-        }
-        if (arg == "--smoke-text")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--smoke-text requires a token id\n";
-                return 1;
-            }
-            try
-            {
-                smoke_token_id = std::stoi(argv[++i]);
-            }
-            catch (const std::exception&)
-            {
-                std::cerr << "--smoke-text token id must be an integer\n";
-                return 1;
-            }
-            run_text_smoke = true;
-            continue;
-        }
-        if (arg == "--text-fixture")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--text-fixture requires a path\n";
-                return 1;
-            }
-            text_fixture_dir = argv[++i];
-            continue;
-        }
         if (arg == "--vlm-fixture")
         {
             if (i + 1 >= argc)
@@ -1036,11 +929,6 @@ int main(int argc, char** argv)
             vlm_fixture_dir = argv[++i];
             continue;
         }
-        if (arg == "--dflash-probe")
-        {
-            dflash_probe = true;
-            continue;
-        }
         if (arg == "--dflash")
         {
             dflash = true;
@@ -1049,54 +937,6 @@ int main(int argc, char** argv)
         if (arg == "--mmap-weights")
         {
             mmap_weights = true;
-            continue;
-        }
-        if (arg == "--vision-param")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--vision-param requires a path\n";
-                return 1;
-            }
-            vision_param_path = argv[++i];
-            continue;
-        }
-        if (arg == "--vision-bin")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--vision-bin requires a path\n";
-                return 1;
-            }
-            vision_bin_path = argv[++i];
-            continue;
-        }
-        if (arg == "--vision-fixture")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--vision-fixture requires a path\n";
-                return 1;
-            }
-            vision_fixture_dir = argv[++i];
-            continue;
-        }
-        if (arg == "--vision-tolerance")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--vision-tolerance requires a float\n";
-                return 1;
-            }
-            try
-            {
-                vision_tolerance = std::stof(argv[++i]);
-            }
-            catch (const std::exception&)
-            {
-                std::cerr << "--vision-tolerance value must be a float\n";
-                return 1;
-            }
             continue;
         }
         if (arg == "--vision-vulkan")
@@ -1260,44 +1100,6 @@ int main(int argc, char** argv)
             }
             continue;
         }
-        if (arg == "--image-preprocess-fixture")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--image-preprocess-fixture requires a path\n";
-                return 1;
-            }
-            image_preprocess_fixture_dir = argv[++i];
-            continue;
-        }
-        if (arg == "--image-file-fixture")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--image-file-fixture requires a path\n";
-                return 1;
-            }
-            image_file_fixture_dir = argv[++i];
-            continue;
-        }
-        if (arg == "--image-preprocess-tolerance")
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "--image-preprocess-tolerance requires a float\n";
-                return 1;
-            }
-            try
-            {
-                image_preprocess_tolerance = std::stof(argv[++i]);
-            }
-            catch (const std::exception&)
-            {
-                std::cerr << "--image-preprocess-tolerance value must be a float\n";
-                return 1;
-            }
-            continue;
-        }
         if (arg == "--max-tokens")
         {
             if (i + 1 >= argc)
@@ -1328,14 +1130,6 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (!decode_ids_file.empty())
-    {
-        if (!read_text_file(decode_ids_file, decode_ids_text))
-        {
-            std::cerr << "Failed to read token id file: " << decode_ids_file << "\n";
-            return 1;
-        }
-    }
     if (!prompt_text.empty() && !prompt_mode_text.empty())
     {
         std::cerr << "--prompt and --prompt-mode are mutually exclusive\n";
@@ -1364,12 +1158,7 @@ int main(int argc, char** argv)
         std::cerr << "batch prompts must be specified in JSONL records\n";
         return 1;
     }
-    const bool batch_has_diagnostic_options =
-        !decode_ids_text.empty() || !decode_ids_file.empty() || run_text_smoke ||
-        !text_fixture_dir.empty() || !vlm_fixture_dir.empty() || dflash_probe ||
-        !vision_param_path.empty() || !vision_bin_path.empty() ||
-        !vision_fixture_dir.empty() || !image_preprocess_fixture_dir.empty() ||
-        !image_file_fixture_dir.empty() || benchmark;
+    const bool batch_has_diagnostic_options = !vlm_fixture_dir.empty() || benchmark;
     if (batch_mode && batch_has_diagnostic_options)
     {
         std::cerr << "batch mode does not support diagnostic or benchmark options\n";
@@ -1390,16 +1179,11 @@ int main(int argc, char** argv)
         std::cerr << "--vision-vulkan-device must be non-negative\n";
         return 1;
     }
-    const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
     const bool image_executes_vision =
         !image_path.empty() &&
         (benchmark || !prompt_text.empty() || !prompt_mode_text.empty() ||
-         !vlm_fixture_dir.empty() || explicit_vision_paths);
-    const bool fixture_executes_vision =
-        !vision_fixture_dir.empty() ||
-        (explicit_vision_paths &&
-         (!image_file_fixture_dir.empty() || !image_preprocess_fixture_dir.empty()));
-    const bool executes_vision = batch_mode || image_executes_vision || fixture_executes_vision;
+         !vlm_fixture_dir.empty());
+    const bool executes_vision = batch_mode || image_executes_vision;
     if (vision_vulkan && !executes_vision)
     {
         std::cerr << "--vision-vulkan requires a path that executes vision\n";
@@ -1430,11 +1214,6 @@ int main(int argc, char** argv)
             max_tokens = 64;
         }
     }
-    if (dflash && dflash_probe)
-    {
-        std::cerr << "--dflash and --dflash-probe are mutually exclusive\n";
-        return 1;
-    }
     if (benchmark && dflash)
     {
         std::cerr << "--benchmark does not support --dflash yet\n";
@@ -1447,12 +1226,6 @@ int main(int argc, char** argv)
         std::cerr << "--dflash requires --vlm-fixture or --image with --prompt/--prompt-mode\n";
         return 1;
     }
-    if (dflash_probe && vlm_fixture_dir.empty())
-    {
-        std::cerr << "--dflash-probe requires --vlm-fixture\n";
-        return 1;
-    }
-
     const hunyuan_ocr::ModelLayoutReport report = hunyuan_ocr::check_model_layout(model_root);
     const bool ready = report.required_files_present();
 
@@ -1531,8 +1304,6 @@ int main(int argc, char** argv)
                                    image_path,
                                    prompt_mode_text,
                                    prompt_text,
-                                   vision_param_path,
-                                   vision_bin_path,
                                    max_tokens,
                                    repetition_penalty,
                                    num_threads,
@@ -1544,8 +1315,7 @@ int main(int argc, char** argv)
 
     std::cout << "Model layout check passed for the current runtime files.\n";
 
-    const bool plain_image_inference =
-        has_image_prompt && vlm_fixture_dir.empty() && !explicit_vision_paths;
+    const bool plain_image_inference = has_image_prompt && vlm_fixture_dir.empty();
     if (plain_image_inference)
     {
         hunyuan_ocr::RuntimeOptions runtime_options;
@@ -1617,45 +1387,7 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (dflash_probe)
-    {
-        std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
-        if (!text_runtime.load(model_root, &error) ||
-            !text_runtime.load_dflash(model_root, &error))
-        {
-            std::cerr << "Failed to load DFlash probe runtime: " << error << "\n";
-            return 1;
-        }
-
-        hunyuan_ocr::DFlashBlockProbeResult probe;
-        if (!text_runtime.run_vlm_fixture_dflash_probe(vlm_fixture_dir, &probe, &error))
-        {
-            std::cerr << "DFlash block probe failed: " << error << "\n";
-            return 1;
-        }
-        std::cout << "DFlash block probe:\n";
-        std::cout << "  seq_len: " << probe.seq_len << "\n";
-        std::cout << "  first_token: " << probe.first_token << "\n";
-        std::cout << "  acceptance_length: " << probe.acceptance_length << "\n";
-        std::cout << "  correction_token: " << probe.correction_token << "\n";
-        print_token_vector("  proposed_tokens: ", probe.proposed_tokens);
-        print_token_vector("  target_tokens: ", probe.target_tokens);
-        std::cout << "  match_expected_first_token: "
-                  << (probe.first_token_matches_expected ? "true" : "false") << "\n";
-        std::cout << "  match_expected_first_target_token: "
-                  << (probe.first_target_token_matches_expected ? "true" : "false") << "\n";
-        return probe.first_token_matches_expected &&
-                       probe.first_target_token_matches_expected
-                   ? 0
-                   : 3;
-    }
-
-    const bool pure_dflash_fixture = dflash &&
-        image_path.empty() &&
-        image_file_fixture_dir.empty() &&
-        image_preprocess_fixture_dir.empty() &&
-        vision_fixture_dir.empty();
+    const bool pure_dflash_fixture = dflash && image_path.empty();
     if (pure_dflash_fixture)
     {
         std::string error;
@@ -1682,89 +1414,6 @@ int main(int argc, char** argv)
                                           result);
     }
 
-    if (!decode_ids_text.empty())
-    {
-        std::string error;
-        const std::vector<int> ids = hunyuan_ocr::parse_token_ids(decode_ids_text, &error);
-        if (!error.empty())
-        {
-            std::cerr << "Failed to parse token ids: " << error << "\n";
-            return 1;
-        }
-
-        hunyuan_ocr::Tokenizer tokenizer;
-        if (!tokenizer.load(model_root + "/tokenizer/vocab.txt",
-                            model_root + "/tokenizer/special_tokens.json",
-                            &error))
-        {
-            std::cerr << "Failed to load tokenizer: " << error << "\n";
-            return 1;
-        }
-        std::cout << "Decoded text:\n" << tokenizer.decode(ids, skip_special_tokens) << "\n";
-    }
-
-    if (run_text_smoke)
-    {
-        std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
-        if (!text_runtime.load(model_root, &error))
-        {
-            std::cerr << "Failed to load text runtime: " << error << "\n";
-            return 1;
-        }
-        const hunyuan_ocr::TextRuntimeSmokeResult smoke = text_runtime.smoke_token(smoke_token_id, &error);
-        if (!error.empty())
-        {
-            std::cerr << "Text runtime smoke failed: " << error << "\n";
-            return 1;
-        }
-        std::cout << "Text runtime smoke:\n";
-        std::cout << "  token_id: " << smoke.token_id << "\n";
-        std::cout << "  embedding_values: " << smoke.embedding_values << "\n";
-        std::cout << "  embedding_shape: w=" << smoke.embedding_w
-                  << " h=" << smoke.embedding_h
-                  << " c=" << smoke.embedding_c
-                  << " elempack=" << smoke.embedding_elempack << "\n";
-        std::cout << "  logits_values: " << smoke.logits_values << "\n";
-        std::cout << "  logits_shape: w=" << smoke.logits_w
-                  << " h=" << smoke.logits_h
-                  << " c=" << smoke.logits_c
-                  << " elempack=" << smoke.logits_elempack << "\n";
-        std::cout << "  raw_top1: " << smoke.raw_top1 << "\n";
-        std::cout << "  raw_top1_score: " << smoke.raw_top1_score << "\n";
-    }
-
-    if (!text_fixture_dir.empty())
-    {
-        std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
-        if (!text_runtime.load(model_root, &error))
-        {
-            std::cerr << "Failed to load text runtime: " << error << "\n";
-            return 1;
-        }
-
-        hunyuan_ocr::TextDecodeResult decode;
-        if (!text_runtime.run_fixture_decode(text_fixture_dir, max_tokens, &decode, &error))
-        {
-            std::cerr << "Text fixture decode failed: " << error << "\n";
-            return 1;
-        }
-
-        std::cout << "Text fixture decode:\n";
-        std::cout << "  seq_len: " << decode.seq_len << "\n";
-        std::cout << "  checked_tokens: " << decode.checked_tokens << "\n";
-        std::cout << "  repetition_penalty: " << decode.repetition_penalty << "\n";
-        print_token_vector("  generated_tokens: ", decode.generated_tokens);
-        print_token_vector("  raw_top1_tokens: ", decode.raw_top1_tokens);
-        print_token_vector("  expected_tokens: ", decode.expected_tokens);
-        std::cout << "  match_expected: " << (decode.matches_expected() ? "true" : "false") << "\n";
-        if (!decode.matches_expected())
-        {
-            return 3;
-        }
-    }
-
     if (!image_path.empty())
     {
         std::string error;
@@ -1784,86 +1433,52 @@ int main(int argc, char** argv)
         std::cout << "  patch_count: " << image.patch_count << "\n";
         std::cout << "  pixel_value_count: " << image.pixel_value_count << "\n";
 
-        std::string resolved_vision_param_path = vision_param_path;
-        std::string resolved_vision_bin_path = vision_bin_path;
+        std::string resolved_vision_param_path;
+        std::string resolved_vision_bin_path;
         std::string resolved_pos_embed_path;
-        bool use_dynamic_vision = false;
-        const bool explicit_vision_paths = !vision_param_path.empty() || !vision_bin_path.empty();
         const bool wants_image_decode =
-            !prompt_mode_text.empty() || !prompt_text.empty() || !vlm_fixture_dir.empty() ||
-            !resolved_vision_param_path.empty() || !resolved_vision_bin_path.empty();
-        if (wants_image_decode && !explicit_vision_paths)
-        {
-            use_dynamic_vision = resolve_dynamic_vision_paths(model_root,
-                                                              resolved_vision_param_path,
-                                                              resolved_vision_bin_path,
-                                                              resolved_pos_embed_path);
-        }
-        if (wants_image_decode && !use_dynamic_vision && !explicit_vision_paths)
+            !prompt_mode_text.empty() || !prompt_text.empty() || !vlm_fixture_dir.empty();
+        if (wants_image_decode &&
+            !resolve_dynamic_vision_paths(model_root,
+                                          resolved_vision_param_path,
+                                          resolved_vision_bin_path,
+                                          resolved_pos_embed_path))
         {
             std::cerr << "Canonical dynamic vision files are missing under "
                       << model_root << "/vision\n";
             return 1;
         }
 
-        if (!resolved_vision_param_path.empty() || !resolved_vision_bin_path.empty())
+        if (wants_image_decode)
         {
-            if (resolved_vision_param_path.empty() || resolved_vision_bin_path.empty())
-            {
-                std::cerr << "--image with vision requires both --vision-param and --vision-bin\n";
-                return 1;
-            }
-
             hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
-            if (use_dynamic_vision)
+            if (!vision_runtime.load_dynamic(resolved_vision_param_path,
+                                             resolved_vision_bin_path,
+                                             resolved_pos_embed_path,
+                                             &error))
             {
-                if (!vision_runtime.load_dynamic(resolved_vision_param_path,
-                                                 resolved_vision_bin_path,
-                                                 resolved_pos_embed_path,
-                                                 &error))
-                {
-                    std::cerr << "Failed to load dynamic vision runtime: " << error << "\n";
-                    return 1;
-                }
-            }
-            else if (!vision_runtime.load(resolved_vision_param_path, resolved_vision_bin_path, &error))
-            {
-                std::cerr << "Failed to load vision runtime: " << error << "\n";
+                std::cerr << "Failed to load dynamic vision runtime: " << error << "\n";
                 return 1;
             }
             print_vision_compute_backend(vision_options, vision_runtime);
 
-            const int patch_h = image.grid_h / preprocessor.config().merge_size;
-            const int patch_w = image.grid_w / preprocessor.config().merge_size;
-            const int vision_token_count = patch_h * (patch_w + 1) + 2;
-
             hunyuan_ocr::VisionRuntimeResult vision;
-            const bool vision_ok = use_dynamic_vision
-                ? vision_runtime.run_dynamic_pixel_values(image.pixel_values,
-                                                          image.grid_h,
-                                                          image.grid_w,
-                                                          preprocessor.config().merge_size,
-                                                          &vision,
-                                                          &error)
-                : vision_runtime.run_pixel_values(image.pixel_values,
-                                                  image.patch_count,
-                                                  vision_token_count,
-                                                  &vision,
-                                                  &error);
-            if (!vision_ok)
+            if (!vision_runtime.run_dynamic_pixel_values(image.pixel_values,
+                                                         image.grid_h,
+                                                         image.grid_w,
+                                                         preprocessor.config().merge_size,
+                                                         &vision,
+                                                         &error))
             {
                 std::cerr << "Image + vision failed: " << error << "\n";
                 return 1;
             }
 
             std::cout << "Image + vision:\n";
-            std::cout << "  backend: " << (use_dynamic_vision ? "dynamic" : "fixed-grid") << "\n";
+            std::cout << "  backend: dynamic\n";
             std::cout << "  param: " << resolved_vision_param_path << "\n";
             std::cout << "  bin: " << resolved_vision_bin_path << "\n";
-            if (use_dynamic_vision)
-            {
-                std::cout << "  pos_embed: " << resolved_pos_embed_path << "\n";
-            }
+            std::cout << "  pos_embed: " << resolved_pos_embed_path << "\n";
             std::cout << "  patch_count: " << vision.patch_count << "\n";
             std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
             std::cout << "  feature_values: " << vision.feature_values << "\n";
@@ -2045,240 +1660,11 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!image_file_fixture_dir.empty())
-    {
-        std::string error;
-        hunyuan_ocr::ImagePreprocessor preprocessor;
-        hunyuan_ocr::ImagePreprocessResult image;
-        if (!preprocessor.run_image_file_fixture(image_file_fixture_dir, &image, &error))
-        {
-            std::cerr << "Image file fixture failed: " << error << "\n";
-            return 1;
-        }
-
-        std::cout << "Image file fixture:\n";
-        std::cout << "  original_size: " << image.original_width << "x" << image.original_height << "\n";
-        std::cout << "  resized_size: " << image.resized_width << "x" << image.resized_height << "\n";
-        std::cout << "  image_grid_thw: [" << image.grid_t << ", " << image.grid_h << ", " << image.grid_w << "]\n";
-        std::cout << "  patch_count: " << image.patch_count << "\n";
-        std::cout << "  pixel_value_count: " << image.pixel_value_count << "\n";
-        if (image.has_expected_pixel_values)
-        {
-            std::cout << "  max_abs_diff_expected: " << image.max_abs_diff_expected << "\n";
-            std::cout << "  mean_abs_diff_expected: " << image.mean_abs_diff_expected << "\n";
-            std::cout << "  match_expected_pixel_values: "
-                      << (image.matches_expected(image_preprocess_tolerance) ? "true" : "false") << "\n";
-            if (!image.matches_expected(image_preprocess_tolerance))
-            {
-                return 6;
-            }
-        }
-
-        if (!vision_param_path.empty() || !vision_bin_path.empty())
-        {
-            if (vision_param_path.empty() || vision_bin_path.empty())
-            {
-                std::cerr << "--image-file-fixture with vision requires both --vision-param and --vision-bin\n";
-                return 1;
-            }
-
-            hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
-            if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
-            {
-                std::cerr << "Failed to load vision runtime: " << error << "\n";
-                return 1;
-            }
-            print_vision_compute_backend(vision_options, vision_runtime);
-
-            const int patch_h = image.grid_h / preprocessor.config().merge_size;
-            const int patch_w = image.grid_w / preprocessor.config().merge_size;
-            const int vision_token_count = patch_h * (patch_w + 1) + 2;
-
-            hunyuan_ocr::VisionRuntimeResult vision;
-            if (!vision_runtime.run_pixel_values(image.pixel_values,
-                                                 image.patch_count,
-                                                 vision_token_count,
-                                                 &vision,
-                                                 &error))
-            {
-                std::cerr << "Image file + vision failed: " << error << "\n";
-                return 1;
-            }
-
-            std::cout << "Image file + vision:\n";
-            std::cout << "  patch_count: " << vision.patch_count << "\n";
-            std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
-            std::cout << "  feature_values: " << vision.feature_values << "\n";
-
-            if (!vlm_fixture_dir.empty())
-            {
-                const int rc = run_vlm_decode_with_features("Image file + vision + VLM fixture decode",
-                                                            model_root,
-                                                            vlm_fixture_dir,
-                                                            vision.vision_features,
-                                                            vision.vision_token_count,
-                                                            max_tokens,
-                                                            num_threads,
-                                                            dflash,
-                                                            mmap_weights);
-                if (rc != 0)
-                {
-                    return rc;
-                }
-            }
-        }
-    }
-
-    if (!image_preprocess_fixture_dir.empty())
-    {
-        std::string error;
-        hunyuan_ocr::ImagePreprocessor preprocessor;
-        hunyuan_ocr::ImagePreprocessResult image;
-        if (!preprocessor.run_fixture(image_preprocess_fixture_dir, &image, &error))
-        {
-            std::cerr << "Image preprocess fixture failed: " << error << "\n";
-            return 1;
-        }
-
-        std::cout << "Image preprocess fixture:\n";
-        std::cout << "  original_size: " << image.original_width << "x" << image.original_height << "\n";
-        std::cout << "  resized_size: " << image.resized_width << "x" << image.resized_height << "\n";
-        std::cout << "  image_grid_thw: [" << image.grid_t << ", " << image.grid_h << ", " << image.grid_w << "]\n";
-        std::cout << "  patch_count: " << image.patch_count << "\n";
-        std::cout << "  pixel_value_count: " << image.pixel_value_count << "\n";
-        if (image.has_expected_pixel_values)
-        {
-            std::cout << "  max_abs_diff_expected: " << image.max_abs_diff_expected << "\n";
-            std::cout << "  mean_abs_diff_expected: " << image.mean_abs_diff_expected << "\n";
-            std::cout << "  match_expected_pixel_values: "
-                      << (image.matches_expected(image_preprocess_tolerance) ? "true" : "false") << "\n";
-            if (!image.matches_expected(image_preprocess_tolerance))
-            {
-                return 6;
-            }
-        }
-
-        if (!vision_param_path.empty() || !vision_bin_path.empty())
-        {
-            if (vision_param_path.empty() || vision_bin_path.empty())
-            {
-                std::cerr << "--image-preprocess-fixture with vision requires both --vision-param and --vision-bin\n";
-                return 1;
-            }
-
-            hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
-            if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
-            {
-                std::cerr << "Failed to load vision runtime: " << error << "\n";
-                return 1;
-            }
-            print_vision_compute_backend(vision_options, vision_runtime);
-
-            const int patch_h = image.grid_h / preprocessor.config().merge_size;
-            const int patch_w = image.grid_w / preprocessor.config().merge_size;
-            const int vision_token_count = patch_h * (patch_w + 1) + 2;
-
-            hunyuan_ocr::VisionRuntimeResult vision;
-            if (!vision_runtime.run_pixel_values(image.pixel_values,
-                                                 image.patch_count,
-                                                 vision_token_count,
-                                                 &vision,
-                                                 &error))
-            {
-                std::cerr << "Image preprocess + vision failed: " << error << "\n";
-                return 1;
-            }
-
-            std::cout << "Image preprocess + vision:\n";
-            std::cout << "  patch_count: " << vision.patch_count << "\n";
-            std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
-            std::cout << "  feature_values: " << vision.feature_values << "\n";
-
-            if (!vlm_fixture_dir.empty())
-            {
-                const int rc = run_vlm_decode_with_features("Image preprocess + vision + VLM fixture decode",
-                                                            model_root,
-                                                            vlm_fixture_dir,
-                                                            vision.vision_features,
-                                                            vision.vision_token_count,
-                                                            max_tokens,
-                                                            num_threads,
-                                                            dflash,
-                                                            mmap_weights);
-                if (rc != 0)
-                {
-                    return rc;
-                }
-            }
-        }
-    }
-
-    if (!vision_fixture_dir.empty())
-    {
-        if (vision_param_path.empty() || vision_bin_path.empty())
-        {
-            std::cerr << "--vision-fixture requires --vision-param and --vision-bin\n";
-            return 1;
-        }
-
-        std::string error;
-        hunyuan_ocr::VisionRuntime vision_runtime(vision_options);
-        if (!vision_runtime.load(vision_param_path, vision_bin_path, &error))
-        {
-            std::cerr << "Failed to load vision runtime: " << error << "\n";
-            return 1;
-        }
-        print_vision_compute_backend(vision_options, vision_runtime);
-
-        hunyuan_ocr::VisionRuntimeResult vision;
-        if (!vision_runtime.run_fixture(vision_fixture_dir, &vision, &error))
-        {
-            std::cerr << "Vision fixture failed: " << error << "\n";
-            return 1;
-        }
-
-        std::cout << "Vision fixture:\n";
-        std::cout << "  patch_count: " << vision.patch_count << "\n";
-        std::cout << "  vision_token_count: " << vision.vision_token_count << "\n";
-        std::cout << "  feature_values: " << vision.feature_values << "\n";
-        if (vision.has_expected_features)
-        {
-            std::cout << "  max_abs_diff_expected: " << vision.max_abs_diff_expected << "\n";
-            std::cout << "  mean_abs_diff_expected: " << vision.mean_abs_diff_expected << "\n";
-            std::cout << "  match_expected_features: "
-                      << (vision.matches_expected(vision_tolerance) ? "true" : "false") << "\n";
-        }
-
-        if (!vlm_fixture_dir.empty())
-        {
-            const int rc = run_vlm_decode_with_features("Vision+VLM fixture decode",
-                                                        model_root,
-                                                        vlm_fixture_dir,
-                                                        vision.vision_features,
-                                                        vision.vision_token_count,
-                                                        max_tokens,
-                                                        num_threads,
-                                                        dflash,
-                                                        mmap_weights);
-            if (rc != 0)
-            {
-                return rc;
-            }
-        }
-
-        if (vision.has_expected_features && !vision.matches_expected(vision_tolerance))
-        {
-            return 5;
-        }
-    }
-
     if (!dflash &&
         !vlm_fixture_dir.empty() &&
-        vision_fixture_dir.empty() &&
         image_path.empty() &&
         prompt_mode_text.empty() &&
-        image_preprocess_fixture_dir.empty() &&
-        image_file_fixture_dir.empty())
+        prompt_text.empty())
     {
         std::string error;
         hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);

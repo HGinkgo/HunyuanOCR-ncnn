@@ -64,10 +64,34 @@ def main() -> int:
         capture_output=True,
         check=False,
     )
+    removed_diagnostic_options = (
+        "--decode-ids",
+        "--decode-ids-file",
+        "--no-skip-special",
+        "--smoke-text",
+        "--text-fixture",
+        "--dflash-probe",
+        "--vision-param",
+        "--vision-bin",
+        "--vision-fixture",
+        "--vision-tolerance",
+        "--image-preprocess-fixture",
+        "--image-preprocess-tolerance",
+        "--image-file-fixture",
+    )
+    retained_diagnostics = [
+        option for option in removed_diagnostic_options if option in help_result.stdout
+    ]
+    if retained_diagnostics:
+        print(
+            "CLI help retained obsolete diagnostic options: "
+            + ", ".join(retained_diagnostics),
+            file=sys.stderr,
+        )
+        return 1
     if (
         help_result.returncode != 0
         or "Default: 1.08." not in help_result.stdout
-        or "--dflash-probe" not in help_result.stdout
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
@@ -237,12 +261,6 @@ def main() -> int:
         "--vision-vulkan requires a path that executes vision",
     ):
         return 1
-    if not require_rejected(
-        binary,
-        ["--model", ".", "--image-file-fixture", ".", "--vision-vulkan"],
-        "--vision-vulkan requires a path that executes vision",
-    ):
-        return 1
     if not vulkan_compiled:
         if not require_rejected(
             binary,
@@ -302,32 +320,6 @@ def main() -> int:
         print(
             "--benchmark --dflash was not rejected: "
             f"rc={dflash_benchmark.returncode} stderr={dflash_benchmark.stderr!r}",
-            file=sys.stderr,
-        )
-        return 1
-
-    dflash_probe_mutex = subprocess.run(
-        [
-            str(binary),
-            "--model",
-            ".",
-            "--vlm-fixture",
-            ".",
-            "--dflash",
-            "--dflash-probe",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if (
-        dflash_probe_mutex.returncode == 0
-        or "--dflash and --dflash-probe are mutually exclusive"
-        not in dflash_probe_mutex.stderr
-    ):
-        print(
-            "--dflash/--dflash-probe mutual exclusion failed: "
-            f"rc={dflash_probe_mutex.returncode} stderr={dflash_probe_mutex.stderr!r}",
             file=sys.stderr,
         )
         return 1
