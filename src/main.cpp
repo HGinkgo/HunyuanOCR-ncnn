@@ -40,12 +40,13 @@ double elapsed_ms(Clock::time_point start, Clock::time_point end)
 }
 
 hunyuan_ocr::VisionRuntimeOptions make_vision_runtime_options(
-    int num_threads, bool use_vulkan, int vulkan_device)
+    int num_threads, bool use_vulkan, int vulkan_device, bool mmap_weights)
 {
     hunyuan_ocr::VisionRuntimeOptions options;
     options.num_threads = num_threads;
     options.use_vulkan = use_vulkan;
     options.vulkan_device = vulkan_device;
+    options.mmap_weights = mmap_weights;
     return options;
 }
 
@@ -79,6 +80,7 @@ void print_usage(const char* program)
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
         << "  --dflash               Run DFlash with --vlm-fixture or --image with --prompt/--prompt-mode.\n"
         << "  --dflash-probe         Run one 16-token DFlash block with --vlm-fixture.\n"
+        << "  --mmap-weights         Load model weights from read-only file mappings.\n"
         << "  --vision-param PATH    Load a per-grid vision ncnn param file for fixture validation.\n"
         << "  --vision-bin PATH      Load a per-grid vision ncnn bin file for fixture validation.\n"
         << "  --vision-fixture PATH  Run pixel_values -> vision_features fixture.\n"
@@ -374,10 +376,11 @@ int run_vlm_decode_with_features(const std::string& label,
                                  int vision_token_count,
                                  int max_tokens,
                                  int num_threads,
-                                 bool use_dflash)
+                                 bool use_dflash,
+                                 bool mmap_weights)
 {
     std::string error;
-    hunyuan_ocr::TextRuntime text_runtime(num_threads);
+    hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
     if (!text_runtime.load(model_root, &error))
     {
         std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -758,7 +761,7 @@ int run_image_benchmark(const std::string& model_root,
     print_vision_compute_backend(vision_options, vision_runtime);
     const double vision_load_ms = elapsed_ms(vision_load_start, Clock::now());
 
-    hunyuan_ocr::TextRuntime text_runtime(num_threads);
+    hunyuan_ocr::TextRuntime text_runtime(num_threads, vision_options.mmap_weights);
     const auto text_load_start = Clock::now();
     if (!text_runtime.load(model_root, &error))
     {
@@ -778,6 +781,8 @@ int run_image_benchmark(const std::string& model_root,
         return 1;
     }
     const double tokenizer_load_ms = elapsed_ms(tokenizer_load_start, Clock::now());
+    const size_t mapped_weight_bytes =
+        vision_runtime.mapped_weight_bytes() + text_runtime.mapped_weight_bytes();
 
     BenchmarkIteration cold;
     if (!run_benchmark_iteration(image_path,
@@ -880,6 +885,8 @@ int run_image_benchmark(const std::string& model_root,
     std::cout << "  num_threads: " << effective_threads << "\n";
     std::cout << "  warmup: " << warmup << "\n";
     std::cout << "  repeat: " << repeat << "\n";
+    std::cout << "  mmap_weights: " << (vision_options.mmap_weights ? 1 : 0) << "\n";
+    std::cout << "  mapped_weight_bytes: " << mapped_weight_bytes << "\n";
     std::cout << "  cold_start_total_ms: " << cold_start_total_ms << "\n";
     std::cout << "  vision_load_ms: " << vision_load_ms << "\n";
     std::cout << "  text_load_ms: " << text_load_ms << "\n";
@@ -954,6 +961,7 @@ int main(int argc, char** argv)
     std::string vlm_fixture_dir;
     bool dflash = false;
     bool dflash_probe = false;
+    bool mmap_weights = false;
     std::string vision_param_path;
     std::string vision_bin_path;
     std::string vision_fixture_dir;
@@ -1076,6 +1084,11 @@ int main(int argc, char** argv)
         if (arg == "--dflash")
         {
             dflash = true;
+            continue;
+        }
+        if (arg == "--mmap-weights")
+        {
+            mmap_weights = true;
             continue;
         }
         if (arg == "--vision-param")
@@ -1438,7 +1451,8 @@ int main(int argc, char** argv)
         return 1;
     }
     const hunyuan_ocr::VisionRuntimeOptions vision_options =
-        make_vision_runtime_options(num_threads, vision_vulkan, vision_vulkan_device);
+        make_vision_runtime_options(
+            num_threads, vision_vulkan, vision_vulkan_device, mmap_weights);
     if (benchmark_warmup < 0 || benchmark_repeat <= 0)
     {
         std::cerr << "benchmark warmup must be non-negative and repeat must be positive\n";
@@ -1516,6 +1530,7 @@ int main(int argc, char** argv)
         runtime_options.vision_vulkan = vision_vulkan;
         runtime_options.vision_vulkan_device = vision_vulkan_device;
         runtime_options.dflash = dflash;
+        runtime_options.mmap_weights = mmap_weights;
         runtime_options.repetition_penalty = repetition_penalty;
 
         hunyuan_ocr::HunyuanOCR runtime;
@@ -1578,6 +1593,7 @@ int main(int argc, char** argv)
         runtime_options.vision_vulkan = vision_vulkan;
         runtime_options.vision_vulkan_device = vision_vulkan_device;
         runtime_options.dflash = dflash;
+        runtime_options.mmap_weights = mmap_weights;
         runtime_options.repetition_penalty = repetition_penalty;
 
         hunyuan_ocr::RuntimeError runtime_error;
@@ -1644,7 +1660,7 @@ int main(int argc, char** argv)
     if (dflash_probe)
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
         if (!text_runtime.load(model_root, &error) ||
             !text_runtime.load_dflash(model_root, &error))
         {
@@ -1683,7 +1699,7 @@ int main(int argc, char** argv)
     if (pure_dflash_fixture)
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
         if (!text_runtime.load(model_root, &error) ||
             !text_runtime.load_dflash(model_root, &error))
         {
@@ -1730,7 +1746,7 @@ int main(int argc, char** argv)
     if (run_text_smoke)
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -1761,7 +1777,7 @@ int main(int argc, char** argv)
     if (!text_fixture_dir.empty())
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -1997,7 +2013,7 @@ int main(int argc, char** argv)
                     }
                 }
 
-                hunyuan_ocr::TextRuntime text_runtime(num_threads);
+                hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
                 if (!text_runtime.load(model_root, &error))
                 {
                     std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -2076,7 +2092,8 @@ int main(int argc, char** argv)
                                                             vision.vision_token_count,
                                                             max_tokens,
                                                             num_threads,
-                                                            dflash);
+                                                            dflash,
+                                                            mmap_weights);
                 if (rc != 0)
                 {
                     return rc;
@@ -2159,7 +2176,8 @@ int main(int argc, char** argv)
                                                             vision.vision_token_count,
                                                             max_tokens,
                                                             num_threads,
-                                                            dflash);
+                                                            dflash,
+                                                            mmap_weights);
                 if (rc != 0)
                 {
                     return rc;
@@ -2242,7 +2260,8 @@ int main(int argc, char** argv)
                                                             vision.vision_token_count,
                                                             max_tokens,
                                                             num_threads,
-                                                            dflash);
+                                                            dflash,
+                                                            mmap_weights);
                 if (rc != 0)
                 {
                     return rc;
@@ -2296,7 +2315,8 @@ int main(int argc, char** argv)
                                                         vision.vision_token_count,
                                                         max_tokens,
                                                         num_threads,
-                                                        dflash);
+                                                        dflash,
+                                                        mmap_weights);
             if (rc != 0)
             {
                 return rc;
@@ -2318,7 +2338,7 @@ int main(int argc, char** argv)
         image_file_fixture_dir.empty())
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";

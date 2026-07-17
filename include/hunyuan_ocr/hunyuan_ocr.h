@@ -3,6 +3,7 @@
 #include "hunyuan_ocr/model_layout.h"
 #include "hunyuan_ocr/prompt_builder.h"
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -24,6 +25,7 @@ struct RuntimeOptions {
     int vision_vulkan_device = 0;
     bool dflash = false;
     float repetition_penalty = 1.08f;
+    bool mmap_weights = false;
 };
 
 struct InferenceChunk {
@@ -96,6 +98,7 @@ public:
                    InferenceResult* result,
                    RuntimeError* error);
     bool ready() const;
+    size_t mapped_weight_bytes() const;
     const ModelLayoutReport& layout_report() const;
 
 private:

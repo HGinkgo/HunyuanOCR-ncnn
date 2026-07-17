@@ -34,6 +34,7 @@ python tools/benchmark.py \
   --model ./hunyuan_ocr_ncnn_model \
   --cases hf_demo \
   --threads 1,2,4,8,16 \
+  --mmap-weights \
   --repeat 3 \
   --warmup 1 \
   --max-tokens 64 \
@@ -52,6 +53,8 @@ python tools/benchmark.py \
 
 Reported fields:
 
+- `mmap_weights`: `1` when read-only mapped weight loading is enabled.
+- `mapped_weight_bytes`: total size of the retained model file mappings.
 - `cold_start_total_ms`: process entry through the first completed inference.
 - `warm_inference_total_ms`: image-to-text time with ncnn networks already loaded.
 - `vision_load_ms`: one-time vision network and position embedding load.
@@ -70,6 +73,10 @@ Reported fields:
 The tool checks that generated token ids remain identical across all selected
 thread counts for each case. `--output-dir` writes separate cold-start and warm
 inference CSV files plus a compact Markdown summary.
+
+Mapped pages count toward process RSS/PSS after they are touched. Use anonymous
+and file-backed memory fields separately when comparing `--mmap-weights`; total
+RSS alone does not represent private model memory.
 
 The script does not download models or prepare fixtures. It expects a packaged
 runtime model directory produced by `tools/package_model.py`.

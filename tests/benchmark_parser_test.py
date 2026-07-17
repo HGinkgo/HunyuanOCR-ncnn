@@ -29,7 +29,9 @@ class BenchmarkParserTest(unittest.TestCase):
         self.assertEqual(metrics["num_threads"], 1.0)
 
     def test_missing_metric_is_rejected(self) -> None:
-        output = self.make_output().replace("  vision_load_ms: 5.000\n", "")
+        output = "\n".join(
+            line for line in self.make_output().splitlines() if not line.startswith("  vision_load_ms:")
+        )
         with self.assertRaisesRegex(ValueError, "vision_load_ms"):
             benchmark.parse_benchmark(output)
 

@@ -2,6 +2,7 @@
 
 #include "hunyuan_ocr/hunyuan_ocr.h"
 #include "hunyuan_ocr/utf8.h"
+#include "mapped_model_file.h"
 #include "vision_vulkan_policy.h"
 
 #include <algorithm>
@@ -324,7 +325,7 @@ bool VisionRuntimeResult::matches_expected(float tolerance) const
 }
 
 VisionRuntime::VisionRuntime(int num_threads)
-    : VisionRuntime(VisionRuntimeOptions{num_threads, false, 0})
+    : VisionRuntime(VisionRuntimeOptions{num_threads, false, 0, false})
 {
 }
 
@@ -337,6 +338,7 @@ VisionRuntime::VisionRuntime(const VisionRuntimeOptions& options)
 bool VisionRuntime::reset_net(std::string* error)
 {
     vision_net_.reset(new ncnn::Net);
+    vision_model_mapping_.reset();
     gelu_cpu_fallback_count_ = 0;
     vision_net_->opt = make_fp32_ncnn_option(options_.num_threads);
     vision_net_->opt.use_packing_layout = false;
@@ -378,9 +380,12 @@ bool VisionRuntime::load_net_files(const std::string& param_path,
             return false;
         }
     }
-    if (vision_net_->load_model(native_bin_path.c_str()) != 0)
+    if (!load_model_file(*vision_net_,
+                         native_bin_path,
+                         options_.mmap_weights,
+                         &vision_model_mapping_,
+                         error))
     {
-        if (error) *error = "failed to load " + std::string(model_label) + " bin: " + bin_path;
         return false;
     }
     return true;
@@ -426,6 +431,11 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
 bool VisionRuntime::ready() const
 {
     return ready_;
+}
+
+size_t VisionRuntime::mapped_weight_bytes() const
+{
+    return vision_model_mapping_ ? vision_model_mapping_->size() : 0;
 }
 
 int VisionRuntime::gelu_cpu_fallback_count() const

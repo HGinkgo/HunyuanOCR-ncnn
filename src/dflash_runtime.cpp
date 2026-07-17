@@ -2,6 +2,7 @@
 
 #include "hunyuan_ocr/hunyuan_ocr.h"
 #include "hunyuan_ocr/utf8.h"
+#include "mapped_model_file.h"
 
 #include <cmath>
 #include <cstddef>
@@ -166,8 +167,8 @@ bool append_dflash_rows(ncnn::Mat* target,
 
 } // namespace detail
 
-DFlashDraftRuntime::DFlashDraftRuntime(int num_threads)
-    : net_(new ncnn::Net), num_threads_(num_threads)
+DFlashDraftRuntime::DFlashDraftRuntime(int num_threads, bool mmap_weights)
+    : net_(new ncnn::Net), num_threads_(num_threads), mmap_weights_(mmap_weights)
 {
 }
 
@@ -187,13 +188,14 @@ bool DFlashDraftRuntime::load(const std::string& param_path,
         if (error) *error = "failed to load DFlash param: " + param_path;
         return false;
     }
-    if (candidate->load_model(bin.c_str()) != 0)
+    std::shared_ptr<MappedModelFile> candidate_mapping;
+    if (!load_model_file(*candidate, bin, mmap_weights_, &candidate_mapping, error))
     {
-        if (error) *error = "failed to load DFlash bin: " + bin_path;
         return false;
     }
 
     net_ = std::move(candidate);
+    model_mapping_ = std::move(candidate_mapping);
     ready_ = true;
     return true;
 }
@@ -201,6 +203,11 @@ bool DFlashDraftRuntime::load(const std::string& param_path,
 bool DFlashDraftRuntime::ready() const
 {
     return ready_;
+}
+
+size_t DFlashDraftRuntime::mapped_weight_bytes() const
+{
+    return model_mapping_ ? model_mapping_->size() : 0;
 }
 
 bool DFlashDraftRuntime::run(const DFlashDraftInput& input,

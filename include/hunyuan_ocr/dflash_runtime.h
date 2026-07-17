@@ -10,6 +10,8 @@
 
 namespace hunyuan_ocr {
 
+class MappedModelFile;
+
 namespace detail {
 
 constexpr int kDFlashBlockSize = 16;
@@ -44,19 +46,22 @@ struct DFlashDraftInput {
 
 class DFlashDraftRuntime {
 public:
-    explicit DFlashDraftRuntime(int num_threads = 0);
+    explicit DFlashDraftRuntime(int num_threads = 0, bool mmap_weights = false);
 
     bool load(const std::string& param_path,
               const std::string& bin_path,
               std::string* error);
     bool ready() const;
+    size_t mapped_weight_bytes() const;
     bool run(const DFlashDraftInput& input,
              ncnn::Mat* output,
              std::string* error) const;
 
 private:
+    std::shared_ptr<MappedModelFile> model_mapping_;
     std::unique_ptr<ncnn::Net> net_;
     int num_threads_ = 0;
+    bool mmap_weights_ = false;
     bool ready_ = false;
 };
 

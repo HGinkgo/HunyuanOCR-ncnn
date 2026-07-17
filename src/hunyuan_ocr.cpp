@@ -133,6 +133,7 @@ public:
         vision_options.num_threads = options.num_threads;
         vision_options.use_vulkan = options.vision_vulkan;
         vision_options.vulkan_device = options.vision_vulkan_device;
+        vision_options.mmap_weights = options.mmap_weights;
         return std::unique_ptr<VisionRuntime>(new VisionRuntime(vision_options));
     }
 
@@ -301,6 +302,20 @@ public:
         return true;
     }
 
+    size_t mapped_weight_bytes() const
+    {
+        size_t bytes = text_runtime ? text_runtime->mapped_weight_bytes() : 0;
+        if (dynamic_vision)
+        {
+            bytes += dynamic_vision->mapped_weight_bytes();
+        }
+        for (const auto& entry : fixed_vision_runtimes)
+        {
+            bytes += entry.second->mapped_weight_bytes();
+        }
+        return bytes;
+    }
+
     bool ready = false;
     RuntimeOptions options;
     ModelLayoutReport layout_report;
@@ -415,7 +430,7 @@ bool HunyuanOCR::load(const std::string& model_root,
         }
     }
 
-    impl_->text_runtime.reset(new TextRuntime(options.num_threads));
+    impl_->text_runtime.reset(new TextRuntime(options.num_threads, options.mmap_weights));
     if (!impl_->text_runtime->load(model_root, &runtime_error))
     {
         impl_->text_runtime.reset();
@@ -539,6 +554,11 @@ bool HunyuanOCR::infer_rgb(const std::vector<unsigned char>& rgb,
 bool HunyuanOCR::ready() const
 {
     return impl_ && impl_->ready;
+}
+
+size_t HunyuanOCR::mapped_weight_bytes() const
+{
+    return impl_ ? impl_->mapped_weight_bytes() : 0;
 }
 
 const ModelLayoutReport& HunyuanOCR::layout_report() const

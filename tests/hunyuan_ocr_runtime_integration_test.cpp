@@ -1,5 +1,7 @@
 #include "hunyuan_ocr/hunyuan_ocr.h"
 
+#include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -14,6 +16,16 @@ bool fail(const std::string& message, const hunyuan_ocr::RuntimeError& error)
     }
     std::cerr << '\n';
     return false;
+}
+
+std::uintmax_t expected_mapped_weight_bytes(const std::filesystem::path& model_root)
+{
+    return std::filesystem::file_size(model_root / "vision" / "vision.ncnn.bin") +
+           std::filesystem::file_size(model_root / "text_embed" / "text_embed.ncnn.bin") +
+           std::filesystem::file_size(
+               model_root / "text_decoder" / "text_decoder_kv.ncnn.bin") +
+           std::filesystem::file_size(model_root / "lm_head" / "lm_head.ncnn.bin") +
+           std::filesystem::file_size(model_root / "dflash" / "dflash.ncnn.bin");
 }
 
 } // namespace
@@ -36,6 +48,11 @@ int main(int argc, char** argv)
         fail("runtime load failed", error);
         return 3;
     }
+    if (runtime.mapped_weight_bytes() != 0)
+    {
+        std::cerr << "default runtime unexpectedly mapped model weights\n";
+        return 4;
+    }
 
     hunyuan_ocr::InferenceRequest request;
     request.prompt_mode = hunyuan_ocr::PromptMode::Spotting;
@@ -54,24 +71,24 @@ int main(int argc, char** argv)
     if (!runtime.infer_file(argv[2], request, &first, &error))
     {
         fail("first inference failed", error);
-        return 4;
+        return 5;
     }
     if (first.token_ids.empty() || first.text.empty())
     {
         std::cerr << "first inference returned empty output\n";
-        return 5;
+        return 6;
     }
     if (first.decoder.mode != hunyuan_ocr::DecoderMode::Autoregressive ||
         first.timing.total_ms <= 0.0)
     {
         std::cerr << "first inference metadata is invalid\n";
-        return 6;
+        return 7;
     }
     if (callback_after_result_finalized || streamed_token_ids != first.token_ids ||
         streamed_text != first.text)
     {
         std::cerr << "autoregressive stream did not match the committed result\n";
-        return 7;
+        return 8;
     }
 
     request.stream_callback = {};
@@ -79,21 +96,29 @@ int main(int argc, char** argv)
     if (!runtime.infer_file(argv[2], request, &second, &error))
     {
         fail("second inference failed", error);
-        return 8;
+        return 9;
     }
     if (second.token_ids != first.token_ids || second.text != first.text)
     {
         std::cerr << "persistent runtime output changed between requests\n";
-        return 9;
+        return 10;
     }
 
     hunyuan_ocr::RuntimeOptions dflash_options = options;
     dflash_options.dflash = true;
+    dflash_options.mmap_weights = true;
     hunyuan_ocr::HunyuanOCR dflash_runtime;
     if (!dflash_runtime.load(argv[1], dflash_options, &error))
     {
         fail("DFlash runtime load failed", error);
-        return 10;
+        return 11;
+    }
+    const std::uintmax_t expected_mapped_bytes = expected_mapped_weight_bytes(argv[1]);
+    if (dflash_runtime.mapped_weight_bytes() != expected_mapped_bytes)
+    {
+        std::cerr << "mmap runtime retained " << dflash_runtime.mapped_weight_bytes()
+                  << " mapped bytes, expected " << expected_mapped_bytes << '\n';
+        return 12;
     }
 
     hunyuan_ocr::InferenceResult dflash_result;
@@ -109,20 +134,20 @@ int main(int argc, char** argv)
     if (!dflash_runtime.infer_file(argv[2], request, &dflash_result, &error))
     {
         fail("DFlash inference failed", error);
-        return 11;
+        return 13;
     }
     if (dflash_result.decoder.mode != hunyuan_ocr::DecoderMode::DFlash ||
         dflash_result.token_ids != first.token_ids || dflash_result.text != first.text)
     {
         std::cerr << "DFlash output did not match autoregressive output\n";
-        return 12;
+        return 14;
     }
     if (dflash_callback_after_result_finalized ||
         dflash_streamed_token_ids != dflash_result.token_ids ||
         dflash_streamed_text != dflash_result.text)
     {
         std::cerr << "DFlash stream did not match the committed result\n";
-        return 13;
+        return 15;
     }
 
     std::cout << "persistent runtime generated " << first.token_ids.size()

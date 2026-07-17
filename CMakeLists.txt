@@ -66,6 +66,7 @@ target_sources(hunyuan_ocr
         src/generation_config.cpp
         src/image_preprocessor.cpp
         src/kv_cache_capacity.cpp
+        src/mapped_model_file.cpp
         src/model_layout.cpp
         src/multimodal_rope.cpp
         src/prompt_builder.cpp

@@ -4,6 +4,7 @@
 // tests/decoder microbenchmarks. Not part of the public HunyuanOCR-ncnn API.
 
 #include <array>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,6 +13,7 @@
 #include <net.h>
 
 namespace hunyuan_ocr {
+class MappedModelFile;
 namespace detail {
 
 constexpr int kTextHiddenSize = 1024;
@@ -38,7 +40,9 @@ bool run_decoder_step(const ncnn::Net& net,
 bool load_text_decoder_kv_net(const std::string& model_root,
                               int num_threads,
                               ncnn::Net* net,
-                              std::string* error);
+                              std::string* error,
+                              bool mmap_weights = false,
+                              std::shared_ptr<MappedModelFile>* model_mapping = nullptr);
 
 } // namespace detail
 } // namespace hunyuan_ocr

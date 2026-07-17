@@ -32,12 +32,18 @@ int main()
                   "runtime must be move assignable");
 
     const hunyuan_ocr::RuntimeOptions runtime_options;
+    const hunyuan_ocr::RuntimeOptions aggregate_options{4, false, 0, false, 1.25f};
     if (!expect(runtime_options.num_threads == 0, "default thread count mismatch") ||
         !expect(!runtime_options.vision_vulkan, "vision Vulkan must default off") ||
         !expect(runtime_options.vision_vulkan_device == 0, "default Vulkan device mismatch") ||
         !expect(!runtime_options.dflash, "DFlash must default off") ||
+        !expect(!runtime_options.mmap_weights, "mmap weights must default off") ||
         !expect(runtime_options.repetition_penalty == 1.08f,
-                "default repetition penalty mismatch"))
+                "default repetition penalty mismatch") ||
+        !expect(aggregate_options.repetition_penalty == 1.25f,
+                "legacy RuntimeOptions aggregate order changed") ||
+        !expect(!aggregate_options.mmap_weights,
+                "legacy RuntimeOptions aggregate must default mmap off"))
     {
         return 1;
     }
@@ -76,6 +82,8 @@ int main()
     hunyuan_ocr::InferenceResult result;
     hunyuan_ocr::RuntimeError error;
     if (!expect(!runtime.ready(), "new runtime must not be ready") ||
+        !expect(runtime.mapped_weight_bytes() == 0,
+                "new runtime must not report mapped weights") ||
         !expect(!runtime.infer_file("missing.png", request, &result, &error),
                 "inference before load must fail") ||
         !expect(error.stage == "runtime_state", "pre-load error stage mismatch") ||

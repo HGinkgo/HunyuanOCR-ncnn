@@ -20,6 +20,8 @@ BENCHMARK_KEYS = [
     "num_threads",
     "warmup",
     "repeat",
+    "mmap_weights",
+    "mapped_weight_bytes",
     "cold_start_total_ms",
     "vision_load_ms",
     "text_load_ms",
@@ -70,6 +72,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeat", type=int, default=1, help="Same-process measured repeats per case. Default: 1.")
     parser.add_argument("--warmup", type=int, default=0, help="Same-process warmup runs per case. Default: 0.")
     parser.add_argument("--max-tokens", type=int, default=64, help="Generation token limit. Default: 64.")
+    parser.add_argument(
+        "--mmap-weights",
+        action="store_true",
+        help="Load model weights from read-only file mappings.",
+    )
     parser.add_argument("--csv", type=Path, default=None, help="Optional combined CSV output path.")
     parser.add_argument(
         "--output-dir",
@@ -149,6 +156,7 @@ def run_benchmark(
     threads: int,
     warmup: int,
     repeat: int,
+    mmap_weights: bool,
 ) -> tuple[dict[str, float], tuple[int, ...]]:
     cmd = [
         str(binary),
@@ -168,6 +176,8 @@ def run_benchmark(
     ]
     if threads > 0:
         cmd.extend(["--num-threads", str(threads)])
+    if mmap_weights:
+        cmd.append("--mmap-weights")
     process_start = time.perf_counter()
     completed = subprocess.run(cmd, text=True, capture_output=True)
     process_wall_ms = (time.perf_counter() - process_start) * 1000.0
@@ -350,6 +360,7 @@ def main() -> int:
                 threads=threads,
                 warmup=args.warmup,
                 repeat=args.repeat,
+                mmap_weights=args.mmap_weights,
             )
             expected = reference_tokens.setdefault(case.key, generated_tokens)
             if generated_tokens != expected:

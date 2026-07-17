@@ -13,6 +13,8 @@
 
 namespace hunyuan_ocr {
 
+class MappedModelFile;
+
 using TextTokenCallback = std::function<void(int)>;
 
 namespace detail {
@@ -95,12 +97,13 @@ struct DFlashDecodeResult {
 
 class TextRuntime {
 public:
-    explicit TextRuntime(int num_threads = 0);
+    explicit TextRuntime(int num_threads = 0, bool mmap_weights = false);
 
     bool load(const std::string& model_root, std::string* error);
     bool load_dflash(const std::string& model_root, std::string* error);
     bool ready() const;
     bool dflash_ready() const;
+    size_t mapped_weight_bytes() const;
     TextRuntimeSmokeResult smoke_token(int token_id, std::string* error) const;
     bool run_fixture_decode(const std::string& fixture_dir,
                             int max_tokens,
@@ -155,12 +158,16 @@ public:
                                     const TextTokenCallback& token_callback = {}) const;
 
 private:
+    std::shared_ptr<MappedModelFile> text_embed_model_mapping_;
+    std::shared_ptr<MappedModelFile> text_decoder_model_mapping_;
+    std::shared_ptr<MappedModelFile> lm_head_model_mapping_;
     std::unique_ptr<ncnn::Net> text_embed_net_;
     std::unique_ptr<ncnn::Net> text_decoder_net_;
     std::unique_ptr<ncnn::Net> lm_head_net_;
     std::unique_ptr<DFlashDraftRuntime> dflash_draft_;
     std::vector<int> eos_ids_;
     int num_threads_ = 0;
+    bool mmap_weights_ = false;
     bool ready_ = false;
 };
 

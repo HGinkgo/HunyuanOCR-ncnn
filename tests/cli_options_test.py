@@ -32,7 +32,13 @@ def main() -> int:
 
     binary = Path(sys.argv[1])
     completed = subprocess.run(
-        [str(binary), "--repetition-penalty", "1.08", "--version"],
+        [
+            str(binary),
+            "--repetition-penalty",
+            "1.08",
+            "--mmap-weights",
+            "--version",
+        ],
         text=True,
         capture_output=True,
         check=False,
@@ -65,6 +71,7 @@ def main() -> int:
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
+        or "--mmap-weights" not in help_result.stdout
         or "--batch-input" not in help_result.stdout
         or "--batch-output" not in help_result.stdout
         or "--force" not in help_result.stdout

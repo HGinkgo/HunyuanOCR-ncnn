@@ -7,6 +7,7 @@
 #include "hunyuan_ocr/multimodal_rope.h"
 #include "hunyuan_ocr/precise_sdpa.h"
 #include "hunyuan_ocr/utf8.h"
+#include "mapped_model_file.h"
 
 #include <algorithm>
 #include <chrono>
@@ -92,6 +93,8 @@ bool load_net(ncnn::Net& net,
               const std::filesystem::path& param,
               const std::filesystem::path& bin,
               int num_threads,
+              bool mmap_weights,
+              std::shared_ptr<MappedModelFile>* model_mapping,
               std::string* error)
 {
     net.opt = make_fp32_ncnn_option(num_threads);
@@ -102,9 +105,8 @@ bool load_net(ncnn::Net& net,
         if (error) *error = "failed to load param: " + path_to_utf8(param);
         return false;
     }
-    if (net.load_model(bin.c_str()) != 0)
+    if (!load_model_file(net, bin, mmap_weights, model_mapping, error))
     {
-        if (error) *error = "failed to load bin: " + path_to_utf8(bin);
         return false;
     }
     return true;
@@ -1598,12 +1600,13 @@ bool validate_dflash_runtime_request(bool runtime_ready,
 
 } // namespace
 
-TextRuntime::TextRuntime(int num_threads)
+TextRuntime::TextRuntime(int num_threads, bool mmap_weights)
     : text_embed_net_(new ncnn::Net),
       text_decoder_net_(new ncnn::Net),
       lm_head_net_(new ncnn::Net),
-      dflash_draft_(new DFlashDraftRuntime(num_threads)),
-      num_threads_(num_threads)
+      dflash_draft_(new DFlashDraftRuntime(num_threads, mmap_weights)),
+      num_threads_(num_threads),
+      mmap_weights_(mmap_weights)
 {
 }
 
@@ -1611,7 +1614,16 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
 {
     const std::filesystem::path root = path_from_utf8(model_root);
     ready_ = false;
-    dflash_draft_.reset(new DFlashDraftRuntime(num_threads_));
+    dflash_draft_.reset(new DFlashDraftRuntime(num_threads_, mmap_weights_));
+    text_embed_net_.reset();
+    text_decoder_net_.reset();
+    lm_head_net_.reset();
+    text_embed_model_mapping_.reset();
+    text_decoder_model_mapping_.reset();
+    lm_head_model_mapping_.reset();
+    text_embed_net_.reset(new ncnn::Net);
+    text_decoder_net_.reset(new ncnn::Net);
+    lm_head_net_.reset(new ncnn::Net);
     eos_ids_.clear();
 
     if (!load_eos_ids(path_to_utf8(root / "tokenizer" / "eos_ids.json"), &eos_ids_, error))
@@ -1623,6 +1635,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "text_embed" / "text_embed.ncnn.param",
                   root / "text_embed" / "text_embed.ncnn.bin",
                   num_threads_,
+                  mmap_weights_,
+                  &text_embed_model_mapping_,
                   error))
     {
         return false;
@@ -1630,7 +1644,9 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     if (!detail::load_text_decoder_kv_net(model_root,
                                           num_threads_,
                                           text_decoder_net_.get(),
-                                          error))
+                                          error,
+                                          mmap_weights_,
+                                          &text_decoder_model_mapping_))
     {
         return false;
     }
@@ -1638,6 +1654,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "lm_head" / "lm_head.ncnn.param",
                   root / "lm_head" / "lm_head.ncnn.bin",
                   num_threads_,
+                  mmap_weights_,
+                  &lm_head_model_mapping_,
                   error))
     {
         return false;
@@ -1668,6 +1686,16 @@ bool TextRuntime::ready() const
 bool TextRuntime::dflash_ready() const
 {
     return dflash_draft_ != nullptr && dflash_draft_->ready();
+}
+
+size_t TextRuntime::mapped_weight_bytes() const
+{
+    size_t bytes = 0;
+    if (text_embed_model_mapping_) bytes += text_embed_model_mapping_->size();
+    if (text_decoder_model_mapping_) bytes += text_decoder_model_mapping_->size();
+    if (lm_head_model_mapping_) bytes += lm_head_model_mapping_->size();
+    if (dflash_draft_) bytes += dflash_draft_->mapped_weight_bytes();
+    return bytes;
 }
 
 bool TextDecodeResult::matches_expected() const
@@ -2129,7 +2157,9 @@ bool run_decoder_step(const ncnn::Net& net,
 bool load_text_decoder_kv_net(const std::string& model_root,
                               int num_threads,
                               ncnn::Net* net,
-                              std::string* error)
+                              std::string* error,
+                              bool mmap_weights,
+                              std::shared_ptr<MappedModelFile>* model_mapping)
 {
     if (net == nullptr)
     {
@@ -2151,6 +2181,8 @@ bool load_text_decoder_kv_net(const std::string& model_root,
                     root / "text_decoder" / "text_decoder_kv.ncnn.param",
                     root / "text_decoder" / "text_decoder_kv.ncnn.bin",
                     num_threads,
+                    mmap_weights,
+                    model_mapping,
                     error);
 }
 

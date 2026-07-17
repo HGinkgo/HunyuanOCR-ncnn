@@ -60,6 +60,8 @@ claiming that this repository is an upstream ncnn_llm branch.
   strict JSONL batch processing preserves input order and reports per-record errors.
 - Windows CLI supports UTF-8 prompts and Unicode model, image, and fixture paths.
 - Optional DFlash speculative decoding with AR kept as the default path.
+- Optional read-only mmap weight loading for lower cold-start copying and
+  anonymous memory use; disabled by default.
 - Optional fp32 Vulkan vision backend; the 28-case token/text test suite passes
   without GELU CPU fallback when using the maintained ncnn patch series.
 - A 100-round RSS regression and ASAN/UBSAN test gate audit request-scoped
@@ -112,6 +114,29 @@ an explicit development/preview option rather than a general acceleration claim.
   --prompt-mode document \
   --dflash
 ```
+
+## Optional mmap Weight Loading
+
+`--mmap-weights` loads the vision, text, and DFlash ncnn weights from read-only
+file mappings. The existing loader remains the default. In the current Linux
+CPU environment, the median of five AR load-only runs fell from about `2508 ms`
+to `497 ms`, with roughly `1.55 GB` less anonymous PSS. Across three fresh-process
+first-inference runs, median wall time fell from `11.49 s` to `8.77 s` while
+generated tokens remained identical.
+
+```bash
+./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
+  --image ./examples/images/hf_demo_tools-dark.png \
+  --prompt-mode document \
+  --mmap-weights
+```
+
+C++ callers can set `RuntimeOptions::mmap_weights = true`. Touched mappings are
+reclaimable file-backed pages, but Linux includes them in process RSS/PSS, so
+total RSS may increase. Memory comparisons should inspect `RssAnon` / `Pss_Anon`
+alongside file-backed metrics. This option reduces load-time copying and
+anonymous memory; it does not shrink model files or change inference numerics.
 
 ## Quick Start
 
