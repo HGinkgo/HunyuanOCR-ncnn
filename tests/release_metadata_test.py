@@ -18,6 +18,26 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def require_commented_commands(text: str, heading: str, label: str) -> None:
+    section_start = text.index(heading)
+    section_end = text.find("\n## ", section_start + len(heading))
+    section = text[section_start:section_end if section_end >= 0 else len(text)]
+    block = re.search(r"```bash\n(.*?)\n```", section, flags=re.DOTALL)
+    require(block is not None, f"{label} must contain a bash command block")
+
+    lines = [line for line in block.group(1).splitlines() if line.strip()]
+    commands = 0
+    for index, line in enumerate(lines):
+        if line.startswith("# "):
+            continue
+        commands += 1
+        require(
+            index > 0 and lines[index - 1].startswith("# "),
+            f"{label} command must have an immediately preceding comment: {line}",
+        )
+    require(commands >= 7, f"{label} must retain the common command entries")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
@@ -164,6 +184,8 @@ def main() -> int:
     require("AR 仍是默认路径" in readme_zh, "README must retain AR as the default path")
     require("may be slower" in readme_en, "README_en must disclose low-acceptance slowdown")
     require("可能更慢" in readme_zh, "README must disclose low-acceptance slowdown")
+    require_commented_commands(readme_en, "## More Commands", "README_en More Commands")
+    require_commented_commands(readme_zh, "## 更多命令", "README 更多命令")
     require("DFlash" in model_readme, "model README must document optional DFlash artifacts")
     require("DFlash" in tools_readme, "tools README must document DFlash packaging")
     for text, label in ((readme_en, "README_en"), (readme_zh, "README")):

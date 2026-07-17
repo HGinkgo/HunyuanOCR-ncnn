@@ -155,12 +155,19 @@ corresponding fields in `RuntimeOptions`.
 ## More Commands
 
 ```bash
+# Show CLI options
 ./build/hunyuan_ocr_cli --help
+# Show project and ncnn versions
 ./build/hunyuan_ocr_cli --version
+# Run a quick smoke test with the default example image
 scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
+# List bundled examples
 python tools/run_example.py --list
+# Run one bundled example
 python tools/run_example.py --model ./hunyuan_ocr_ncnn_model --case hf_demo
+# Run all bundled examples in order
 python tools/run_examples.py --model ./hunyuan_ocr_ncnn_model
+# Benchmark one example
 python tools/benchmark.py --model ./hunyuan_ocr_ncnn_model --cases hf_demo
 ```
 

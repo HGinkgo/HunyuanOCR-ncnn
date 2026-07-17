@@ -151,12 +151,19 @@ Vulkan 设备可通过 `--vision-vulkan-device N` 选择。C++ 调用方可在
 ## 更多命令
 
 ```bash
+# 查看 CLI 参数
 ./build/hunyuan_ocr_cli --help
+# 查看项目和 ncnn 版本
 ./build/hunyuan_ocr_cli --version
+# 使用默认示例图执行快速 smoke test
 scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
+# 列出内置示例
 python tools/run_example.py --list
+# 运行单个内置示例
 python tools/run_example.py --model ./hunyuan_ocr_ncnn_model --case hf_demo
+# 依次运行全部内置示例
 python tools/run_examples.py --model ./hunyuan_ocr_ncnn_model
+# 运行单例性能测试
 python tools/benchmark.py --model ./hunyuan_ocr_ncnn_model --cases hf_demo
 ```
 
