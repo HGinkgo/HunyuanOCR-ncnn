@@ -98,34 +98,63 @@ def main() -> int:
     require("validation pending" not in readme_en and "still pending" not in readme_en, "README_en contains stale pending status")
     require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README contains stale pending status")
     require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
-    require("\n## DFlash\n" in readme_en, "README_en must use the concise DFlash heading")
-    require("\n## DFlash\n" in readme_zh, "README must use the concise DFlash heading")
     require("Experimental DFlash" not in readme_en, "README_en must not label DFlash as experimental")
     require("实验性 DFlash" not in readme_zh, "README must not label DFlash as experimental")
     require("\n## Competition Coverage\n" not in readme_en,
             "README_en must leave competition details to the Discussion")
     require("\n## 比赛要求覆盖\n" not in readme_zh,
             "README must leave competition details to the Discussion")
-    for text, label, quick_start, features, build, examples, limitations in (
+    for text, label, headings, subsections in (
         (
             readme_en,
             "README_en",
-            "## Quick Start",
-            "## Features",
-            "## Build",
-            "## Run Examples",
-            "## Limitations",
+            [
+                "## Features",
+                "## Quick Start",
+                "## Build",
+                "## Run and Integrate",
+                "## Optional Capabilities",
+                "## More Commands",
+                "## Limitations",
+                "## License",
+            ],
+            [
+                "### Single-image inference",
+                "### JSONL batch inference",
+                "### C++ runtime",
+            ],
         ),
-        (readme_zh, "README", "## 快速开始", "## 功能特性", "## 构建", "## 运行示例", "## 当前限制"),
+        (
+            readme_zh,
+            "README",
+            [
+                "## 功能特性",
+                "## 快速开始",
+                "## 构建",
+                "## 运行与集成",
+                "## 可选能力",
+                "## 更多命令",
+                "## 当前限制",
+                "## 许可证",
+            ],
+            [
+                "### 单图推理",
+                "### JSONL 批量推理",
+                "### C++ Runtime",
+            ],
+        ),
     ):
         require(
-            text.count(quick_start) == 1,
-            f"{label} must contain exactly one quick-start section",
+            re.findall(r"^## .+$", text, flags=re.MULTILINE) == headings,
+            f"{label} must use the compact user-facing section structure",
         )
         require(
-            text.index(quick_start) < text.index(features) < text.index(build)
-            < text.index(examples) < text.index(limitations),
-            f"{label} must follow the user path from onboarding to features, build, examples, and limits",
+            all(section in text for section in subsections),
+            f"{label} must retain single-image, JSONL, and C++ integration paths",
+        )
+        require(
+            len(text.splitlines()) <= 220,
+            f"{label} must stay within the 220-line compact README budget",
         )
     require("\n## Advanced Engineering\n" not in readme_en,
             "README_en must present user features instead of engineering audit details")
