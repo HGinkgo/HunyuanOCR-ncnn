@@ -38,8 +38,21 @@ with pnnx and runs the full OCR path in C++.
 
 ## Quick Start
 
-If you already have a packaged `hunyuan_ocr_ncnn_model/` directory, the shortest
-path is:
+The pre-converted ncnn runtime model is hosted separately on
+[ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn):
+
+```bash
+python -m pip install modelscope
+modelscope download \
+  --model HGinkgo/HunyuanOCR-1.5-ncnn \
+  --local_dir ./hunyuan_ocr_ncnn_model
+```
+
+> This model package is an unofficial community artifact converted and
+> maintained by an individual. It is not an official Tencent release and is
+> not endorsed by Tencent.
+
+After downloading the model, build the project and run one example with:
 
 ```bash
 scripts/quickstart_existing_model.sh \
@@ -53,14 +66,16 @@ To smoke-test one image after building:
 scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 ```
 
-The repository does not include model weights. If you already have a runtime
-model package, use the commands above. To reproduce the conversion from the
-Hugging Face model, follow the export, package, build, and run sections below.
+The source repository does not embed model weights. Most users can download the
+runtime package above. Developers who need to reproduce the pnnx conversion or
+adapt another checkpoint can follow the export, package, build, and run sections
+below.
 
 ## Quick Links
 
 | Need | Entry |
 | --- | --- |
+| Download the pre-converted model | [ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn) |
 | Build and run one image | `scripts/quickstart_existing_model.sh` |
 | Package converted artifacts | `tools/package_model.py` |
 | Export from HF weights | `export/README.md` |
@@ -163,7 +178,7 @@ total RSS may increase. Memory comparisons should inspect `RssAnon` / `Pss_Anon`
 alongside file-backed metrics. This option reduces load-time copying and
 anonymous memory; it does not shrink model files or change inference numerics.
 
-## Export From HF Model
+## Rebuild From the HF Model (Developers)
 
 The scripts in `export/` use pnnx to convert the Hugging Face model into
 tokenizer files and ncnn submodule artifacts:
@@ -177,7 +192,7 @@ python export/export_all.py \
 
 See `export/README.md` for the module-level commands.
 
-## Package the ncnn Runtime Model
+## Package the ncnn Runtime Model (Developers)
 
 `tools/package_model.py` arranges exported artifacts into the runtime model
 package consumed by the CLI:
