@@ -95,6 +95,24 @@ def main() -> int:
     require("https://github.com/nihui/ncnn_llm" in readme_zh, "README must reference ncnn_llm")
     require("\n## Competition Coverage\n" in readme_en, "README_en must map the competition requirements")
     require("\n## 比赛要求覆盖\n" in readme_zh, "README must map the competition requirements")
+    for text, label, quick_start, competition, advanced in (
+        (
+            readme_en,
+            "README_en",
+            "## Quick Start",
+            "## Competition Coverage",
+            "## Advanced Engineering",
+        ),
+        (readme_zh, "README", "## 快速开始", "## 比赛要求覆盖", "## 扩展能力"),
+    ):
+        require(
+            text.count(quick_start) == 1,
+            f"{label} must contain exactly one quick-start section",
+        )
+        require(
+            text.index(quick_start) < text.index(competition) < text.index(advanced),
+            f"{label} must lead with user onboarding before competition and engineering details",
+        )
     require("CI covers Linux and Windows builds and lightweight tests" in readme_en,
             "README_en must distinguish CI from packaged-model validation")
     require("packaged-model validation was completed separately on both platforms" in readme_en,

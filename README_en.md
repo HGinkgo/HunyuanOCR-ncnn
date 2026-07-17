@@ -36,7 +36,44 @@ with pnnx and runs the full OCR path in C++.
 | `feat/hunyuanocr-1.0` | HunyuanOCR 1.0 | preserved compatibility branch |
 | `v0.2.0` | HunyuanOCR 1.0 | frozen release |
 
+## Quick Start
+
+If you already have a packaged `hunyuan_ocr_ncnn_model/` directory, the shortest
+path is:
+
+```bash
+scripts/quickstart_existing_model.sh \
+  --model ./hunyuan_ocr_ncnn_model \
+  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
+```
+
+To smoke-test one image after building:
+
+```bash
+scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
+```
+
+The repository does not include model weights. If you already have a runtime
+model package, use the commands above. To reproduce the conversion from the
+Hugging Face model, follow the export, package, build, and run sections below.
+
+## Quick Links
+
+| Need | Entry |
+| --- | --- |
+| Build and run one image | `scripts/quickstart_existing_model.sh` |
+| Package converted artifacts | `tools/package_model.py` |
+| Export from HF weights | `export/README.md` |
+| Run examples | `tools/run_example.py`, `tools/run_examples.py` |
+| Run strict regression | `tools/run_regression.py` |
+| Benchmark runtime | `tools/benchmark.py`, `tools/README.md#benchmark` |
+| Model layout | `models/README.md`, `models/model.json.example` |
+
 ## Competition Coverage
+
+See [Tencent/ncnn Discussion #6808](https://github.com/Tencent/ncnn/discussions/6808)
+for the full visual demonstration and technical report. This section retains
+only the requirement mapping that can be checked directly in the repository.
 
 | Requirement | Evidence in this repository |
 | --- | --- |
@@ -66,18 +103,6 @@ claiming that this repository is an upstream ncnn_llm branch.
   without GELU CPU fallback when using the maintained ncnn patch series.
 - A 100-round RSS regression and ASAN/UBSAN test gate audit request-scoped
   ncnn buffer release for long-lived vision, text, and DFlash runtimes.
-
-## Quick Links
-
-| Need | Entry |
-| --- | --- |
-| Build and run one image | `scripts/quickstart_existing_model.sh` |
-| Package converted artifacts | `tools/package_model.py` |
-| Export from HF weights | `export/README.md` |
-| Run examples | `tools/run_example.py`, `tools/run_examples.py` |
-| Run strict regression | `tools/run_regression.py` |
-| Benchmark runtime | `tools/benchmark.py`, `tools/README.md#benchmark` |
-| Model layout | `models/README.md`, `models/model.json.example` |
 
 The current verified configuration uses `max_pixels=524288` because development
 and validation were limited to a single RTX 3090 (24 GB), requiring bounded GPU
@@ -137,27 +162,6 @@ reclaimable file-backed pages, but Linux includes them in process RSS/PSS, so
 total RSS may increase. Memory comparisons should inspect `RssAnon` / `Pss_Anon`
 alongside file-backed metrics. This option reduces load-time copying and
 anonymous memory; it does not shrink model files or change inference numerics.
-
-## Quick Start
-
-If you already have a packaged `hunyuan_ocr_ncnn_model/` directory, the shortest
-path is:
-
-```bash
-scripts/quickstart_existing_model.sh \
-  --model ./hunyuan_ocr_ncnn_model \
-  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
-```
-
-To smoke-test one image after building:
-
-```bash
-scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
-```
-
-The repository does not include model weights. If you already have a runtime
-model package, use the commands above. To reproduce the conversion from the
-Hugging Face model, follow the export, package, build, and run sections below.
 
 ## Export From HF Model
 
