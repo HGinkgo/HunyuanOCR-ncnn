@@ -55,9 +55,14 @@ def main() -> int:
     ]
     public_docs.extend(sorted((root / "docs").rglob("*.md")))
     for path in public_docs:
+        text = path.read_text(encoding="utf-8")
         require(
-            "/root/" not in path.read_text(encoding="utf-8"),
+            "/root/" not in text,
             f"public documentation must not contain a local /root path: {path.relative_to(root)}",
+        )
+        require(
+            "fixed-grid fallback" not in text.lower(),
+            f"public documentation must not advertise removed fixed-grid fallback: {path.relative_to(root)}",
         )
 
     require(re.search(r"project\(HunyuanOCR_ncnn\s+VERSION 0\.4\.0", cmake) is not None, "CMake version must be 0.4.0")

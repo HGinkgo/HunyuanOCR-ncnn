@@ -270,9 +270,8 @@ python tools/run_examples.py \
   --model ./hunyuan_ocr_ncnn_model
 ```
 
-Dynamic vision packages support different image sizes within the exported
-processor range. Fixed-grid fallback packages use the `grid_<h>x<w>` naming
-convention, for example `vision/grid_38x52/`.
+The canonical dynamic vision network supports different image sizes within
+the exported processor range.
 
 ## Benchmark
 

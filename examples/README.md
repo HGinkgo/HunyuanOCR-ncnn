@@ -67,7 +67,7 @@ python tools/run_examples.py \
 
 Dynamic vision packages support different image sizes within the exported
 processor range with one `vision/vision.ncnn.param/bin` pair plus
-`vision/pos_embed.bin`; fixed-grid fallback packages use `grid_<h>x<w>` names.
+`vision/pos_embed.bin`.
 
 ## Full Regression
 
