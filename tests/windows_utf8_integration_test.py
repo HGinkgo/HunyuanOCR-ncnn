@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -38,10 +37,8 @@ def run_cli_check(root: Path, binary: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.touch()
 
-        image_path = temporary_root / "图片_U0001f600.png"
-        shutil.copyfile(root / "examples/images/hf_demo_tools-dark.png", image_path)
         completed = subprocess.run(
-            [str(binary), "--model", str(model_root), "--image", str(image_path)],
+            [str(binary), "--model", str(model_root)],
             text=True,
             encoding="utf-8",
             capture_output=True,
@@ -49,7 +46,6 @@ def run_cli_check(root: Path, binary: Path) -> None:
         )
         require(completed.returncode == 0, completed.stdout + completed.stderr)
         require(f"Model root: {model_root}" in completed.stdout, "Unicode model path output mismatch")
-        require(f"  path: {image_path}" in completed.stdout, "Unicode image path output mismatch")
 
         prompt = "只输出可见文字U0001f600"
         prompt_parse = subprocess.run(

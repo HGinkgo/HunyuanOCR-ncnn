@@ -34,6 +34,8 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+constexpr int kDefaultImageMaxTokens = 8192;
+
 double elapsed_ms(Clock::time_point start, Clock::time_point end)
 {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -72,11 +74,11 @@ void print_usage(const char* program)
         << "  --version       Print project and ncnn version information.\n"
         << "  --model PATH    Check a HunyuanOCR ncnn model directory.\n"
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
-        << "  --dflash               Run DFlash with --vlm-fixture or --image with --prompt/--prompt-mode.\n"
+        << "  --dflash               Run DFlash with --vlm-fixture or a single --image.\n"
         << "  --mmap-weights         Load model weights from read-only file mappings.\n"
         << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
         << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
-        << "  --image PATH           Run PNG/JPEG image -> resize -> flattened pixel_values.\n"
+        << "  --image PATH           Run one-image OCR. Default prompt: document.\n"
         << "  --batch-input PATH     Read ordered inference requests from a JSONL file.\n"
         << "  --batch-output PATH    Write one ordered JSON result per input line.\n"
         << "  --force                Replace an existing --batch-output file.\n"
@@ -87,21 +89,23 @@ void print_usage(const char* program)
         << "  --benchmark-repeat N   Same-process measured iterations. Default: 1.\n"
         << "  --num-threads N        ncnn thread count for all submodels.\n"
         << "  --repetition-penalty F Greedy decode repetition penalty. Default: 1.08.\n"
-        << "  --max-tokens N         Limit fixture generated token count.\n";
+        << "  --max-tokens N         Limit generated token count. Default max tokens: 8192.\n";
 }
 
-void print_file_group(const char* title, const std::vector<hunyuan_ocr::ModelFile>& files)
+void print_file_group(std::ostream& output,
+                      const char* title,
+                      const std::vector<hunyuan_ocr::ModelFile>& files)
 {
-    std::cout << title << "\n";
+    output << title << "\n";
     if (files.empty())
     {
-        std::cout << "  (none)\n";
+        output << "  (none)\n";
         return;
     }
 
     for (const auto& file : files)
     {
-        std::cout << "  " << file.relative_path << " - " << file.note << "\n";
+        output << "  " << file.relative_path << " - " << file.note << "\n";
     }
 }
 
@@ -1179,10 +1183,9 @@ int main(int argc, char** argv)
         std::cerr << "--vision-vulkan-device must be non-negative\n";
         return 1;
     }
-    const bool image_executes_vision =
-        !image_path.empty() &&
-        (benchmark || !prompt_text.empty() || !prompt_mode_text.empty() ||
-         !vlm_fixture_dir.empty());
+    const bool plain_image_inference =
+        !image_path.empty() && vlm_fixture_dir.empty() && !benchmark;
+    const bool image_executes_vision = !image_path.empty();
     const bool executes_vision = batch_mode || image_executes_vision;
     if (vision_vulkan && !executes_vision)
     {
@@ -1219,11 +1222,11 @@ int main(int argc, char** argv)
         std::cerr << "--benchmark does not support --dflash yet\n";
         return 1;
     }
-    const bool has_image_prompt =
-        !image_path.empty() && (!prompt_text.empty() || !prompt_mode_text.empty());
+    const bool has_image_prompt = plain_image_inference ||
+        (!image_path.empty() && (!prompt_text.empty() || !prompt_mode_text.empty()));
     if (dflash && vlm_fixture_dir.empty() && !has_image_prompt && !batch_mode)
     {
-        std::cerr << "--dflash requires --vlm-fixture or --image with --prompt/--prompt-mode\n";
+        std::cerr << "--dflash requires --vlm-fixture or --image\n";
         return 1;
     }
     const hunyuan_ocr::ModelLayoutReport report = hunyuan_ocr::check_model_layout(model_root);
@@ -1231,10 +1234,17 @@ int main(int argc, char** argv)
 
     if (!benchmark)
     {
-        std::cout << "Model root: " << report.root << "\n";
-        print_file_group("Present files:", report.present);
-        print_file_group("Missing required files:", report.missing_required);
-        print_file_group("Missing planned files:", report.missing_planned);
+        if (plain_image_inference)
+        {
+            std::cerr << "Loading OCR model from " << report.root << "\n";
+        }
+        else
+        {
+            std::cout << "Model root: " << report.root << "\n";
+            print_file_group(std::cout, "Present files:", report.present);
+            print_file_group(std::cout, "Missing required files:", report.missing_required);
+            print_file_group(std::cout, "Missing planned files:", report.missing_planned);
+        }
     }
 
     if (!ready)
@@ -1313,9 +1323,11 @@ int main(int argc, char** argv)
                                    process_start);
     }
 
-    std::cout << "Model layout check passed for the current runtime files.\n";
+    if (!plain_image_inference)
+    {
+        std::cout << "Model layout check passed for the current runtime files.\n";
+    }
 
-    const bool plain_image_inference = has_image_prompt && vlm_fixture_dir.empty();
     if (plain_image_inference)
     {
         hunyuan_ocr::RuntimeOptions runtime_options;
@@ -1336,13 +1348,13 @@ int main(int argc, char** argv)
         }
 
         hunyuan_ocr::InferenceRequest request;
-        request.max_tokens = max_tokens > 0 ? max_tokens : 128;
+        request.max_tokens = max_tokens > 0 ? max_tokens : kDefaultImageMaxTokens;
         if (!prompt_text.empty())
         {
             request.prompt_mode = hunyuan_ocr::PromptMode::Custom;
             request.prompt = prompt_text;
         }
-        else
+        else if (!prompt_mode_text.empty())
         {
             std::string prompt_error;
             if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text,
@@ -1353,6 +1365,20 @@ int main(int argc, char** argv)
                 return 1;
             }
         }
+        else
+        {
+            request.prompt_mode = hunyuan_ocr::PromptMode::Document;
+        }
+
+        request.stream_callback = [](const hunyuan_ocr::InferenceChunk& chunk) {
+            if (!chunk.text_delta.empty())
+            {
+                std::cout << chunk.text_delta << std::flush;
+            }
+        };
+
+        std::cerr << "Loading image: " << image_path << "\n";
+        std::cerr << "Generating text:\n";
 
         hunyuan_ocr::InferenceResult result;
         if (!runtime.infer_file(image_path, request, &result, &runtime_error))
@@ -1362,28 +1388,27 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        std::cout << "Image:\n";
-        std::cout << "  path: " << image_path << "\n";
-        std::cout << "Inference:\n";
-        std::cout << "  decoder: "
+        std::cerr << "\n\nDone.\n";
+        std::cerr << "Inference:\n";
+        std::cerr << "  prompt_mode: "
+                  << hunyuan_ocr::prompt_mode_name(request.prompt_mode) << "\n";
+        std::cerr << "  decoder: "
                   << (result.decoder.mode == hunyuan_ocr::DecoderMode::DFlash ? "dflash" : "ar")
                   << "\n";
-        std::cout << "  generated_token_count: " << result.token_ids.size() << "\n";
-        std::cout << std::fixed << std::setprecision(3);
-        std::cout << "  timing_preprocess_ms: " << result.timing.preprocess_ms << "\n";
-        std::cout << "  timing_vision_ms: " << result.timing.vision_ms << "\n";
-        std::cout << "  timing_text_ms: " << result.timing.text_ms << "\n";
-        std::cout << "  timing_total_ms: " << result.timing.total_ms << "\n";
+        std::cerr << "  generated_token_count: " << result.token_ids.size() << "\n";
+        std::cerr << std::fixed << std::setprecision(3);
+        std::cerr << "  timing_preprocess_ms: " << result.timing.preprocess_ms << "\n";
+        std::cerr << "  timing_vision_ms: " << result.timing.vision_ms << "\n";
+        std::cerr << "  timing_text_ms: " << result.timing.text_ms << "\n";
+        std::cerr << "  timing_total_ms: " << result.timing.total_ms << "\n";
         if (result.decoder.mode == hunyuan_ocr::DecoderMode::DFlash)
         {
-            std::cout << "  dflash_blocks: " << result.decoder.block_count << "\n";
-            std::cout << "  dflash_drafted_tokens: "
+            std::cerr << "  dflash_blocks: " << result.decoder.block_count << "\n";
+            std::cerr << "  dflash_drafted_tokens: "
                       << result.decoder.drafted_token_count << "\n";
-            std::cout << "  dflash_accepted_tokens: "
+            std::cerr << "  dflash_accepted_tokens: "
                       << result.decoder.accepted_draft_token_count << "\n";
         }
-        print_token_vector("  generated_tokens: ", result.token_ids);
-        std::cout << "Decoded text:\n" << result.text << "\n";
         return 0;
     }
 

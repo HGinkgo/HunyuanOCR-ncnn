@@ -92,11 +92,10 @@ cmake --build build -j
 ```bash
 ./build/hunyuan_ocr_cli \
   --model ./hunyuan_ocr_ncnn_model \
-  --image ./examples/images/hf_demo_tools-dark.png \
-  --prompt-mode document
+  --image ./examples/images/hf_demo_tools-dark.png
 ```
 
-Use `--prompt "Return only the visible text"` for a custom prompt.
+Single-image inference defaults to the `document` prompt and streams decoded text while it is generated. The default limit is 8192 tokens, with early stopping on EOS or tail repetition. Use `--prompt-mode spotting` when coordinates are needed, or pass a custom prompt with `--prompt "Return only the visible text"`.
 
 ### JSONL batch inference
 

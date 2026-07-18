@@ -92,6 +92,8 @@ def main() -> int:
     if (
         help_result.returncode != 0
         or "Default: 1.08." not in help_result.stdout
+        or "Default prompt: document." not in help_result.stdout
+        or "Default max tokens: 8192." not in help_result.stdout
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
@@ -99,7 +101,7 @@ def main() -> int:
         or "--batch-input" not in help_result.stdout
         or "--batch-output" not in help_result.stdout
         or "--force" not in help_result.stdout
-        or "--vlm-fixture or --image with --prompt/--prompt-mode"
+        or "--vlm-fixture or a single --image"
         not in help_result.stdout
     ):
         print("CLI help does not report the expected 1.5/DFlash options", file=sys.stderr)
@@ -255,11 +257,33 @@ def main() -> int:
         "--vision-vulkan requires a path that executes vision",
     ):
         return 1
-    if not require_rejected(
-        binary,
-        ["--model", ".", "--image", "x.png", "--vision-vulkan"],
-        "--vision-vulkan requires a path that executes vision",
+    bare_image_vulkan = subprocess.run(
+        [str(binary), "--model", ".", "--image", "x.png", "--vision-vulkan"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if not vulkan_compiled:
+        if (
+            bare_image_vulkan.returncode == 0
+            or "ncnn was built without Vulkan support" not in bare_image_vulkan.stderr
+        ):
+            print(
+                "Vulkan-disabled build did not reject bare --image correctly: "
+                f"rc={bare_image_vulkan.returncode} stderr={bare_image_vulkan.stderr!r}",
+                file=sys.stderr,
+            )
+            return 1
+    elif (
+        bare_image_vulkan.returncode == 0
+        or "--vision-vulkan requires a path that executes vision"
+        in bare_image_vulkan.stderr
     ):
+        print(
+            "bare --image was not accepted as an image inference path: "
+            f"rc={bare_image_vulkan.returncode} stderr={bare_image_vulkan.stderr!r}",
+            file=sys.stderr,
+        )
         return 1
     if not vulkan_compiled:
         if not require_rejected(
@@ -283,9 +307,7 @@ def main() -> int:
         capture_output=True,
         check=False,
     )
-    dflash_need_msg = (
-        "--vlm-fixture or --image with --prompt/--prompt-mode"
-    )
+    dflash_need_msg = "--vlm-fixture or --image"
     if (
         dflash_without_fixture.returncode == 0
         or dflash_need_msg not in dflash_without_fixture.stderr

@@ -89,11 +89,10 @@ cmake --build build -j
 ```bash
 ./build/hunyuan_ocr_cli \
   --model ./hunyuan_ocr_ncnn_model \
-  --image ./examples/images/hf_demo_tools-dark.png \
-  --prompt-mode document
+  --image ./examples/images/hf_demo_tools-dark.png
 ```
 
-也可以使用 `--prompt "只输出图片中的可见文字"` 传入自定义 prompt。
+单图默认使用 `document` prompt，识别文本会在生成过程中直接输出；默认最多生成 8192 个 token，并在 EOS 或尾部重复时提前结束。需要坐标时可显式使用 `--prompt-mode spotting`，也可以使用 `--prompt "只输出图片中的可见文字"` 传入自定义 prompt。
 
 ### JSONL 批量推理
 
