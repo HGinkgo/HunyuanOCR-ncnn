@@ -124,49 +124,6 @@ bool read_binary_vector(const std::filesystem::path& path, size_t expected_count
     return true;
 }
 
-bool file_exists(const std::filesystem::path& path)
-{
-    std::error_code ec;
-    return std::filesystem::is_regular_file(path, ec);
-}
-
-bool parse_fixture_meta(const std::filesystem::path& path, int* patch_count, int* vision_token_count, std::string* error)
-{
-    std::ifstream file(path);
-    if (!file.is_open())
-    {
-        if (error) *error = "failed to open vision fixture meta: " + path_to_utf8(path);
-        return false;
-    }
-
-    std::string line;
-    while (std::getline(file, line))
-    {
-        if (line.empty()) continue;
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = line.substr(0, eq);
-        const std::string value = line.substr(eq + 1);
-        try
-        {
-            if (key == "patch_count") *patch_count = std::stoi(value);
-            else if (key == "vision_token_count") *vision_token_count = std::stoi(value);
-        }
-        catch (const std::exception&)
-        {
-            if (error) *error = "invalid vision fixture meta value: " + line;
-            return false;
-        }
-    }
-
-    if (*patch_count <= 0 || *vision_token_count <= 0)
-    {
-        if (error) *error = "vision fixture meta must define positive patch_count and vision_token_count";
-        return false;
-    }
-    return true;
-}
-
 size_t logical_value_count(const ncnn::Mat& mat)
 {
     const int h = mat.h > 0 ? mat.h : 1;
@@ -319,11 +276,6 @@ bool vision_vulkan_compiled()
 #endif
 }
 
-bool VisionRuntimeResult::matches_expected(float tolerance) const
-{
-    return has_expected_features && max_abs_diff_expected <= tolerance;
-}
-
 VisionRuntime::VisionRuntime(int num_threads)
     : VisionRuntime(VisionRuntimeOptions{num_threads, false, 0, false})
 {
@@ -391,18 +343,6 @@ bool VisionRuntime::load_net_files(const std::string& param_path,
     return true;
 }
 
-bool VisionRuntime::load(const std::string& param_path, const std::string& bin_path, std::string* error)
-{
-    ready_ = false;
-    dynamic_ready_ = false;
-    pos_embed_base_.clear();
-    if (!reset_net(error)) return false;
-
-    if (!load_net_files(param_path, bin_path, "vision", error)) return false;
-    ready_ = true;
-    return true;
-}
-
 bool VisionRuntime::load_dynamic(const std::string& param_path,
                                  const std::string& bin_path,
                                  const std::string& pos_embed_path,
@@ -410,7 +350,6 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
 {
     const std::filesystem::path native_pos_embed_path = path_from_utf8(pos_embed_path);
     ready_ = false;
-    dynamic_ready_ = false;
     pos_embed_base_.clear();
     if (!reset_net(error)) return false;
 
@@ -424,7 +363,6 @@ bool VisionRuntime::load_dynamic(const std::string& param_path,
     }
 
     ready_ = true;
-    dynamic_ready_ = true;
     return true;
 }
 
@@ -443,89 +381,6 @@ int VisionRuntime::gelu_cpu_fallback_count() const
     return gelu_cpu_fallback_count_;
 }
 
-bool VisionRuntime::run_pixel_values(const std::vector<float>& pixel_values,
-                                     int patch_count,
-                                     int vision_token_count,
-                                     VisionRuntimeResult* result,
-                                     std::string* error) const
-{
-    if (!ready_)
-    {
-        if (error) *error = "vision runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
-        return false;
-    }
-    if (patch_count <= 0 || vision_token_count <= 0)
-    {
-        if (error) *error = "patch_count and vision_token_count must be positive";
-        return false;
-    }
-    if (pixel_values.size() != static_cast<size_t>(patch_count) * kPatchDim)
-    {
-        if (error) {
-            *error = "pixel_values size mismatch: got " + std::to_string(pixel_values.size()) +
-                     ", expected " + std::to_string(static_cast<size_t>(patch_count) * kPatchDim);
-        }
-        return false;
-    }
-
-    ncnn::Mat input(kPatchDim, patch_count, const_cast<float*>(pixel_values.data()));
-    input = input.clone();
-
-    ncnn::Mat output;
-    ncnn::Extractor ex = vision_net_->create_extractor();
-    if (ex.input("in0", input) != 0)
-    {
-        if (error) *error = "vision input failed";
-        return false;
-    }
-    if (ex.extract("out0", output) != 0)
-    {
-        if (error) *error = "vision extract out0 failed";
-        return false;
-    }
-
-    const size_t expected_values = static_cast<size_t>(vision_token_count) * kHiddenSize;
-    const size_t actual_values = logical_value_count(output);
-    if (actual_values != expected_values)
-    {
-        if (error) {
-            *error = "vision output size mismatch: got " + std::to_string(actual_values) +
-                     ", expected " + std::to_string(expected_values);
-        }
-        return false;
-    }
-
-    VisionRuntimeResult local;
-    local.patch_count = patch_count;
-    local.vision_token_count = vision_token_count;
-    local.feature_values = actual_values;
-    local.vision_features.assign(expected_values, 0.0f);
-
-    if (output.h == vision_token_count && output.w == kHiddenSize)
-    {
-        for (int row_index = 0; row_index < vision_token_count; ++row_index)
-        {
-            const float* src = output.row(row_index);
-            std::memcpy(local.vision_features.data() + static_cast<size_t>(row_index) * kHiddenSize,
-                        src,
-                        static_cast<size_t>(kHiddenSize) * sizeof(float));
-        }
-    }
-    else
-    {
-        const float* src = output;
-        std::memcpy(local.vision_features.data(), src, expected_values * sizeof(float));
-    }
-
-    *result = std::move(local);
-    return true;
-}
-
 bool VisionRuntime::run_dynamic_pixel_values(const std::vector<float>& pixel_values,
                                              int grid_h,
                                              int grid_w,
@@ -533,7 +388,7 @@ bool VisionRuntime::run_dynamic_pixel_values(const std::vector<float>& pixel_val
                                              VisionRuntimeResult* result,
                                              std::string* error) const
 {
-    if (!ready_ || !dynamic_ready_)
+    if (!ready_)
     {
         if (error) *error = "dynamic vision runtime is not loaded";
         return false;
@@ -618,68 +473,6 @@ bool VisionRuntime::run_dynamic_pixel_values(const std::vector<float>& pixel_val
     {
         const float* src = output;
         std::memcpy(local.vision_features.data(), src, expected_values * sizeof(float));
-    }
-
-    *result = std::move(local);
-    return true;
-}
-
-bool VisionRuntime::run_fixture(const std::string& fixture_dir, VisionRuntimeResult* result, std::string* error) const
-{
-    if (!ready_)
-    {
-        if (error) *error = "vision runtime is not loaded";
-        return false;
-    }
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
-        return false;
-    }
-
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
-    int patch_count = 0;
-    int vision_token_count = 0;
-    if (!parse_fixture_meta(root / "meta.txt", &patch_count, &vision_token_count, error))
-    {
-        return false;
-    }
-
-    std::vector<float> pixel_values;
-    if (!read_binary_vector(root / "pixel_values.f32",
-                            static_cast<size_t>(patch_count) * kPatchDim,
-                            &pixel_values,
-                            error))
-    {
-        return false;
-    }
-
-    const size_t expected_values = static_cast<size_t>(vision_token_count) * kHiddenSize;
-    VisionRuntimeResult local;
-    if (!run_pixel_values(pixel_values, patch_count, vision_token_count, &local, error))
-    {
-        return false;
-    }
-
-    const std::filesystem::path expected_path = root / "expected_vision_features.f32";
-    if (file_exists(expected_path))
-    {
-        std::vector<float> expected;
-        if (!read_binary_vector(expected_path, expected_values, &expected, error))
-        {
-            return false;
-        }
-        double sum_abs = 0.0;
-        float max_abs = 0.0f;
-        for (size_t i = 0; i < expected_values; ++i)
-        {
-            const float diff = std::fabs(local.vision_features[i] - expected[i]);
-            max_abs = std::max(max_abs, diff);
-            sum_abs += diff;
-        }
-        local.has_expected_features = true;
-        local.max_abs_diff_expected = max_abs;
-        local.mean_abs_diff_expected = static_cast<float>(sum_abs / static_cast<double>(expected_values));
     }
 
     *result = std::move(local);

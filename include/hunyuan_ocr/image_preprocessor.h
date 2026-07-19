@@ -25,11 +25,6 @@ struct ImagePreprocessResult {
     int patch_count = 0;
     size_t pixel_value_count = 0;
     std::vector<float> pixel_values;
-    bool has_expected_pixel_values = false;
-    float max_abs_diff_expected = 0.0f;
-    float mean_abs_diff_expected = 0.0f;
-
-    bool matches_expected(float tolerance) const;
 };
 
 class ImagePreprocessor {
@@ -56,12 +51,6 @@ public:
     bool preprocess_resized_rgb(const std::vector<unsigned char>& rgb,
                                 int width,
                                 int height,
-                                ImagePreprocessResult* result,
-                                std::string* error) const;
-    bool run_fixture(const std::string& fixture_dir,
-                     ImagePreprocessResult* result,
-                     std::string* error) const;
-    bool run_image_file_fixture(const std::string& fixture_dir,
                                 ImagePreprocessResult* result,
                                 std::string* error) const;
 

@@ -35,6 +35,4 @@ private:
     std::vector<int> byte_decoder_;
 };
 
-std::vector<int> parse_token_ids(const std::string& text, std::string* error);
-
 } // namespace hunyuan_ocr

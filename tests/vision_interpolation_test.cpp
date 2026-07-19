@@ -16,7 +16,10 @@ int main()
 
     hunyuan_ocr::VisionRuntime runtime(options);
     std::string error;
-    if (runtime.load("unused.ncnn.param", "unused.ncnn.bin", &error)) return 2;
+    if (runtime.load_dynamic("unused.ncnn.param",
+                             "unused.ncnn.bin",
+                             "unused.pos_embed.bin",
+                             &error)) return 2;
     if (error != "ncnn was built without Vulkan support") return 3;
     return 0;
 }

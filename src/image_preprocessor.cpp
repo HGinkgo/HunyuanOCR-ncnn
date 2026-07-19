@@ -4,9 +4,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <utility>
 
 #define STBI_ONLY_JPEG
@@ -22,37 +19,6 @@
 namespace hunyuan_ocr {
 namespace {
 
-bool file_exists(const std::filesystem::path& path)
-{
-    std::error_code ec;
-    return std::filesystem::is_regular_file(path, ec);
-}
-
-template <typename T>
-bool read_binary_vector(const std::filesystem::path& path, size_t expected_count, std::vector<T>* values, std::string* error)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open())
-    {
-        if (error) *error = "failed to open: " + path_to_utf8(path);
-        return false;
-    }
-    values->assign(expected_count, T{});
-    file.read(reinterpret_cast<char*>(values->data()), static_cast<std::streamsize>(expected_count * sizeof(T)));
-    if (file.gcount() != static_cast<std::streamsize>(expected_count * sizeof(T)))
-    {
-        if (error) *error = "short read: " + path_to_utf8(path);
-        return false;
-    }
-    char extra = 0;
-    if (file.read(&extra, 1))
-    {
-        if (error) *error = "unexpected extra bytes: " + path_to_utf8(path);
-        return false;
-    }
-    return true;
-}
-
 long long python_round_to_int(double value)
 {
     const double floor_value = std::floor(value);
@@ -62,17 +28,6 @@ long long python_round_to_int(double value)
     const long long lower = static_cast<long long>(floor_value);
     return (lower % 2 == 0) ? lower : lower + 1;
 }
-
-struct FixtureMeta {
-    int original_width = 0;
-    int original_height = 0;
-    int resized_width = 0;
-    int resized_height = 0;
-    int grid_t = 1;
-    int grid_h = 0;
-    int grid_w = 0;
-    int patch_count = 0;
-};
 
 struct ResizeCoefficients {
     std::vector<int> bounds;
@@ -155,60 +110,7 @@ unsigned char clip_fixedpoint_to_u8(long long value)
     return static_cast<unsigned char>(scaled);
 }
 
-bool parse_fixture_meta(const std::filesystem::path& path, FixtureMeta* meta, std::string* error)
-{
-    std::ifstream file(path);
-    if (!file.is_open())
-    {
-        if (error) *error = "failed to open image preprocess fixture meta: " + path_to_utf8(path);
-        return false;
-    }
-
-    std::string line;
-    while (std::getline(file, line))
-    {
-        if (line.empty()) continue;
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = line.substr(0, eq);
-        const std::string value = line.substr(eq + 1);
-        try
-        {
-            if (key == "original_width") meta->original_width = std::stoi(value);
-            else if (key == "original_height") meta->original_height = std::stoi(value);
-            else if (key == "resized_width") meta->resized_width = std::stoi(value);
-            else if (key == "resized_height") meta->resized_height = std::stoi(value);
-            else if (key == "grid_t") meta->grid_t = std::stoi(value);
-            else if (key == "grid_h") meta->grid_h = std::stoi(value);
-            else if (key == "grid_w") meta->grid_w = std::stoi(value);
-            else if (key == "patch_count") meta->patch_count = std::stoi(value);
-        }
-        catch (const std::exception&)
-        {
-            if (error) *error = "invalid image preprocess fixture meta value: " + line;
-            return false;
-        }
-    }
-
-    if (meta->resized_width <= 0 ||
-        meta->resized_height <= 0 ||
-        meta->grid_t <= 0 ||
-        meta->grid_h <= 0 ||
-        meta->grid_w <= 0 ||
-        meta->patch_count <= 0)
-    {
-        if (error) *error = "image preprocess fixture meta must define positive resized size, grid, and patch_count";
-        return false;
-    }
-    return true;
-}
-
 } // namespace
-
-bool ImagePreprocessResult::matches_expected(float tolerance) const
-{
-    return has_expected_pixel_values && max_abs_diff_expected <= tolerance;
-}
 
 ImagePreprocessor::ImagePreprocessor(ImagePreprocessConfig config)
     : config_(config)
@@ -482,161 +384,6 @@ bool ImagePreprocessor::preprocess_image_file(const std::string& image_path,
     stbi_image_free(decoded);
 
     return preprocess_original_rgb(rgb, width, height, result, error);
-}
-
-bool ImagePreprocessor::run_fixture(const std::string& fixture_dir,
-                                    ImagePreprocessResult* result,
-                                    std::string* error) const
-{
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
-        return false;
-    }
-
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
-    FixtureMeta meta;
-    if (!parse_fixture_meta(root / "meta.txt", &meta, error))
-    {
-        return false;
-    }
-
-    std::vector<unsigned char> rgb;
-    if (!read_binary_vector(root / "resized_rgb.u8",
-                            static_cast<size_t>(meta.resized_width) * meta.resized_height * 3,
-                            &rgb,
-                            error))
-    {
-        return false;
-    }
-
-    ImagePreprocessResult local;
-    if (!preprocess_resized_rgb(rgb, meta.resized_width, meta.resized_height, &local, error))
-    {
-        return false;
-    }
-    local.original_width = meta.original_width;
-    local.original_height = meta.original_height;
-
-    if (local.grid_t != meta.grid_t ||
-        local.grid_h != meta.grid_h ||
-        local.grid_w != meta.grid_w ||
-        local.patch_count != meta.patch_count)
-    {
-        if (error) {
-            std::ostringstream oss;
-            oss << "fixture grid mismatch: got [" << local.grid_t << ", " << local.grid_h << ", " << local.grid_w
-                << "] patches=" << local.patch_count << ", expected [" << meta.grid_t << ", " << meta.grid_h
-                << ", " << meta.grid_w << "] patches=" << meta.patch_count;
-            *error = oss.str();
-        }
-        return false;
-    }
-
-    const std::filesystem::path expected_path = root / "expected_pixel_values.f32";
-    if (file_exists(expected_path))
-    {
-        std::vector<float> expected;
-        if (!read_binary_vector(expected_path, local.pixel_value_count, &expected, error))
-        {
-            return false;
-        }
-        double sum_abs = 0.0;
-        float max_abs = 0.0f;
-        for (size_t i = 0; i < local.pixel_value_count; ++i)
-        {
-            const float diff = std::fabs(local.pixel_values[i] - expected[i]);
-            max_abs = std::max(max_abs, diff);
-            sum_abs += diff;
-        }
-        local.has_expected_pixel_values = true;
-        local.max_abs_diff_expected = max_abs;
-        local.mean_abs_diff_expected = static_cast<float>(sum_abs / static_cast<double>(local.pixel_value_count));
-    }
-
-    *result = std::move(local);
-    return true;
-}
-
-bool ImagePreprocessor::run_image_file_fixture(const std::string& fixture_dir,
-                                               ImagePreprocessResult* result,
-                                               std::string* error) const
-{
-    if (result == nullptr)
-    {
-        if (error) *error = "result pointer is null";
-        return false;
-    }
-
-    const std::filesystem::path root = path_from_utf8(fixture_dir);
-    FixtureMeta meta;
-    if (!parse_fixture_meta(root / "meta.txt", &meta, error))
-    {
-        return false;
-    }
-    if (meta.original_width <= 0 || meta.original_height <= 0)
-    {
-        if (error) *error = "image file fixture meta must define positive original_width and original_height";
-        return false;
-    }
-
-    std::vector<unsigned char> rgb;
-    if (!read_binary_vector(root / "original_rgb.u8",
-                            static_cast<size_t>(meta.original_width) * meta.original_height * 3,
-                            &rgb,
-                            error))
-    {
-        return false;
-    }
-
-    ImagePreprocessResult local;
-    if (!preprocess_original_rgb(rgb, meta.original_width, meta.original_height, &local, error))
-    {
-        return false;
-    }
-
-    if (local.resized_width != meta.resized_width ||
-        local.resized_height != meta.resized_height ||
-        local.grid_t != meta.grid_t ||
-        local.grid_h != meta.grid_h ||
-        local.grid_w != meta.grid_w ||
-        local.patch_count != meta.patch_count)
-    {
-        if (error) {
-            std::ostringstream oss;
-            oss << "image file fixture metadata mismatch: got resized=" << local.resized_width << "x"
-                << local.resized_height << " grid=[" << local.grid_t << ", " << local.grid_h << ", "
-                << local.grid_w << "] patches=" << local.patch_count << ", expected resized="
-                << meta.resized_width << "x" << meta.resized_height << " grid=[" << meta.grid_t << ", "
-                << meta.grid_h << ", " << meta.grid_w << "] patches=" << meta.patch_count;
-            *error = oss.str();
-        }
-        return false;
-    }
-
-    const std::filesystem::path expected_path = root / "expected_pixel_values.f32";
-    if (file_exists(expected_path))
-    {
-        std::vector<float> expected;
-        if (!read_binary_vector(expected_path, local.pixel_value_count, &expected, error))
-        {
-            return false;
-        }
-        double sum_abs = 0.0;
-        float max_abs = 0.0f;
-        for (size_t i = 0; i < local.pixel_value_count; ++i)
-        {
-            const float diff = std::fabs(local.pixel_values[i] - expected[i]);
-            max_abs = std::max(max_abs, diff);
-            sum_abs += diff;
-        }
-        local.has_expected_pixel_values = true;
-        local.max_abs_diff_expected = max_abs;
-        local.mean_abs_diff_expected = static_cast<float>(sum_abs / static_cast<double>(local.pixel_value_count));
-    }
-
-    *result = std::move(local);
-    return true;
 }
 
 } // namespace hunyuan_ocr

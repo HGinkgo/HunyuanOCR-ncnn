@@ -26,22 +26,6 @@ bool extract_dflash_target_hidden(ncnn::Extractor& ex,
 
 } // namespace detail
 
-struct TextRuntimeSmokeResult {
-    int token_id = -1;
-    size_t embedding_values = 0;
-    size_t logits_values = 0;
-    int embedding_w = 0;
-    int embedding_h = 0;
-    int embedding_c = 0;
-    int embedding_elempack = 0;
-    int logits_w = 0;
-    int logits_h = 0;
-    int logits_c = 0;
-    int logits_elempack = 0;
-    int raw_top1 = -1;
-    float raw_top1_score = 0.0f;
-};
-
 struct TextDecodeTiming {
     double text_embed_ms = 0.0;
     double prefill_ms = 0.0;
@@ -104,11 +88,6 @@ public:
     bool ready() const;
     bool dflash_ready() const;
     size_t mapped_weight_bytes() const;
-    TextRuntimeSmokeResult smoke_token(int token_id, std::string* error) const;
-    bool run_fixture_decode(const std::string& fixture_dir,
-                            int max_tokens,
-                            TextDecodeResult* result,
-                            std::string* error) const;
     bool run_vlm_fixture_decode(const std::string& fixture_dir,
                                 int max_tokens,
                                 TextDecodeResult* result,
