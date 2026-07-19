@@ -72,7 +72,7 @@ void print_usage(const char* program)
         << "Options:\n"
         << "  --help          Show this help message.\n"
         << "  --version       Print project and ncnn version information.\n"
-        << "  --model PATH    Check a HunyuanOCR ncnn model directory.\n"
+        << "  --model PATH    Use a model directory. Auto-detects common model directories.\n"
         << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
         << "  --dflash               Run DFlash with --vlm-fixture or a single --image.\n"
         << "  --mmap-weights         Load model weights from read-only file mappings.\n"
@@ -137,6 +137,55 @@ bool file_exists(const std::filesystem::path& path)
 {
     std::error_code ec;
     return std::filesystem::is_regular_file(path, ec);
+}
+
+void append_model_candidates(const std::filesystem::path& base,
+                             std::vector<std::filesystem::path>* candidates)
+{
+    if (base.empty()) return;
+    candidates->push_back(base / "hunyuan_ocr_ncnn_model");
+    candidates->push_back(base / "assets" / "hunyuan_ocr_1_5");
+    candidates->push_back(base / "assets" / "hunyuan_ocr");
+}
+
+std::string discover_model_root(const char* program)
+{
+    std::vector<std::filesystem::path> candidates;
+    std::error_code filesystem_error;
+    const std::filesystem::path current = std::filesystem::current_path(filesystem_error);
+    if (!filesystem_error)
+    {
+        append_model_candidates(current, &candidates);
+    }
+
+    filesystem_error.clear();
+    std::filesystem::path executable = hunyuan_ocr::path_from_utf8(program);
+    executable = std::filesystem::absolute(executable, filesystem_error);
+    if (!filesystem_error)
+    {
+        const std::filesystem::path executable_dir = executable.parent_path();
+        append_model_candidates(executable_dir, &candidates);
+        append_model_candidates(executable_dir.parent_path(), &candidates);
+    }
+
+    std::string first_existing;
+    for (const std::filesystem::path& candidate : candidates)
+    {
+        filesystem_error.clear();
+        if (!std::filesystem::is_directory(candidate, filesystem_error)) continue;
+
+        filesystem_error.clear();
+        const std::filesystem::path absolute =
+            std::filesystem::absolute(candidate, filesystem_error);
+        const std::string path = hunyuan_ocr::path_to_utf8(
+            filesystem_error ? candidate : absolute.lexically_normal());
+        if (first_existing.empty()) first_existing = path;
+        if (hunyuan_ocr::check_model_layout(path).required_files_present())
+        {
+            return path;
+        }
+    }
+    return first_existing;
 }
 
 bool resolve_dynamic_vision_paths(const std::string& model_root,
@@ -1130,8 +1179,14 @@ int main(int argc, char** argv)
 
     if (model_root.empty())
     {
-        print_usage(argv[0]);
-        return 0;
+        model_root = discover_model_root(argv[0]);
+        if (model_root.empty())
+        {
+            std::cerr << "No model directory found. Pass --model PATH or place the model at "
+                      << "./hunyuan_ocr_ncnn_model.\n";
+            return 1;
+        }
+        std::cerr << "Auto-detected model: " << model_root << "\n";
     }
 
     if (!prompt_text.empty() && !prompt_mode_text.empty())

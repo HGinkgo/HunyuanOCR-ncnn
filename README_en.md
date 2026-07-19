@@ -51,13 +51,14 @@ modelscope download \
 > This is an unofficial community conversion maintained by an individual. It is not
 > released, endorsed, or supported by Tencent.
 
-Build and run the example with an installed ncnn CMake package:
+The script auto-detects `./hunyuan_ocr_ncnn_model` and a sibling `../ncnn/build/src`, then builds and runs an example:
 
 ```bash
-scripts/quickstart_existing_model.sh \
-  --model ./hunyuan_ocr_ncnn_model \
-  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
+scripts/quickstart_existing_model.sh
 ```
+
+Pass `--model PATH` or `--ncnn-dir PATH` when either dependency is elsewhere.
+Quickstart generates 16 tokens for a fast smoke test; use the single-image command below for complete OCR.
 
 Model weights are not stored in this source repository.
 
@@ -91,11 +92,10 @@ cmake --build build -j
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model ./hunyuan_ocr_ncnn_model \
   --image ./examples/images/hf_demo_tools-dark.png
 ```
 
-Single-image inference defaults to the `document` prompt and streams decoded text while it is generated. The default limit is 8192 tokens, with early stopping on EOS or tail repetition. Use `--prompt-mode spotting` when coordinates are needed, or pass a custom prompt with `--prompt "Return only the visible text"`.
+The CLI auto-detects `./hunyuan_ocr_ncnn_model` and common `assets/` directories. Single-image inference defaults to the `document` prompt and streams decoded text while it is generated. The default limit is 8192 tokens, with early stopping on EOS or tail repetition. Use `--prompt-mode spotting` when coordinates are needed, or pass a custom prompt with `--prompt "Return only the visible text"`.
 
 ### JSONL batch inference
 
@@ -107,7 +107,6 @@ Each line is one request. Specify exactly one of `prompt_mode` and `prompt`:
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model ./hunyuan_ocr_ncnn_model \
   --batch-input requests.jsonl \
   --batch-output results.jsonl
 ```

@@ -383,6 +383,10 @@ add_test(NAME package_model
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/package_model_test.py"
 )
+add_test(NAME quickstart
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/quickstart_test.py"
+)
 if(HUNYUAN_OCR_BUILD_CLI)
     add_test(NAME windows_utf8_integration
         COMMAND "${Python3_EXECUTABLE}"

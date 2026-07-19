@@ -30,7 +30,7 @@ def main() -> int:
         print("usage: cli_options_test.py /path/to/hunyuan_ocr_cli", file=sys.stderr)
         return 2
 
-    binary = Path(sys.argv[1])
+    binary = Path(sys.argv[1]).resolve()
     completed = subprocess.run(
         [
             str(binary),
@@ -94,6 +94,7 @@ def main() -> int:
         or "Default: 1.08." not in help_result.stdout
         or "Default prompt: document." not in help_result.stdout
         or "Default max tokens: 8192." not in help_result.stdout
+        or "Auto-detects common model directories." not in help_result.stdout
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
@@ -200,6 +201,54 @@ def main() -> int:
         "vision/vision.ncnn.bin",
         "vision/pos_embed.bin",
     )
+    with tempfile.TemporaryDirectory(prefix="hunyuan_auto_model_") as temporary:
+        temporary_root = Path(temporary)
+        auto_model = temporary_root / "hunyuan_ocr_ncnn_model"
+        for relative_path in required_model_files:
+            path = auto_model / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        auto_detected = subprocess.run(
+            [str(binary)],
+            cwd=temporary_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            auto_detected.returncode != 0
+            or f"Model root: {auto_model}" not in auto_detected.stdout
+            or "Auto-detected model:" not in auto_detected.stderr
+        ):
+            print(
+                "default model directory was not auto-detected: "
+                f"rc={auto_detected.returncode} stdout={auto_detected.stdout!r} "
+                f"stderr={auto_detected.stderr!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="hunyuan_no_model_") as temporary:
+        missing_model = subprocess.run(
+            [str(binary)],
+            cwd=temporary,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if (
+            missing_model.returncode == 0
+            or "No model directory found" not in missing_model.stderr
+            or "--model PATH" not in missing_model.stderr
+            or "./hunyuan_ocr_ncnn_model" not in missing_model.stderr
+        ):
+            print(
+                "missing model did not produce actionable guidance: "
+                f"rc={missing_model.returncode} stderr={missing_model.stderr!r}",
+                file=sys.stderr,
+            )
+            return 1
+
     with tempfile.TemporaryDirectory(prefix="hunyuan_batch_preflight_") as temporary:
         temporary_root = Path(temporary)
         model_root = temporary_root / "model"

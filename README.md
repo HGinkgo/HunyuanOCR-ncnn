@@ -48,13 +48,14 @@ modelscope download \
 
 > 该模型包由个人转换和维护，是非官方社区产物，腾讯未对其或本项目提供认可或背书。
 
-使用已安装的 ncnn CMake package 构建并运行示例：
+脚本会自动发现 `./hunyuan_ocr_ncnn_model` 和相邻的 `../ncnn/build/src`，然后构建并运行示例：
 
 ```bash
-scripts/quickstart_existing_model.sh \
-  --model ./hunyuan_ocr_ncnn_model \
-  --ncnn-dir /path/to/ncnn/lib/cmake/ncnn
+scripts/quickstart_existing_model.sh
 ```
+
+模型或 ncnn 位于其他位置时，可分别使用 `--model PATH` 和 `--ncnn-dir PATH` 覆盖。
+quickstart 默认只生成 16 个 token 做快速 smoke；完整 OCR 请使用下面的单图命令。
 
 源码仓库不内置模型权重。
 
@@ -88,11 +89,10 @@ cmake --build build -j
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model ./hunyuan_ocr_ncnn_model \
   --image ./examples/images/hf_demo_tools-dark.png
 ```
 
-单图默认使用 `document` prompt，识别文本会在生成过程中直接输出；默认最多生成 8192 个 token，并在 EOS 或尾部重复时提前结束。需要坐标时可显式使用 `--prompt-mode spotting`，也可以使用 `--prompt "只输出图片中的可见文字"` 传入自定义 prompt。
+CLI 会自动发现 `./hunyuan_ocr_ncnn_model` 和常见 `assets/` 目录。单图默认使用 `document` prompt，识别文本会在生成过程中直接输出；默认最多生成 8192 个 token，并在 EOS 或尾部重复时提前结束。需要坐标时可显式使用 `--prompt-mode spotting`，也可以使用 `--prompt "只输出图片中的可见文字"` 传入自定义 prompt。
 
 ### JSONL 批量推理
 
@@ -104,7 +104,6 @@ cmake --build build -j
 
 ```bash
 ./build/hunyuan_ocr_cli \
-  --model ./hunyuan_ocr_ncnn_model \
   --batch-input requests.jsonl \
   --batch-output results.jsonl
 ```
