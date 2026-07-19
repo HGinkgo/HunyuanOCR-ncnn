@@ -17,6 +17,7 @@ class ExampleCase:
     name: str
     image: str
     prompt_mode: str
+    max_tokens: int
     description: str
 
 

@@ -37,6 +37,9 @@ print("vision_gelu_cpu_fallback_count: 28")
 def verify_canonical_regression_image(repo_root: Path) -> bool:
     manifest_path = repo_root / "examples/regression_cases.json"
     items = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if len(items) != 28 or any(item.get("max_tokens") != 512 for item in items):
+        print("strict regression manifest must contain 28 cases at one 512-token window", file=sys.stderr)
+        return False
     canonical_images = {
         "hunyuan_vis_art_16": "hunyuan_vis_art_16.png",
         "hunyuan_ie_parallel": "hunyuan_ie_parallel.png",
@@ -109,6 +112,7 @@ def main() -> int:
         model.mkdir()
         images.mkdir()
         fixture_case.mkdir(parents=True)
+        (fixture_case / "meta.txt").write_text("safety_max_tokens=128\n", encoding="utf-8")
         if not verify_packaged_dynamic_manifest(repo_root, tmp):
             return 1
         (images / "image.png").write_bytes(b"not a real image; fake binary does not read it")
@@ -122,6 +126,7 @@ def main() -> int:
                         "name": "custom_prompt_case",
                         "image": "image.png",
                         "prompt": prompt,
+                        "max_tokens": 512,
                     }
                 ],
                 ensure_ascii=False,
@@ -135,8 +140,7 @@ def main() -> int:
 
         env = os.environ.copy()
         env["ARGV_LOG"] = str(argv_log)
-        completed = subprocess.run(
-            [
+        command = [
                 sys.executable,
                 str(repo_root / "tools/run_regression.py"),
                 "--binary",
@@ -154,7 +158,23 @@ def main() -> int:
                 "--vision-vulkan",
                 "--vision-vulkan-device",
                 "2",
-            ],
+            ]
+        rejected = subprocess.run(
+            command,
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+        if rejected.returncode == 0 or "fixture safety max does not match manifest" not in rejected.stderr:
+            print(rejected.stdout, end="")
+            print(rejected.stderr, end="", file=sys.stderr)
+            print("runner must reject a stale short-window fixture", file=sys.stderr)
+            return 1
+
+        (fixture_case / "meta.txt").write_text("safety_max_tokens=512\n", encoding="utf-8")
+        completed = subprocess.run(
+            command,
             cwd=repo_root,
             text=True,
             capture_output=True,
@@ -188,6 +208,10 @@ def main() -> int:
         penalty_index = argv.index("--repetition-penalty") if "--repetition-penalty" in argv else -1
         if penalty_index < 0 or argv[penalty_index + 1] != "1.08":
             print(f"missing repetition penalty in argv: {argv}", file=sys.stderr)
+            return 1
+        max_tokens_index = argv.index("--max-tokens") if "--max-tokens" in argv else -1
+        if max_tokens_index < 0 or argv[max_tokens_index + 1] != "512":
+            print(f"missing 512-token regression limit in argv: {argv}", file=sys.stderr)
             return 1
         if "summary: 1/1 passed" not in completed.stdout:
             print(completed.stdout, end="")

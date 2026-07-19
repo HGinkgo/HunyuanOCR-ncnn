@@ -54,6 +54,7 @@ def main() -> int:
     notice = (root / "NOTICE").read_text(encoding="utf-8")
     image_sources = (root / "examples/IMAGE_SOURCES.md").read_text(encoding="utf-8")
     expected_outputs = (root / "examples/EXPECTED_OUTPUTS.md").read_text(encoding="utf-8")
+    examples_readme = (root / "examples/README.md").read_text(encoding="utf-8")
 
     require("add_subdirectory(tests)" in cmake, "root CMake must delegate test definitions")
     require("add_test(" not in cmake, "root CMake must not register individual tests")
@@ -199,7 +200,17 @@ def main() -> int:
     require("Transformers 5.13.0" in expected_outputs, "expected outputs must record Transformers 5.13.0")
     rows = [line for line in expected_outputs.splitlines() if line.startswith("| `")]
     require(len(rows) == 28, f"expected outputs must contain 28 cases, got {len(rows)}")
-    require(all(re.search(r"\| 128 \| [0-9]+ \|$", row) for row in rows), "all expected output rows must use 128 tokens")
+    counts = [re.search(r"\| ([0-9]+) \| ([0-9]+) \|$", row) for row in rows]
+    require(all(match is not None for match in counts), "expected output rows must record token and character counts")
+    token_counts = [int(match.group(1)) for match in counts if match is not None]
+    require(all(0 < count <= 512 for count in token_counts), "expected output token counts must fit the 512-token window")
+    require(any(count == 512 for count in token_counts), "expected outputs must cover the 512-token safety limit")
+    require("maximum coordinate delta of 3" in expected_outputs,
+            "expected outputs must disclose the bbox-only numerical boundary")
+    require("--package-vision-backend" not in examples_readme,
+            "example regression command must use supported run_regression options")
+    require("3 coordinate units" in examples_readme and "3 pixels" not in examples_readme,
+            "bbox boundary must be reported in coordinate units, not image pixels")
     return 0
 
 

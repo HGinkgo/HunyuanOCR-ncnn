@@ -36,6 +36,7 @@ class BaselineCase:
     image: str
     prompt: str
     prompt_label: str
+    max_tokens: int | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         default=workspace_root / "outputs/baseline_fp32_manifest",
         help="Baseline output directory.",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--repetition-penalty", type=float, default=1.08)
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     parser.add_argument("--expected-revision", default=FIXED_MODEL_REVISION)
@@ -169,7 +170,10 @@ def load_cases(manifest: Path) -> list[BaselineCase]:
     cases: list[BaselineCase] = []
     for item, name in zip(items, names):
         prompt, label = prompt_for_item(item)
-        cases.append(BaselineCase(name, str(item["image"]), prompt, label))
+        max_tokens = item.get("max_tokens")
+        if max_tokens is not None and (type(max_tokens) is not int or max_tokens <= 0):
+            fail(f"{name}: max_tokens must be a positive integer")
+        cases.append(BaselineCase(name, str(item["image"]), prompt, label, max_tokens))
     return cases
 
 
@@ -368,6 +372,17 @@ def run_case(
         generated_ids_trimmed=to_numpy_int64(generated_ids_trimmed),
     )
     (out_dir / "output_text.txt").write_text(output_text, encoding="utf-8")
+    (out_dir / "generation.json").write_text(
+        json.dumps(
+            {
+                "max_tokens": max_new_tokens,
+                "new_tokens_len": int(generated_ids_trimmed.shape[1]),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     summary = {
         "name": case.name,
@@ -383,6 +398,7 @@ def run_case(
         "first_logits_shape": list(first_outputs.logits.shape),
         "generated_ids_len": int(generated_ids.shape[1]),
         "new_tokens_len": int(generated_ids_trimmed.shape[1]),
+        "max_tokens": max_new_tokens,
         "output_text_chars": len(output_text),
         "output_text_preview": output_text[:160].replace("\n", "\\n"),
     }
@@ -428,6 +444,7 @@ def write_summary(
                 f"prompt_label: {item['prompt_label']}",
                 f"image_grid_thw: {item['image_grid_thw']}",
                 f"new_tokens_len: {item['new_tokens_len']}",
+                f"max_tokens: {item['max_tokens']}",
                 f"output_text_chars: {item['output_text_chars']}",
                 f"output_text_preview: {item['output_text_preview']}",
                 "",
@@ -479,7 +496,7 @@ def main() -> int:
                     processor,
                     model,
                     args.image_root,
-                    args.max_new_tokens,
+                    case.max_tokens or args.max_new_tokens,
                     args.repetition_penalty,
                     staging,
                 )

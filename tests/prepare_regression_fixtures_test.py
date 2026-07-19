@@ -47,6 +47,48 @@ def write_summary(path: Path, **overrides: str) -> None:
 
 
 class PrepareRegressionFixturesTest(unittest.TestCase):
+    def test_load_cases_reads_512_token_limit(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp_text:
+            manifest = Path(tmp_text) / "manifest.json"
+            manifest.write_text(
+                '[{"name":"page","image":"page.png","prompt_mode":"document","max_tokens":512}]',
+                encoding="utf-8",
+            )
+
+            cases = module.load_cases(manifest)
+
+        self.assertEqual(cases[0].max_tokens, 512)
+
+    def test_generation_metadata_must_match_512_token_limit(self) -> None:
+        module = load_module()
+        case = module.Case("page", "page.png", "document", None, 512)
+        expected_tokens = module.np.array([10, 20], dtype=module.np.int32)
+
+        module.validate_generation_metadata(
+            case,
+            {"max_tokens": 512, "new_tokens_len": 2},
+            expected_tokens,
+        )
+        with self.assertRaisesRegex(SystemExit, "max_tokens metadata does not match manifest"):
+            module.validate_generation_metadata(
+                case,
+                {"max_tokens": 128, "new_tokens_len": 2},
+                expected_tokens,
+            )
+        with self.assertRaisesRegex(SystemExit, "generated token length metadata mismatch"):
+            module.validate_generation_metadata(
+                case,
+                {"max_tokens": 512, "new_tokens_len": 1},
+                expected_tokens,
+            )
+        with self.assertRaisesRegex(SystemExit, "generated token count exceeds manifest limit"):
+            module.validate_generation_metadata(
+                case,
+                {"max_tokens": 512, "new_tokens_len": 513},
+                module.np.arange(513, dtype=module.np.int32),
+            )
+
     def test_accepts_fixed_cpu_fp32_eager_provenance(self) -> None:
         module = load_module()
         with tempfile.TemporaryDirectory() as tmp_text:

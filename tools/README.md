@@ -85,7 +85,10 @@ runtime model directory produced by `tools/package_model.py`.
 packaged model directory. It requires exported fixture directories from the
 baseline/export workflow. Pass `--package` to rebuild the packaged model first;
 the package always uses the canonical dynamic vision files. Manifest cases may
-use either a built-in `prompt_mode` or a literal custom `prompt`.
+use either a built-in `prompt_mode` or a literal custom `prompt`. A
+`max_tokens` value in the manifest is propagated through CPU baseline
+generation, fixture metadata, and the ncnn CLI; mismatched stale fixtures are
+rejected before inference.
 
 `run_hf_baseline.py` creates PyTorch fp32 baseline outputs for a manifest. This
 is mainly used to create strict regression fixtures for custom prompts:
@@ -95,7 +98,7 @@ python tools/run_hf_baseline.py \
   --model-dir /path/to/HunyuanOCR-hf \
   --manifest examples/custom_prompt_cases.json \
   --output-dir outputs/custom_prompt_baseline \
-  --max-new-tokens 128
+  --max-new-tokens 512
 
 python tools/prepare_regression_fixtures.py \
   --baseline-dir outputs/custom_prompt_baseline \

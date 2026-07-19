@@ -33,6 +33,7 @@ class Case:
     image: str
     prompt_mode: str | None = None
     prompt: str | None = None
+    max_tokens: int | None = None
 
 
 def repo_root() -> Path:
@@ -123,8 +124,22 @@ def load_cases(manifest: Path) -> list[Case]:
         prompt = item.get("prompt")
         if (prompt_mode is None) == (prompt is None):
             fail(f"{item.get('name', '<unnamed>')}: manifest case must contain exactly one of prompt_mode or prompt")
-        cases.append(Case(item["name"], item["image"], prompt_mode, prompt))
+        max_tokens = item.get("max_tokens")
+        if max_tokens is not None and (type(max_tokens) is not int or max_tokens <= 0):
+            fail(f"{item['name']}: max_tokens must be a positive integer")
+        cases.append(Case(item["name"], item["image"], prompt_mode, prompt, max_tokens))
     return cases
+
+
+def validate_generation_metadata(case: Case, metadata: dict, expected_tokens: np.ndarray) -> None:
+    if case.max_tokens is None:
+        return
+    if metadata.get("max_tokens") != case.max_tokens:
+        fail(f"{case.name}: max_tokens metadata does not match manifest")
+    if metadata.get("new_tokens_len") != int(expected_tokens.size):
+        fail(f"{case.name}: generated token length metadata mismatch")
+    if expected_tokens.size > case.max_tokens:
+        fail(f"{case.name}: generated token count exceeds manifest limit")
 
 
 def write_i32(path: Path, values: np.ndarray) -> None:
@@ -152,6 +167,14 @@ def prepare_case(baseline_dir: Path, output_dir: Path, case: Case) -> None:
     vision_token_count = int(input_npz["image_token_count"].reshape(-1)[0])
     expected_tokens = generated_npz["generated_ids_trimmed"].reshape(-1)
     vision_features = vision_npz["vision_features"].reshape(-1)
+    if case.max_tokens is not None:
+        generation_path = source / "generation.json"
+        require_file(generation_path, "generation metadata")
+        validate_generation_metadata(
+            case,
+            json.loads(generation_path.read_text(encoding="utf-8")),
+            expected_tokens,
+        )
 
     expected_feature_values = vision_token_count * 1024
     if vision_features.size != expected_feature_values:
@@ -167,17 +190,17 @@ def prepare_case(baseline_dir: Path, output_dir: Path, case: Case) -> None:
     write_i32(target / "expected_tokens.i32", expected_tokens)
     write_f32(target / "vision_features.f32", vision_features)
     shutil.copyfile(expected_text_path, target / "expected_text.txt")
+    metadata_lines = [
+        f"seq_len={input_ids.size}",
+        f"expected_token_count={expected_tokens.size}",
+        f"image_token_id={image_token_id}",
+        f"vision_token_count={vision_token_count}",
+        f"case={case.name}",
+    ]
+    if case.max_tokens is not None:
+        metadata_lines.append(f"safety_max_tokens={case.max_tokens}")
     (target / "meta.txt").write_text(
-        "\n".join(
-            [
-                f"seq_len={input_ids.size}",
-                f"expected_token_count={expected_tokens.size}",
-                f"image_token_id={image_token_id}",
-                f"vision_token_count={vision_token_count}",
-                f"case={case.name}",
-                "",
-            ]
-        ),
+        "\n".join([*metadata_lines, ""]),
         encoding="utf-8",
     )
 

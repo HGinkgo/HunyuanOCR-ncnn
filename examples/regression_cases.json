@@ -4,6 +4,7 @@
     "name": "hf_demo_tools-dark",
     "image": "hf_demo_tools-dark.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR README demo image"
   },
   {
@@ -11,6 +12,7 @@
     "name": "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067",
     "image": "omnidoc_document_zh_page-205e4273-5b94-43e5-bfaf-dc882416b067.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "OmniDocBench Chinese document page"
   },
   {
@@ -18,6 +20,7 @@
     "name": "omnidoc_document_book_docstructbench_enbook_19221575_1173",
     "image": "omnidoc_document_book_docstructbench_enbook_19221575_1173.jpg",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "OmniDocBench English book page"
   },
   {
@@ -25,6 +28,7 @@
     "name": "omnidoc_formula_harmonic_analysis_page_119",
     "image": "omnidoc_formula_harmonic_analysis_page_119.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "OmniDocBench formula page"
   },
   {
@@ -32,6 +36,7 @@
     "name": "omnidoc_table_pyomo_page_188",
     "image": "omnidoc_table_pyomo_page_188.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "OmniDocBench table page"
   },
   {
@@ -39,6 +44,7 @@
     "name": "hunyuan_vis_subtitle2",
     "image": "hunyuan_vis_subtitle2.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream subtitle spotting asset"
   },
   {
@@ -46,6 +52,7 @@
     "name": "hunyuan_vis_parsing_table",
     "image": "hunyuan_vis_parsing_table.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream table parsing asset"
   },
   {
@@ -53,6 +60,7 @@
     "name": "hunyuan_vis_parsing_fig",
     "image": "hunyuan_vis_parsing_fig.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream figure/document parsing asset"
   },
   {
@@ -60,6 +68,7 @@
     "name": "hunyuan_vis_subtitle1",
     "image": "hunyuan_vis_subtitle1.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream subtitle spotting asset"
   },
   {
@@ -67,6 +76,7 @@
     "name": "hunyuan_spotting1_cropped",
     "image": "hunyuan_spotting1_cropped.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream text spotting asset"
   },
   {
@@ -74,6 +84,7 @@
     "name": "hunyuan_guwan1",
     "image": "hunyuan_guwan1.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream antique-text spotting asset."
   },
   {
@@ -81,6 +92,7 @@
     "name": "hunyuan_qikai1",
     "image": "hunyuan_qikai1.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream calligraphy spotting asset."
   },
   {
@@ -88,6 +100,7 @@
     "name": "hunyuan_parsing_chart1",
     "image": "hunyuan_parsing_chart1.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream chart parsing asset."
   },
   {
@@ -95,6 +108,7 @@
     "name": "hunyuan_parsing_rgsj",
     "image": "hunyuan_parsing_rgsj.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream document parsing asset."
   },
   {
@@ -102,6 +116,7 @@
     "name": "hunyuan_parsing_rgsjz_2",
     "image": "hunyuan_parsing_rgsjz_2.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream narrow document parsing asset."
   },
   {
@@ -109,6 +124,7 @@
     "name": "hunyuan_vis_parsing_chart1",
     "image": "hunyuan_vis_parsing_chart1.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream chart parsing asset."
   },
   {
@@ -116,6 +132,7 @@
     "name": "hunyuan_vis_parsing_chart2",
     "image": "hunyuan_vis_parsing_chart2.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream chart parsing asset."
   },
   {
@@ -123,6 +140,7 @@
     "name": "hunyuan_vis_parsing_table_2",
     "image": "hunyuan_vis_parsing_table_2.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream table parsing asset."
   },
   {
@@ -130,6 +148,7 @@
     "name": "hunyuan_vis_subtitle3",
     "image": "hunyuan_vis_subtitle3.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream dense subtitle spotting asset."
   },
   {
@@ -137,6 +156,7 @@
     "name": "hunyuan_zimu2",
     "image": "hunyuan_zimu2.jpg",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream subtitle spotting asset."
   },
   {
@@ -144,6 +164,7 @@
     "name": "hunyuan_ie_parallel",
     "image": "hunyuan_ie_parallel.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream information extraction example."
   },
   {
@@ -151,6 +172,7 @@
     "name": "hunyuan_translation2",
     "image": "hunyuan_translation2.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream translation/document example."
   },
   {
@@ -158,6 +180,7 @@
     "name": "hunyuan_vis_translation",
     "image": "hunyuan_vis_translation.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream translation visualization example."
   },
   {
@@ -165,6 +188,7 @@
     "name": "hunyuan_vis_ie_1",
     "image": "hunyuan_vis_ie_1.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream information extraction visualization."
   },
   {
@@ -172,6 +196,7 @@
     "name": "hunyuan_vis_parsing_chart3",
     "image": "hunyuan_vis_parsing_chart3.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream chart parsing visualization."
   },
   {
@@ -179,6 +204,7 @@
     "name": "hunyuan_vis_art_16",
     "image": "hunyuan_vis_art_16.png",
     "prompt_mode": "spotting",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream art/image spotting example."
   },
   {
@@ -186,6 +212,7 @@
     "name": "hunyuan_show_res_parsing_fig",
     "image": "hunyuan_show_res_parsing_fig.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream large parsing visualization."
   },
   {
@@ -193,6 +220,7 @@
     "name": "hunyuan_vis_parsing",
     "image": "hunyuan_vis_parsing.png",
     "prompt_mode": "document",
+    "max_tokens": 512,
     "description": "HunyuanOCR upstream parsing overview visualization."
   }
 ]

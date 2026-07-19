@@ -19,6 +19,7 @@ class Case:
     image: str
     prompt_mode: str | None = None
     prompt: str | None = None
+    max_tokens: int | None = None
 
     @property
     def label(self) -> str:
@@ -132,6 +133,24 @@ def require_dir(path: Path, label: str) -> None:
         fail(f"{label} not found: {path}")
 
 
+def read_fixture_metadata(path: Path) -> dict[str, str]:
+    require_file(path, "fixture metadata")
+    metadata: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            metadata[key.strip()] = value.strip()
+    return metadata
+
+
+def validate_fixture_token_limit(case: Case, fixture: Path) -> None:
+    if case.max_tokens is None:
+        return
+    metadata = read_fixture_metadata(fixture / "meta.txt")
+    if metadata.get("safety_max_tokens") != str(case.max_tokens):
+        fail(f"{case.name}: fixture safety max does not match manifest")
+
+
 def load_cases(manifest: Path) -> list[Case]:
     require_file(manifest, "regression manifest")
     items = json.loads(manifest.read_text(encoding="utf-8"))
@@ -141,7 +160,10 @@ def load_cases(manifest: Path) -> list[Case]:
         prompt = item.get("prompt")
         if (prompt_mode is None) == (prompt is None):
             fail(f"{item.get('name', '<unnamed>')}: manifest case must contain exactly one of prompt_mode or prompt")
-        cases.append(Case(item["name"], item["image"], prompt_mode, prompt))
+        max_tokens = item.get("max_tokens")
+        if max_tokens is not None and (type(max_tokens) is not int or max_tokens <= 0):
+            fail(f"{item['name']}: max_tokens must be a positive integer")
+        cases.append(Case(item["name"], item["image"], prompt_mode, prompt, max_tokens))
     return cases
 
 
@@ -191,6 +213,7 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
     fixture = args.fixture_root / case.name
     require_file(image, f"image for {case.name}")
     require_dir(fixture, f"fixture for {case.name}")
+    validate_fixture_token_limit(case, fixture)
 
     log_path = args.log_dir / f"{case.name}.log"
     cmd = [
@@ -207,6 +230,8 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
     else:
         cmd.extend(["--prompt-mode", case.prompt_mode or ""])
     cmd.extend(["--vlm-fixture", str(fixture)])
+    if case.max_tokens is not None:
+        cmd.extend(["--max-tokens", str(case.max_tokens)])
     if args.vision_vulkan:
         cmd.extend(
             [

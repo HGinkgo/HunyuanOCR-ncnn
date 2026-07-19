@@ -74,6 +74,10 @@ processor range with one `vision/vision.ncnn.param/bin` pair plus
 After preparing exported fixtures, the full regression additionally compares
 prompt ids, position ids, generated token ids, and decoded text:
 
+The regression manifest uses one 512-token safety window. The baseline,
+fixture metadata, and ncnn runner must all record the same limit; stale
+short-window fixtures are rejected.
+
 `hunyuan_vis_art_16.png` and `hunyuan_ie_parallel.png` are lossless canonical
 regression inputs derived from Pillow-decoded RGB pixels of the retained
 upstream JPEGs. JPEG input remains supported, but lossy JPEG decoders can
@@ -81,14 +85,19 @@ differ by small pixel rounding amounts, so cross-decoder token identity is not
 used as the conversion gate for these decision-sensitive cases.
 
 ```bash
-python tools/run_regression.py --package --package-vision-backend dynamic
+python tools/run_regression.py --package
 ```
 
 Expected summary:
 
 ```text
-summary: 28/28 passed
+summary: 27/28 passed
 ```
+
+The only non-token-exact input is `hunyuan_vis_parsing_fig`: OCR text and
+structure remain identical after bbox removal, while generated coordinates
+differ by at most 3 coordinate units. This fp32 numerical boundary is reported explicitly
+instead of applying coordinate compensation.
 
 ## Custom Prompt Regression
 

@@ -31,6 +31,7 @@ class RunHfBaselineTest(unittest.TestCase):
         with mock.patch.object(sys, "argv", argv):
             args = module.parse_args()
         self.assertEqual(args.repetition_penalty, 1.08)
+        self.assertEqual(args.max_new_tokens, 512)
         self.assertEqual(args.device, "cpu")
         self.assertEqual(args.expected_revision, "9e01f897bf8956f77a80c350dc0491d6bbbd43e6")
         self.assertEqual(args.expected_transformers_version, "5.13.0")
@@ -75,13 +76,26 @@ class RunHfBaselineTest(unittest.TestCase):
         module = load_module()
 
         self.assertEqual(
-            module.generation_options(max_new_tokens=128, repetition_penalty=1.08),
+            module.generation_options(max_new_tokens=512, repetition_penalty=1.08),
             {
-                "max_new_tokens": 128,
+                "max_new_tokens": 512,
                 "do_sample": False,
                 "repetition_penalty": 1.08,
             },
         )
+
+    def test_load_cases_reads_512_token_limit(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp_text:
+            manifest = Path(tmp_text) / "manifest.json"
+            manifest.write_text(
+                '[{"name":"page","image":"page.png","prompt_mode":"document","max_tokens":512}]',
+                encoding="utf-8",
+            )
+
+            cases = module.load_cases(manifest)
+
+        self.assertEqual(cases[0].max_tokens, 512)
 
     def test_resolve_position_ids_supports_transformers_5_13_contract(self) -> None:
         module = load_module()
