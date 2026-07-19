@@ -395,6 +395,13 @@ if(HUNYUAN_OCR_BUILD_CLI)
                 "$<TARGET_FILE:hunyuan_ocr_cli>"
     )
 endif()
+if(HUNYUAN_OCR_BUILD_EXAMPLES)
+    add_test(NAME ocr_example
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/ocr_example_test.py"
+                "$<TARGET_FILE:hunyuan_ocr_example>"
+    )
+endif()
 
 get_property(_hunyuan_ocr_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_hunyuan_ocr_tests} PROPERTIES

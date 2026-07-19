@@ -117,6 +117,13 @@ The model loads once and output order matches input order. Failed records contai
 
 ### C++ runtime
 
+See [`examples/ocr_main.cpp`](examples/ocr_main.cpp) for a minimal runnable integration:
+
+```bash
+cmake --build build --target hunyuan_ocr_example
+./build/hunyuan_ocr_example ./hunyuan_ocr_ncnn_model ./document.png
+```
+
 ```cmake
 add_subdirectory(path/to/HunyuanOCR-ncnn)
 target_link_libraries(my_ocr_app PRIVATE hunyuan_ocr)
@@ -131,7 +138,7 @@ if (!runtime.load("./hunyuan_ocr_ncnn_model", {}, &error)) return 1;
 
 hunyuan_ocr::InferenceRequest request;
 request.prompt_mode = hunyuan_ocr::PromptMode::Document;
-request.max_tokens = 128;
+request.max_tokens = 8192;
 
 hunyuan_ocr::InferenceResult result;
 if (!runtime.infer_file("document.png", request, &result, &error)) return 2;
