@@ -24,7 +24,7 @@ This project exports the Hugging Face HunyuanOCR model into ncnn submodules with
 pnnx and implements image preprocessing, dynamic vision, prompts, KV-cache decoding,
 and tokenizer postprocessing in C++.
 
-> `main` is the HunyuanOCR 1.5 preview (`0.4.0`). The `feat/hunyuanocr-1.0` branch
+> `main` is HunyuanOCR 1.5 `0.4.0`. The `feat/hunyuanocr-1.0` branch
 > and `v0.2.0` retain the HunyuanOCR 1.0 version.
 
 ## Features
@@ -181,7 +181,6 @@ in [`tools/README.md`](tools/README.md#benchmark).
 
 ## Limitations
 
-- HunyuanOCR 1.5 remains a `0.4.0` preview; use the model package linked above.
 - The current package uses `max_pixels=524288` and omits the original high-resolution path.
 - JPEG decoder rounding can affect decision-sensitive images; use PNG for stable reproduction.
 - Custom prompts do not yet cover every tokenizer boundary input.

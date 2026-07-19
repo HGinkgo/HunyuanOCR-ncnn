@@ -37,7 +37,7 @@ The current runtime requires tokenizer files, `text_embed`, `text_decoder`,
 `model.json` records the expected relative paths. See
 `models/model.json.example` for the current schema.
 
-The `main` branch `0.4.0` preview template targets HunyuanOCR 1.5 checkpoint revision
+The `main` branch `0.4.0` template targets HunyuanOCR 1.5 checkpoint revision
 `9e01f897bf8956f77a80c350dc0491d6bbbd43e6` with repetition penalty `1.08`
 and EOS token `120020`. Branch `feat/hunyuanocr-1.0` preserves the HunyuanOCR
 1.0 development line, while tag `v0.2.0` remains its frozen release.

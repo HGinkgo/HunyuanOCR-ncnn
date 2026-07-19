@@ -22,7 +22,7 @@
 本项目使用 pnnx 将 Hugging Face 版 HunyuanOCR 导出为 ncnn 子模块，并在 C++ 中完成
 图片预处理、动态 vision、prompt、KV cache 解码和 tokenizer 后处理。
 
-> `main` 是 HunyuanOCR 1.5 的 `0.4.0` preview；`feat/hunyuanocr-1.0` 和 `v0.2.0`
+> `main` 是 HunyuanOCR 1.5 的 `0.4.0`；`feat/hunyuanocr-1.0` 和 `v0.2.0`
 > 保留 HunyuanOCR 1.0 兼容版本。
 
 ## 功能特性
@@ -177,7 +177,6 @@ python tools/benchmark.py --model ./hunyuan_ocr_ncnn_model --cases hf_demo
 
 ## 当前限制
 
-- HunyuanOCR 1.5 当前仍是 `0.4.0` preview，请使用 README 链接的配套模型包。
 - 当前模型包使用 `max_pixels=524288`，不包含原版高分辨率路径。
 - JPEG 解码器的像素舍入差异可能影响决策敏感图片；稳定复现建议使用 PNG。
 - 自定义 prompt 尚未覆盖所有 tokenizer 边界输入。

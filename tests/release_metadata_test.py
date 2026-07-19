@@ -103,7 +103,9 @@ def main() -> int:
                     f"{label} must keep developer workflow out of the user README: {developer_entry}")
     require("picojson" in notice and "BSD 2-Clause" in notice,
             "NOTICE must attribute the vendored JSON parser")
-    require("HunyuanOCR 1.5 preview" in readme_en, "README_en must mark HunyuanOCR 1.5 as preview")
+    for text, label in ((readme_en, "README_en"), (readme_zh, "README"), (model_readme, "model README")):
+        require("0.4.0" in text, f"{label} must identify version 0.4.0")
+        require("preview" not in text.lower(), f"{label} must not mark version 0.4.0 as preview")
     for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
         require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")
@@ -117,7 +119,6 @@ def main() -> int:
     require("MSVC" not in readme_zh and "UCRT64" not in readme_zh, "README Windows status must not expose toolchain details")
     require("validation pending" not in readme_en and "still pending" not in readme_en, "README_en contains stale pending status")
     require("尚待验证" not in readme_zh and "尚待复核" not in readme_zh, "README contains stale pending status")
-    require("`0.4.0` preview" in model_readme, "model README must identify the untagged 0.4.0 preview")
     require("Experimental DFlash" not in readme_en, "README_en must not label DFlash as experimental")
     require("实验性 DFlash" not in readme_zh, "README must not label DFlash as experimental")
     require("\n## Competition Coverage\n" not in readme_en,
