@@ -10,6 +10,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
     <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32-4c1.svg" alt="CPU fp32 和 Vulkan vision fp32">
   </p>
   <p>
     <a href="https://github.com/Tencent/ncnn/discussions/6808">技术说明</a>

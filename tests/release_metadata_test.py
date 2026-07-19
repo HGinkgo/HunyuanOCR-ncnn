@@ -108,6 +108,10 @@ def main() -> int:
         require("0.4.0" in text, f"{label} must identify version 0.4.0")
         require("preview" not in text.lower(), f"{label} must not mark version 0.4.0 as preview")
     for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
+        require(
+            "backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32" in text,
+            f"{label} must retain the CPU/Vulkan backend badge",
+        )
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
         require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")
     require("\n## Status\n" not in readme_en, "README_en must not duplicate highlights in a Status section")
