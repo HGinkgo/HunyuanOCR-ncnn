@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -87,9 +88,48 @@ def test_wrong_revision_is_rejected(root: Path) -> None:
         require(NCNN_REVISION in result.stderr, "revision error must report the required ncnn revision")
 
 
+def test_patch_hunk_lines_have_prefixes(root: Path) -> None:
+    bundle = root / "patches" / "ncnn"
+    for patch_name in PATCHES:
+        old_remaining = 0
+        new_remaining = 0
+        for line_number, line in enumerate(
+            (bundle / patch_name).read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if old_remaining == 0 and new_remaining == 0:
+                match = re.match(
+                    r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", line
+                )
+                if match:
+                    old_remaining = int(match.group(1) or 1)
+                    new_remaining = int(match.group(2) or 1)
+                continue
+
+            require(
+                line.startswith((" ", "+", "-", "\\")),
+                f"{patch_name}:{line_number}: hunk line is missing a diff prefix",
+            )
+            if line.startswith(" "):
+                old_remaining -= 1
+                new_remaining -= 1
+            elif line.startswith("-"):
+                old_remaining -= 1
+            elif line.startswith("+"):
+                new_remaining -= 1
+            require(
+                old_remaining >= 0 and new_remaining >= 0,
+                f"{patch_name}:{line_number}: hunk line count exceeds its header",
+            )
+        require(
+            old_remaining == 0 and new_remaining == 0,
+            f"{patch_name}: truncated final hunk",
+        )
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     test_bundle_metadata(root)
+    test_patch_hunk_lines_have_prefixes(root)
     test_wrong_revision_is_rejected(root)
     return 0
 

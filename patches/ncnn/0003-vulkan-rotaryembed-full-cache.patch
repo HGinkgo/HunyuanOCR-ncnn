@@ -17,7 +17,7 @@ index fbab6170..836a3b01 100644
 +    full_cache = pd.get(1, 0);
 +    if (full_cache)
 +        support_bf16_storage = false;
-
+ 
      return 0;
  }
 @@ -73,10 +76,12 @@ int RotaryEmbed::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_blobs, const Option& opt) const
@@ -41,14 +41,14 @@ index 8961dfd1..437d91a7 100644
 --- a/src/layer/rotaryembed.h
 +++ b/src/layer/rotaryembed.h
 @@ -19,6 +19,9 @@ public:
-
+ 
  public:
      int interleaved;
 +    // Use a full-width cosine/sine cache for non-interleaved M-RoPE.
 +    // The default keeps the standard RotaryEmbed half-width cache behavior.
 +    int full_cache;
  };
-
+ 
  } // namespace ncnn
 diff --git a/src/layer/vulkan/rotaryembed_vulkan.cpp b/src/layer/vulkan/rotaryembed_vulkan.cpp
 index f3376357..6845f741 100644
@@ -57,7 +57,7 @@ index f3376357..6845f741 100644
 @@ -21,12 +21,13 @@ int RotaryEmbed_vulkan::create_pipeline(const Option& opt)
  {
      const Mat& shape = bottom_shapes.empty() ? Mat() : bottom_shapes[0];
-
+ 
 -    std::vector<vk_specialization_type> specializations(1 + 4);
 +    std::vector<vk_specialization_type> specializations(1 + 4 + 1);
      specializations[0].i = interleaved;
@@ -66,7 +66,7 @@ index f3376357..6845f741 100644
      specializations[1 + 2].i = shape.c;
      specializations[1 + 3].i = (int)shape.cstep;
 +    specializations[1 + 4].i = full_cache;
-
+ 
      Mat local_size_xyz;
      if (shape.dims == 3)
 diff --git a/src/layer/vulkan/shader/rotaryembed.comp b/src/layer/vulkan/shader/rotaryembed.comp
@@ -78,20 +78,20 @@ index 56539cd6..71323121 100644
  layout(constant_id = shape_constant_id_offset + 2) const int num_heads = 0;
  layout(constant_id = shape_constant_id_offset + 3) const int cstep = 0;
 +layout(constant_id = shape_constant_id_offset + 4) const int full_cache = 0;
-
+ 
  layout(binding = 0) readonly buffer bottom_blob { sfp bottom_blob_data[]; };
  layout(binding = 1) readonly buffer cos_cache { sfp cos_cache_data[]; };
 @@ -36,7 +37,7 @@ void main()
      if (gx >= halfdim || gy >= psc(seqlen) || gz >= psc(num_heads))
          return;
-
+ 
 -    const int cache_offset = gy * halfdim + gx;
 +    const int cache_offset = gy * ((interleaved == 1 || full_cache == 0) ? halfdim : psc(embed_dim)) + gx;
-
+ 
      afp cosv = buffer_ld1(cos_cache_data, cache_offset);
      afp sinv = buffer_ld1(sin_cache_data, cache_offset);
 @@ -63,6 +64,13 @@ void main()
-
+ 
          afp y0 = x0 * cosv - x1 * sinv;
          afp y1 = x0 * sinv + x1 * cosv;
 +        if (full_cache == 1)
@@ -101,7 +101,7 @@ index 56539cd6..71323121 100644
 +            afp sinv_second = buffer_ld1(sin_cache_data, second_cache_offset);
 +            y1 = x0 * sinv_second + x1 * cosv_second;
 +        }
-
+ 
          buffer_st1(top_blob_data, gi, y0);
          buffer_st1(top_blob_data, gi + halfdim, y1);
 diff --git a/src/layer/vulkan/shader/rotaryembed_pack4.comp b/src/layer/vulkan/shader/rotaryembed_pack4.comp
@@ -113,20 +113,20 @@ index 331b2bd1..831180af 100644
  layout(constant_id = shape_constant_id_offset + 2) const int num_heads = 0;
  layout(constant_id = shape_constant_id_offset + 3) const int cstep = 0;
 +layout(constant_id = shape_constant_id_offset + 4) const int full_cache = 0;
-
+ 
  layout(binding = 0) readonly buffer bottom_blob { sfpvec4 bottom_blob_data[]; };
  layout(binding = 1) readonly buffer cos_cache { sfp cos_cache_data[]; };
 @@ -36,7 +37,7 @@ void main()
      if (gx >= halfdim || gy >= psc(seqlen) || gz >= psc(num_heads))
          return;
-
+ 
 -    const int cache_offset = gy * halfdim + gx;
 +    const int cache_offset = gy * ((interleaved == 1 || full_cache == 0) ? halfdim : psc(embed_dim)) + gx;
-
+ 
      afp cosv = buffer_ld1(cos_cache_data, cache_offset);
      afp sinv = buffer_ld1(sin_cache_data, cache_offset);
 @@ -63,6 +64,13 @@ void main()
-
+ 
          afpvec4 y0 = x0 * cosv - x1 * sinv;
          afpvec4 y1 = x0 * sinv + x1 * cosv;
 +        if (full_cache == 1)
@@ -136,7 +136,7 @@ index 331b2bd1..831180af 100644
 +            afp sinv_second = buffer_ld1(sin_cache_data, second_cache_offset);
 +            y1 = x0 * sinv_second + x1 * cosv_second;
 +        }
-
+ 
          buffer_st4(top_blob_data, gi, y0);
          buffer_st4(top_blob_data, gi + halfdim, y1);
 diff --git a/src/layer/x86/rotaryembed_x86.cpp b/src/layer/x86/rotaryembed_x86.cpp
@@ -146,7 +146,7 @@ index 982af51d..9375dc9c 100644
 @@ -37,6 +37,9 @@ int RotaryEmbed_x86::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_blobs, const Option& opt) const
          return forward_bf16s(bottom_blobs, top_blobs, opt);
  #endif
-
+ 
 +    if (full_cache)
 +        return RotaryEmbed::forward(bottom_blobs, top_blobs, opt);
 +
@@ -160,7 +160,7 @@ index 1d79c4b0..be873d80 100644
 @@ -31,9 +31,26 @@ static int test_rotaryembed(const ncnn::Mat& a, int interleaved)
      return ret;
  }
-
+ 
 +static int test_rotaryembed_full_cache()
 +{
 +    const int embed_dim = 32;
