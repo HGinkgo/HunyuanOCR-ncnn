@@ -1,6 +1,7 @@
 #include "hunyuan_ocr/text_runtime.h"
 
 #include "text_decoder_step.h"
+#include "text_backend_policy.h"
 
 #include "hunyuan_ocr/generation_config.h"
 #include "hunyuan_ocr/hunyuan_ocr.h"
@@ -1690,8 +1691,9 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "text_embed" / "text_embed.ncnn.bin",
                   num_threads_,
                   mmap_weights_,
-                  false,
-                  0,
+                  detail::text_stage_uses_vulkan(detail::TextNetStage::Embedding,
+                                                  use_vulkan_),
+                  vulkan_device_,
                   &text_embed_model_mapping_,
                   error))
     {
@@ -1703,7 +1705,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                                           error,
                                           mmap_weights_,
                                           &text_decoder_model_mapping_,
-                                          use_vulkan_,
+                                          detail::text_stage_uses_vulkan(detail::TextNetStage::Decoder,
+                                                                          use_vulkan_),
                                           vulkan_device_))
     {
         return false;
@@ -1713,8 +1716,9 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "lm_head" / "lm_head.ncnn.bin",
                   num_threads_,
                   mmap_weights_,
-                  false,
-                  0,
+                  detail::text_stage_uses_vulkan(detail::TextNetStage::LmHead,
+                                                  use_vulkan_),
+                  vulkan_device_,
                   &lm_head_model_mapping_,
                   error))
     {

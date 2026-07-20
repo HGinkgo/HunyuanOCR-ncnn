@@ -174,6 +174,8 @@ target_compile_features(hunyuan_ocr_model_load_probe PRIVATE cxx_std_17)
 add_executable(hunyuan_ocr_text_decoder_aux_test ${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_aux_test.cpp)
 target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_text_decoder_aux_test PRIVATE cxx_std_17)
+target_include_directories(hunyuan_ocr_text_decoder_aux_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 
 add_executable(hunyuan_ocr_text_decoder_vulkan_session_test
     ${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_vulkan_session_test.cpp)

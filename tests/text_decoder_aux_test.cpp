@@ -1,10 +1,18 @@
 #include "hunyuan_ocr/text_runtime.h"
+#include "text_backend_policy.h"
 
 #include <array>
 #include <string>
 
 int main()
 {
+    using hunyuan_ocr::detail::TextNetStage;
+    using hunyuan_ocr::detail::text_stage_uses_vulkan;
+    if (text_stage_uses_vulkan(TextNetStage::Embedding, true)) return 10;
+    if (!text_stage_uses_vulkan(TextNetStage::Decoder, true)) return 11;
+    if (!text_stage_uses_vulkan(TextNetStage::LmHead, true)) return 12;
+    if (text_stage_uses_vulkan(TextNetStage::LmHead, false)) return 13;
+
     const char param[] =
         "7767517\n"
         "2 6\n"
