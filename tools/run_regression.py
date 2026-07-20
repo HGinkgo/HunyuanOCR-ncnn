@@ -115,6 +115,17 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Vulkan device index passed to hunyuan_ocr_cli. Default: 0.",
     )
+    parser.add_argument(
+        "--text-vulkan",
+        action="store_true",
+        help="Run the text decoder and lm_head with ncnn Vulkan fp32.",
+    )
+    parser.add_argument(
+        "--text-vulkan-device",
+        type=int,
+        default=0,
+        help="Text Vulkan device index passed to hunyuan_ocr_cli. Default: 0.",
+    )
     return parser.parse_args()
 
 
@@ -240,6 +251,14 @@ def run_case(repo_root: Path, args: argparse.Namespace, case: Case) -> bool:
                 str(args.vision_vulkan_device),
             ]
         )
+    if args.text_vulkan:
+        cmd.extend(
+            [
+                "--text-vulkan",
+                "--text-vulkan-device",
+                str(args.text_vulkan_device),
+            ]
+        )
 
     completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True)
     log_path.write_text(
@@ -281,6 +300,8 @@ def main() -> int:
         fail("--repetition-penalty must be positive")
     if args.vision_vulkan_device < 0:
         fail("--vision-vulkan-device must be non-negative")
+    if args.text_vulkan_device < 0:
+        fail("--text-vulkan-device must be non-negative")
 
     require_file(args.binary, "hunyuan_ocr_cli")
     if args.package:

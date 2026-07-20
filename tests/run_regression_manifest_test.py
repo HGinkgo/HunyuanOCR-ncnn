@@ -158,6 +158,9 @@ def main() -> int:
                 "--vision-vulkan",
                 "--vision-vulkan-device",
                 "2",
+                "--text-vulkan",
+                "--text-vulkan-device",
+                "3",
             ]
         rejected = subprocess.run(
             command,
@@ -204,6 +207,13 @@ def main() -> int:
         device_index = argv.index("--vision-vulkan-device") if "--vision-vulkan-device" in argv else -1
         if device_index < 0 or argv[device_index + 1] != "2":
             print(f"wrong Vulkan device in argv: {argv}", file=sys.stderr)
+            return 1
+        if "--text-vulkan" not in argv:
+            print(f"missing --text-vulkan in argv: {argv}", file=sys.stderr)
+            return 1
+        text_device_index = argv.index("--text-vulkan-device") if "--text-vulkan-device" in argv else -1
+        if text_device_index < 0 or argv[text_device_index + 1] != "3":
+            print(f"wrong text Vulkan device in argv: {argv}", file=sys.stderr)
             return 1
         penalty_index = argv.index("--repetition-penalty") if "--repetition-penalty" in argv else -1
         if penalty_index < 0 or argv[penalty_index + 1] != "1.08":
