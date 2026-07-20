@@ -54,6 +54,11 @@ public:
                   ncnn::Mat* hidden,
                   std::string* error);
     int step_submit_count() const;
+    int extractor_create_count() const;
+    int hidden_extract_count() const;
+    int kv_extract_count() const;
+    int command_reset_count() const;
+    int input_upload_count() const;
 
 private:
     struct Impl;

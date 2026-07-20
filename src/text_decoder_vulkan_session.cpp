@@ -27,11 +27,11 @@ ncnn::Option make_vulkan_option(const ncnn::Net& net,
     return option;
 }
 
-bool bind_cpu_inputs(ncnn::Extractor* ex,
-                     const ncnn::Mat& input,
-                     const ncnn::Mat& mask,
-                     const ncnn::Mat& cos,
-                     const ncnn::Mat& sin,
+bool bind_gpu_inputs(ncnn::Extractor* ex,
+                     const ncnn::VkMat& input,
+                     const ncnn::VkMat& mask,
+                     const ncnn::VkMat& cos,
+                     const ncnn::VkMat& sin,
                      std::string* error)
 {
     if (ex == nullptr ||
@@ -63,6 +63,7 @@ struct VulkanDecoderSession::Impl {
 
     ~Impl()
     {
+        command.reset();
         caches.clear();
         if (blob_allocator != nullptr)
         {
@@ -80,8 +81,14 @@ struct VulkanDecoderSession::Impl {
     const ncnn::VulkanDevice* vkdev = nullptr;
     ncnn::VkAllocator* blob_allocator = nullptr;
     ncnn::VkAllocator* staging_allocator = nullptr;
+    std::unique_ptr<ncnn::VkCompute> command;
     VulkanKVCache caches;
     int step_submits = 0;
+    int extractor_creates = 0;
+    int hidden_extracts = 0;
+    int kv_extracts = 0;
+    int command_resets = 0;
+    int input_uploads = 0;
 };
 
 VulkanDecoderSession::VulkanDecoderSession(const ncnn::Net& net)
@@ -141,11 +148,38 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
         return false;
     }
 
+    const ncnn::Option option = make_vulkan_option(
+        impl_->net, impl_->blob_allocator, impl_->staging_allocator);
+    if (!impl_->command)
+    {
+        impl_->command = std::make_unique<ncnn::VkCompute>(impl_->vkdev);
+    }
+    else if (impl_->command->reset() != 0)
+    {
+        if (error) *error = "Vulkan decoder command reset failed";
+        return false;
+    }
+    else
+    {
+        ++impl_->command_resets;
+    }
+    ncnn::VkCompute& cmd = *impl_->command;
+
     ncnn::Extractor ex = const_cast<ncnn::Net&>(impl_->net).create_extractor();
+    ++impl_->extractor_creates;
     ex.set_blob_vkallocator(impl_->blob_allocator);
     ex.set_workspace_vkallocator(impl_->blob_allocator);
     ex.set_staging_vkallocator(impl_->staging_allocator);
-    if (!bind_cpu_inputs(&ex, current_embed, mask, cos, sin, error))
+    ncnn::VkMat input_gpu;
+    ncnn::VkMat mask_gpu;
+    ncnn::VkMat cos_gpu;
+    ncnn::VkMat sin_gpu;
+    cmd.record_upload(current_embed, input_gpu, option);
+    cmd.record_upload(mask, mask_gpu, option);
+    cmd.record_upload(cos, cos_gpu, option);
+    cmd.record_upload(sin, sin_gpu, option);
+    impl_->input_uploads += 4;
+    if (!bind_gpu_inputs(&ex, input_gpu, mask_gpu, cos_gpu, sin_gpu, error))
     {
         return false;
     }
@@ -167,15 +201,13 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
         }
     }
 
-    const ncnn::Option option = make_vulkan_option(
-        impl_->net, impl_->blob_allocator, impl_->staging_allocator);
-    ncnn::VkCompute cmd(impl_->vkdev);
     ncnn::VkMat hidden_gpu;
     if (ex.extract("out0", hidden_gpu, cmd) != 0)
     {
         if (error) *error = "Vulkan decoder hidden extract failed";
         return false;
     }
+    ++impl_->hidden_extracts;
     if (hidden_gpu.empty())
     {
         if (error) *error = "Vulkan decoder hidden output is empty";
@@ -201,6 +233,7 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
             }
             return false;
         }
+        impl_->kv_extracts += 2;
         updated.emplace_back(std::move(key), std::move(value));
     }
     cmd.record_download(hidden_gpu, *hidden, option);
@@ -218,6 +251,31 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
 int VulkanDecoderSession::step_submit_count() const
 {
     return impl_->step_submits;
+}
+
+int VulkanDecoderSession::extractor_create_count() const
+{
+    return impl_->extractor_creates;
+}
+
+int VulkanDecoderSession::hidden_extract_count() const
+{
+    return impl_->hidden_extracts;
+}
+
+int VulkanDecoderSession::kv_extract_count() const
+{
+    return impl_->kv_extracts;
+}
+
+int VulkanDecoderSession::command_reset_count() const
+{
+    return impl_->command_resets;
+}
+
+int VulkanDecoderSession::input_upload_count() const
+{
+    return impl_->input_uploads;
 }
 
 } // namespace detail

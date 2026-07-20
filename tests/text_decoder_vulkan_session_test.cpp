@@ -89,6 +89,11 @@ int run_vulkan_test()
         if (hidden.total() != 4 || std::fabs(hidden[0] - 10.0f) > 1e-6f) return 4;
     }
     if (session.step_submit_count() != 2) return 5;
+    if (session.extractor_create_count() != 2) return 6;
+    if (session.hidden_extract_count() != 2) return 7;
+    if (session.kv_extract_count() != 96) return 8;
+    if (session.command_reset_count() != 1) return 9;
+    if (session.input_upload_count() != 8) return 10;
     return 0;
 }
 
