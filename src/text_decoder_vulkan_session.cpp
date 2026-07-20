@@ -84,9 +84,6 @@ struct VulkanDecoderSession::Impl {
     std::unique_ptr<ncnn::VkCompute> command;
     VulkanKVCache caches;
     int step_submits = 0;
-    int extractor_creates = 0;
-    int hidden_extracts = 0;
-    int kv_extracts = 0;
     int command_resets = 0;
     int input_uploads = 0;
 };
@@ -166,7 +163,6 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
     ncnn::VkCompute& cmd = *impl_->command;
 
     ncnn::Extractor ex = const_cast<ncnn::Net&>(impl_->net).create_extractor();
-    ++impl_->extractor_creates;
     ex.set_blob_vkallocator(impl_->blob_allocator);
     ex.set_workspace_vkallocator(impl_->blob_allocator);
     ex.set_staging_vkallocator(impl_->staging_allocator);
@@ -207,7 +203,6 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
         if (error) *error = "Vulkan decoder hidden extract failed";
         return false;
     }
-    ++impl_->hidden_extracts;
     if (hidden_gpu.empty())
     {
         if (error) *error = "Vulkan decoder hidden output is empty";
@@ -233,7 +228,6 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
             }
             return false;
         }
-        impl_->kv_extracts += 2;
         updated.emplace_back(std::move(key), std::move(value));
     }
     cmd.record_download(hidden_gpu, *hidden, option);
@@ -251,21 +245,6 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
 int VulkanDecoderSession::step_submit_count() const
 {
     return impl_->step_submits;
-}
-
-int VulkanDecoderSession::extractor_create_count() const
-{
-    return impl_->extractor_creates;
-}
-
-int VulkanDecoderSession::hidden_extract_count() const
-{
-    return impl_->hidden_extracts;
-}
-
-int VulkanDecoderSession::kv_extract_count() const
-{
-    return impl_->kv_extracts;
 }
 
 int VulkanDecoderSession::command_reset_count() const
