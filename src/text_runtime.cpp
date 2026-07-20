@@ -1355,7 +1355,8 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
     std::unique_ptr<detail::VulkanDecoderSession> vulkan_decoder_session;
     if (decoder_net.opt.use_vulkan_compute)
     {
-        vulkan_decoder_session = std::make_unique<detail::VulkanDecoderSession>(decoder_net);
+        vulkan_decoder_session =
+            std::make_unique<detail::VulkanDecoderSession>(decoder_net, lm_head_net);
         if (!vulkan_decoder_session->initialize(caches, error))
         {
             return false;
@@ -1436,18 +1437,20 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         decode_sin = decode_sin.clone();
 
         ncnn::Mat decode_hidden;
+        bool logits_ready = false;
 #if NCNN_VULKAN
         if (vulkan_decoder_session)
         {
-            if (!vulkan_decoder_session->run_step(current_embed,
-                                                  decode_mask,
-                                                  decode_cos,
-                                                  decode_sin,
-                                                  &decode_hidden,
-                                                  error))
+            if (!vulkan_decoder_session->run_step_logits(current_embed,
+                                                         decode_mask,
+                                                         decode_cos,
+                                                         decode_sin,
+                                                         &logits,
+                                                         error))
             {
                 return false;
             }
+            logits_ready = true;
         }
         else
 #endif
@@ -1474,11 +1477,11 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         }
 
         const auto lm_head_start = Clock::now();
-        if (!run_lm_head(lm_head_net, decode_hidden, &logits, error))
+        if (!logits_ready && !run_lm_head(lm_head_net, decode_hidden, &logits, error))
         {
             return false;
         }
-        if (timing)
+        if (timing && !logits_ready)
         {
             timing->lm_head_ms += elapsed_ms(lm_head_start, Clock::now());
         }

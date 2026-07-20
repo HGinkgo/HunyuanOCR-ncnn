@@ -40,20 +40,21 @@ bool run_decoder_step(const ncnn::Net& net,
 #if NCNN_VULKAN
 class VulkanDecoderSession {
 public:
-    explicit VulkanDecoderSession(const ncnn::Net& net);
+    VulkanDecoderSession(const ncnn::Net& decoder_net, const ncnn::Net& lm_head_net);
     ~VulkanDecoderSession();
 
     VulkanDecoderSession(const VulkanDecoderSession&) = delete;
     VulkanDecoderSession& operator=(const VulkanDecoderSession&) = delete;
 
     bool initialize(const DecoderKVCache& caches, std::string* error);
-    bool run_step(const ncnn::Mat& current_embed,
-                  const ncnn::Mat& mask,
-                  const ncnn::Mat& cos,
-                  const ncnn::Mat& sin,
-                  ncnn::Mat* hidden,
-                  std::string* error);
+    bool run_step_logits(const ncnn::Mat& current_embed,
+                         const ncnn::Mat& mask,
+                         const ncnn::Mat& cos,
+                         const ncnn::Mat& sin,
+                         ncnn::Mat* logits,
+                         std::string* error);
     int step_submit_count() const;
+    int lm_head_extract_count() const;
     int command_reset_count() const;
     int input_upload_count() const;
 

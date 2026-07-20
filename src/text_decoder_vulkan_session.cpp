@@ -51,8 +51,8 @@ bool bind_gpu_inputs(ncnn::Extractor* ex,
 } // namespace
 
 struct VulkanDecoderSession::Impl {
-    explicit Impl(const ncnn::Net& decoder_net)
-        : net(decoder_net), vkdev(decoder_net.vulkan_device())
+    Impl(const ncnn::Net& decoder_net, const ncnn::Net& lm_head)
+        : net(decoder_net), lm_head_net(lm_head), vkdev(decoder_net.vulkan_device())
     {
         if (net.opt.use_vulkan_compute && vkdev != nullptr)
         {
@@ -78,18 +78,21 @@ struct VulkanDecoderSession::Impl {
     }
 
     const ncnn::Net& net;
+    const ncnn::Net& lm_head_net;
     const ncnn::VulkanDevice* vkdev = nullptr;
     ncnn::VkAllocator* blob_allocator = nullptr;
     ncnn::VkAllocator* staging_allocator = nullptr;
     std::unique_ptr<ncnn::VkCompute> command;
     VulkanKVCache caches;
     int step_submits = 0;
+    int lm_head_extracts = 0;
     int command_resets = 0;
     int input_uploads = 0;
 };
 
-VulkanDecoderSession::VulkanDecoderSession(const ncnn::Net& net)
-    : impl_(new Impl(net))
+VulkanDecoderSession::VulkanDecoderSession(const ncnn::Net& decoder_net,
+                                           const ncnn::Net& lm_head_net)
+    : impl_(new Impl(decoder_net, lm_head_net))
 {
 }
 
@@ -101,6 +104,12 @@ bool VulkanDecoderSession::initialize(const DecoderKVCache& caches, std::string*
         impl_->staging_allocator == nullptr)
     {
         if (error) *error = "Vulkan decoder session is unavailable";
+        return false;
+    }
+    if (!impl_->lm_head_net.opt.use_vulkan_compute ||
+        impl_->lm_head_net.vulkan_device() != impl_->vkdev)
+    {
+        if (error) *error = "Vulkan decoder and lm_head must use the same device";
         return false;
     }
     if (static_cast<int>(caches.size()) != kTextAttentionLayerCount)
@@ -131,14 +140,14 @@ bool VulkanDecoderSession::initialize(const DecoderKVCache& caches, std::string*
     return true;
 }
 
-bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
-                                    const ncnn::Mat& mask,
-                                    const ncnn::Mat& cos,
-                                    const ncnn::Mat& sin,
-                                    ncnn::Mat* hidden,
-                                    std::string* error)
+bool VulkanDecoderSession::run_step_logits(const ncnn::Mat& current_embed,
+                                           const ncnn::Mat& mask,
+                                           const ncnn::Mat& cos,
+                                           const ncnn::Mat& sin,
+                                           ncnn::Mat* logits,
+                                           std::string* error)
 {
-    if (hidden == nullptr ||
+    if (logits == nullptr ||
         static_cast<int>(impl_->caches.size()) != kTextAttentionLayerCount)
     {
         if (error) *error = "Vulkan decoder session is not initialized";
@@ -147,6 +156,8 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
 
     const ncnn::Option option = make_vulkan_option(
         impl_->net, impl_->blob_allocator, impl_->staging_allocator);
+    const ncnn::Option lm_head_option = make_vulkan_option(
+        impl_->lm_head_net, impl_->blob_allocator, impl_->staging_allocator);
     if (!impl_->command)
     {
         impl_->command = std::make_unique<ncnn::VkCompute>(impl_->vkdev);
@@ -230,7 +241,30 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
         }
         updated.emplace_back(std::move(key), std::move(value));
     }
-    cmd.record_download(hidden_gpu, *hidden, option);
+
+    ncnn::Extractor lm_head_ex =
+        const_cast<ncnn::Net&>(impl_->lm_head_net).create_extractor();
+    lm_head_ex.set_blob_vkallocator(impl_->blob_allocator);
+    lm_head_ex.set_workspace_vkallocator(impl_->blob_allocator);
+    lm_head_ex.set_staging_vkallocator(impl_->staging_allocator);
+    if (lm_head_ex.input("in0", hidden_gpu) != 0)
+    {
+        if (error) *error = "Vulkan lm_head input failed";
+        return false;
+    }
+    ncnn::VkMat logits_gpu;
+    if (lm_head_ex.extract("out0", logits_gpu, cmd) != 0)
+    {
+        if (error) *error = "Vulkan lm_head extract failed";
+        return false;
+    }
+    ++impl_->lm_head_extracts;
+    if (logits_gpu.empty())
+    {
+        if (error) *error = "Vulkan lm_head output is empty";
+        return false;
+    }
+    cmd.record_download(logits_gpu, *logits, lm_head_option);
     if (cmd.submit_and_wait() != 0)
     {
         if (error) *error = "Vulkan decoder step submission failed";
@@ -245,6 +279,11 @@ bool VulkanDecoderSession::run_step(const ncnn::Mat& current_embed,
 int VulkanDecoderSession::step_submit_count() const
 {
     return impl_->step_submits;
+}
+
+int VulkanDecoderSession::lm_head_extract_count() const
+{
+    return impl_->lm_head_extracts;
 }
 
 int VulkanDecoderSession::command_reset_count() const

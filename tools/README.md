@@ -64,8 +64,11 @@ Reported fields:
 - `prompt_ms`: tokenizer encode for custom prompts or built-in prompt assembly.
 - `text_embed_ms`: prompt token embedding and image feature injection.
 - `prefill_ms`: decoder cache-prefill pass.
-- `decode_ms`: incremental decoder steps after the first generated token.
-- `lm_head_ms`: first-token and incremental lm_head inference.
+- `decode_ms`: incremental decoder steps after the first generated token; with
+  the fused Text Vulkan path, this includes incremental lm_head inference in
+  the same submission.
+- `lm_head_ms`: standalone lm_head inference; with fused Text Vulkan, only the
+  first-token call remains standalone.
 - `token_select_ms`: repetition penalty, argmax, and token selection.
 - `tokenizer_decode_ms`: generated token ids to text.
 - `decode_token_per_s`: incremental decoder-step throughput.

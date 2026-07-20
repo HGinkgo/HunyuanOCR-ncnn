@@ -44,6 +44,15 @@ std::string make_decoder_param()
     return param.str();
 }
 
+const char* make_lm_head_param()
+{
+    return
+        "7767517\n"
+        "2 2\n"
+        "Input in0 0 1 in0\n"
+        "Split output 1 1 in0 out0\n";
+}
+
 ncnn::Mat filled_mat(float value)
 {
     ncnn::Mat result(4, 1, 1);
@@ -63,6 +72,11 @@ int run_vulkan_test()
     const std::string param = make_decoder_param();
     if (net.load_param_mem(param.c_str()) != 0) return 1;
 
+    ncnn::Net lm_head_net;
+    lm_head_net.opt = net.opt;
+    lm_head_net.set_vulkan_device(0);
+    if (lm_head_net.load_param_mem(make_lm_head_param()) != 0) return 2;
+
     hunyuan_ocr::detail::DecoderKVCache caches;
     for (int layer = 0; layer < hunyuan_ocr::detail::kTextAttentionLayerCount; ++layer)
     {
@@ -70,8 +84,8 @@ int run_vulkan_test()
     }
 
     std::string error;
-    hunyuan_ocr::detail::VulkanDecoderSession session(net);
-    if (!session.initialize(caches, &error)) return 2;
+    hunyuan_ocr::detail::VulkanDecoderSession session(net, lm_head_net);
+    if (!session.initialize(caches, &error)) return 3;
     caches[0].first.fill(-999.0f);
 
     const ncnn::Mat input = filled_mat(1.0f);
@@ -80,17 +94,18 @@ int run_vulkan_test()
     const ncnn::Mat sin = filled_mat(0.0f);
     for (int step = 0; step < 2; ++step)
     {
-        ncnn::Mat hidden;
-        if (!session.run_step(input, mask, cos, sin, &hidden, &error))
+        ncnn::Mat logits;
+        if (!session.run_step_logits(input, mask, cos, sin, &logits, &error))
         {
             std::cerr << error << '\n';
-            return 3;
+            return 4;
         }
-        if (hidden.total() != 4 || std::fabs(hidden[0] - 10.0f) > 1e-6f) return 4;
+        if (logits.total() != 4 || std::fabs(logits[0] - 10.0f) > 1e-6f) return 5;
     }
-    if (session.step_submit_count() != 2) return 5;
-    if (session.command_reset_count() != 1) return 6;
-    if (session.input_upload_count() != 8) return 7;
+    if (session.step_submit_count() != 2) return 6;
+    if (session.lm_head_extract_count() != 2) return 7;
+    if (session.command_reset_count() != 1) return 8;
+    if (session.input_upload_count() != 8) return 9;
     return 0;
 }
 
