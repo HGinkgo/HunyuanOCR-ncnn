@@ -1,0 +1,186 @@
+From: HunyuanOCR-ncnn contributors
+Subject: [PATCH 3/3] Vulkan full-cache RotaryEmbed for Hunyuan M-RoPE
+Upstream: https://github.com/Tencent/ncnn
+License: BSD 3-Clause
+Local-Note: Add an opt-in full-width cosine/sine cache mode for non-interleaved
+ M-RoPE while preserving the standard half-width RotaryEmbed default. The
+ project custom layer uses this mode for HunyuanOCR 1.5.
+
+diff --git a/src/layer/rotaryembed.cpp b/src/layer/rotaryembed.cpp
+index fbab6170..836a3b01 100644
+--- a/src/layer/rotaryembed.cpp
++++ b/src/layer/rotaryembed.cpp
+@@ -12,6 +12,9 @@ RotaryEmbed::RotaryEmbed()
+ int RotaryEmbed::load_param(const ParamDict& pd)
+ {
+     interleaved = pd.get(0, 0);
++    full_cache = pd.get(1, 0);
++    if (full_cache)
++        support_bf16_storage = false;
+
+     return 0;
+ }
+@@ -73,10 +76,12 @@ int RotaryEmbed::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_blobs, const Option& opt) const
+                 {
+                     const float x0 = *ptr0++;
+                     const float x1 = *ptr1++;
+-                    const float cos_val = *cos_ptr++;
+-                    const float sin_val = *sin_ptr++;
++                    const float cos_val = full_cache ? cos_cache.row(i)[j] : *cos_ptr++;
++                    const float sin_val = full_cache ? sin_cache.row(i)[j] : *sin_ptr++;
+                     *outptr0++ = x0 * cos_val - x1 * sin_val;
+-                    *outptr1++ = x0 * sin_val + x1 * cos_val;
++                    const float cos_val_second = full_cache ? cos_cache.row(i)[j + embed_dim / 2] : cos_val;
++                    const float sin_val_second = full_cache ? sin_cache.row(i)[j + embed_dim / 2] : sin_val;
++                    *outptr1++ = x0 * sin_val_second + x1 * cos_val_second;
+                 }
+             }
+         }
+diff --git a/src/layer/rotaryembed.h b/src/layer/rotaryembed.h
+index 8961dfd1..437d91a7 100644
+--- a/src/layer/rotaryembed.h
++++ b/src/layer/rotaryembed.h
+@@ -19,6 +19,9 @@ public:
+
+ public:
+     int interleaved;
++    // Use a full-width cosine/sine cache for non-interleaved M-RoPE.
++    // The default keeps the standard RotaryEmbed half-width cache behavior.
++    int full_cache;
+ };
+
+ } // namespace ncnn
+diff --git a/src/layer/vulkan/rotaryembed_vulkan.cpp b/src/layer/vulkan/rotaryembed_vulkan.cpp
+index f3376357..6845f741 100644
+--- a/src/layer/vulkan/rotaryembed_vulkan.cpp
++++ b/src/layer/vulkan/rotaryembed_vulkan.cpp
+@@ -21,12 +21,13 @@ int RotaryEmbed_vulkan::create_pipeline(const Option& opt)
+ {
+     const Mat& shape = bottom_shapes.empty() ? Mat() : bottom_shapes[0];
+
+-    std::vector<vk_specialization_type> specializations(1 + 4);
++    std::vector<vk_specialization_type> specializations(1 + 4 + 1);
+     specializations[0].i = interleaved;
+     specializations[1 + 0].i = shape.w;
+     specializations[1 + 1].i = shape.h;
+     specializations[1 + 2].i = shape.c;
+     specializations[1 + 3].i = (int)shape.cstep;
++    specializations[1 + 4].i = full_cache;
+
+     Mat local_size_xyz;
+     if (shape.dims == 3)
+diff --git a/src/layer/vulkan/shader/rotaryembed.comp b/src/layer/vulkan/shader/rotaryembed.comp
+index 56539cd6..71323121 100644
+--- a/src/layer/vulkan/shader/rotaryembed.comp
++++ b/src/layer/vulkan/shader/rotaryembed.comp
+@@ -11,6 +11,7 @@ layout(constant_id = shape_constant_id_offset + 0) const int embed_dim = 0;
+ layout(constant_id = shape_constant_id_offset + 1) const int seqlen = 0;
+ layout(constant_id = shape_constant_id_offset + 2) const int num_heads = 0;
+ layout(constant_id = shape_constant_id_offset + 3) const int cstep = 0;
++layout(constant_id = shape_constant_id_offset + 4) const int full_cache = 0;
+
+ layout(binding = 0) readonly buffer bottom_blob { sfp bottom_blob_data[]; };
+ layout(binding = 1) readonly buffer cos_cache { sfp cos_cache_data[]; };
+@@ -36,7 +37,7 @@ void main()
+     if (gx >= halfdim || gy >= psc(seqlen) || gz >= psc(num_heads))
+         return;
+
+-    const int cache_offset = gy * halfdim + gx;
++    const int cache_offset = gy * ((interleaved == 1 || full_cache == 0) ? halfdim : psc(embed_dim)) + gx;
+
+     afp cosv = buffer_ld1(cos_cache_data, cache_offset);
+     afp sinv = buffer_ld1(sin_cache_data, cache_offset);
+@@ -63,6 +64,13 @@ void main()
+
+         afp y0 = x0 * cosv - x1 * sinv;
+         afp y1 = x0 * sinv + x1 * cosv;
++        if (full_cache == 1)
++        {
++            const int second_cache_offset = gy * psc(embed_dim) + gx + halfdim;
++            afp cosv_second = buffer_ld1(cos_cache_data, second_cache_offset);
++            afp sinv_second = buffer_ld1(sin_cache_data, second_cache_offset);
++            y1 = x0 * sinv_second + x1 * cosv_second;
++        }
+
+         buffer_st1(top_blob_data, gi, y0);
+         buffer_st1(top_blob_data, gi + halfdim, y1);
+diff --git a/src/layer/vulkan/shader/rotaryembed_pack4.comp b/src/layer/vulkan/shader/rotaryembed_pack4.comp
+index 331b2bd1..831180af 100644
+--- a/src/layer/vulkan/shader/rotaryembed_pack4.comp
++++ b/src/layer/vulkan/shader/rotaryembed_pack4.comp
+@@ -11,6 +11,7 @@ layout(constant_id = shape_constant_id_offset + 0) const int embed_dim = 0;
+ layout(constant_id = shape_constant_id_offset + 1) const int seqlen = 0;
+ layout(constant_id = shape_constant_id_offset + 2) const int num_heads = 0;
+ layout(constant_id = shape_constant_id_offset + 3) const int cstep = 0;
++layout(constant_id = shape_constant_id_offset + 4) const int full_cache = 0;
+
+ layout(binding = 0) readonly buffer bottom_blob { sfpvec4 bottom_blob_data[]; };
+ layout(binding = 1) readonly buffer cos_cache { sfp cos_cache_data[]; };
+@@ -36,7 +37,7 @@ void main()
+     if (gx >= halfdim || gy >= psc(seqlen) || gz >= psc(num_heads))
+         return;
+
+-    const int cache_offset = gy * halfdim + gx;
++    const int cache_offset = gy * ((interleaved == 1 || full_cache == 0) ? halfdim : psc(embed_dim)) + gx;
+
+     afp cosv = buffer_ld1(cos_cache_data, cache_offset);
+     afp sinv = buffer_ld1(sin_cache_data, cache_offset);
+@@ -63,6 +64,13 @@ void main()
+
+         afpvec4 y0 = x0 * cosv - x1 * sinv;
+         afpvec4 y1 = x0 * sinv + x1 * cosv;
++        if (full_cache == 1)
++        {
++            const int second_cache_offset = gy * psc(embed_dim) + gx + halfdim;
++            afp cosv_second = buffer_ld1(cos_cache_data, second_cache_offset);
++            afp sinv_second = buffer_ld1(sin_cache_data, second_cache_offset);
++            y1 = x0 * sinv_second + x1 * cosv_second;
++        }
+
+         buffer_st4(top_blob_data, gi, y0);
+         buffer_st4(top_blob_data, gi + halfdim, y1);
+diff --git a/src/layer/x86/rotaryembed_x86.cpp b/src/layer/x86/rotaryembed_x86.cpp
+index 982af51d..9375dc9c 100644
+--- a/src/layer/x86/rotaryembed_x86.cpp
++++ b/src/layer/x86/rotaryembed_x86.cpp
+@@ -37,6 +37,9 @@ int RotaryEmbed_x86::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_blobs, const Option& opt) const
+         return forward_bf16s(bottom_blobs, top_blobs, opt);
+ #endif
+
++    if (full_cache)
++        return RotaryEmbed::forward(bottom_blobs, top_blobs, opt);
++
+     const Mat& bottom_blob = bottom_blobs[0];
+     const Mat& cos_cache = bottom_blobs[1];
+     const Mat& sin_cache = bottom_blobs[2];
+diff --git a/tests/test_rotaryembed.cpp b/tests/test_rotaryembed.cpp
+index 1d79c4b0..be873d80 100644
+--- a/tests/test_rotaryembed.cpp
++++ b/tests/test_rotaryembed.cpp
+@@ -31,9 +31,26 @@ static int test_rotaryembed(const ncnn::Mat& a, int interleaved)
+     return ret;
+ }
+
++static int test_rotaryembed_full_cache()
++{
++    const int embed_dim = 32;
++    const int seqlen = 7;
++    const int num_heads = 3;
++    ncnn::Mat input = RandomMat(embed_dim, seqlen, num_heads);
++    ncnn::Mat cos_cache = RandomMat(embed_dim, seqlen);
++    ncnn::Mat sin_cache = RandomMat(embed_dim, seqlen);
++
++    ncnn::ParamDict pd;
++    pd.set(0, 0);
++    pd.set(1, 1);
++    std::vector<ncnn::Mat> as{input, cos_cache, sin_cache};
++    return test_layer("RotaryEmbed", pd, std::vector<ncnn::Mat>(), as, 1);
++}
++
+ static int test_rotaryembed_0()
+ {
+     return 0
++           || test_rotaryembed_full_cache()
+            || test_rotaryembed(RandomMat(32, 66, 8), 0)
+            || test_rotaryembed(RandomMat(26, 64, 8), 1)
+            || test_rotaryembed(RandomMat(64, 28, 12), 0)

@@ -300,6 +300,14 @@ bool HunyuanOCR::load(const std::string& model_root,
     {
         return fail(error, "runtime_options", "vision Vulkan device must not be negative");
     }
+    if (options.text_vulkan_device < 0)
+    {
+        return fail(error, "runtime_options", "text Vulkan device must not be negative");
+    }
+    if (options.text_vulkan && options.dflash)
+    {
+        return fail(error, "runtime_options", "DFlash is not supported with Text Vulkan yet");
+    }
     if (!std::isfinite(options.repetition_penalty) || options.repetition_penalty <= 0.0f)
     {
         return fail(error, "runtime_options", "repetition penalty must be positive and finite");
@@ -336,7 +344,10 @@ bool HunyuanOCR::load(const std::string& model_root,
         return fail(error, "vision_load", runtime_error);
     }
 
-    impl_->text_runtime.reset(new TextRuntime(options.num_threads, options.mmap_weights));
+    impl_->text_runtime.reset(new TextRuntime(options.num_threads,
+                                              options.mmap_weights,
+                                              options.text_vulkan,
+                                              options.text_vulkan_device));
     if (!impl_->text_runtime->load(model_root, &runtime_error))
     {
         impl_->text_runtime.reset();

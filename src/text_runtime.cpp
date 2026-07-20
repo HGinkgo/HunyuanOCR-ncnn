@@ -21,7 +21,20 @@
 #include <sstream>
 #include <unordered_set>
 
+#if NCNN_VULKAN
+#include <gpu.h>
+#endif
+
 namespace hunyuan_ocr {
+
+bool text_vulkan_compiled()
+{
+#if NCNN_VULKAN
+    return true;
+#else
+    return false;
+#endif
+}
 
 namespace detail {
 
@@ -94,11 +107,39 @@ bool load_net(ncnn::Net& net,
               const std::filesystem::path& bin,
               int num_threads,
               bool mmap_weights,
+              bool use_vulkan,
+              int vulkan_device,
               std::shared_ptr<MappedModelFile>* model_mapping,
               std::string* error)
 {
+    (void)vulkan_device;
     net.opt = make_fp32_ncnn_option(num_threads);
     net.opt.use_packing_layout = false;
+    if (use_vulkan)
+    {
+#if NCNN_VULKAN
+        if (ncnn::create_gpu_instance() != 0)
+        {
+            if (error) *error = "failed to initialize ncnn Vulkan instance for text runtime";
+            return false;
+        }
+        if (vulkan_device < 0 || vulkan_device >= ncnn::get_gpu_count())
+        {
+            if (error)
+            {
+                *error = "text Vulkan device index " + std::to_string(vulkan_device) +
+                         " is out of range for " + std::to_string(ncnn::get_gpu_count()) +
+                         " device(s)";
+            }
+            return false;
+        }
+        net.opt.use_vulkan_compute = true;
+        net.opt.vulkan_device_index = vulkan_device;
+#else
+        if (error) *error = "text Vulkan requested, but ncnn was built without Vulkan support";
+        return false;
+#endif
+    }
 
     if (net.load_param(param.c_str()) != 0)
     {
@@ -708,7 +749,15 @@ bool select_logit_rows(const ncnn::Mat& logits,
 {
     if (tokens == nullptr || row_count <= 0 || logits.w != kVocabSize || logits.h != row_count)
     {
-        if (error) *error = "lm_head row shape mismatch";
+        if (error)
+        {
+            *error = "lm_head row shape mismatch: got w=" + std::to_string(logits.w) +
+                     ", h=" + std::to_string(logits.h) +
+                     ", d=" + std::to_string(logits.d) +
+                     ", c=" + std::to_string(logits.c) +
+                     ", expected w=" + std::to_string(kVocabSize) +
+                     ", h=" + std::to_string(row_count);
+        }
         return false;
     }
     if (row_prefix != nullptr && row_prefix->size() < static_cast<size_t>(row_count))
@@ -1301,6 +1350,18 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
     {
         return false;
     }
+#if NCNN_VULKAN
+    std::unique_ptr<detail::VulkanDecoderSession> vulkan_decoder_session;
+    if (decoder_net.opt.use_vulkan_compute)
+    {
+        vulkan_decoder_session = std::make_unique<detail::VulkanDecoderSession>(decoder_net);
+        if (!vulkan_decoder_session->initialize(caches, error))
+        {
+            return false;
+        }
+        caches.clear();
+    }
+#endif
     const auto prefill_end = Clock::now();
     if (timing)
     {
@@ -1374,13 +1435,38 @@ bool decode_from_embeddings(const ncnn::Net& text_embed_net,
         decode_sin = decode_sin.clone();
 
         ncnn::Mat decode_hidden;
-        KVCache updated;
-        if (!run_decoder_step_impl(decoder_net, current_embed, decode_mask, decode_cos, decode_sin,
-                              caches, &decode_hidden, &updated, nullptr, error))
+#if NCNN_VULKAN
+        if (vulkan_decoder_session)
         {
-            return false;
+            if (!vulkan_decoder_session->run_step(current_embed,
+                                                  decode_mask,
+                                                  decode_cos,
+                                                  decode_sin,
+                                                  &decode_hidden,
+                                                  error))
+            {
+                return false;
+            }
         }
-        caches = std::move(updated);
+        else
+#endif
+        {
+            KVCache updated;
+            if (!run_decoder_step_impl(decoder_net,
+                                       current_embed,
+                                       decode_mask,
+                                       decode_cos,
+                                       decode_sin,
+                                       caches,
+                                       &decode_hidden,
+                                       &updated,
+                                       nullptr,
+                                       error))
+            {
+                return false;
+            }
+            caches = std::move(updated);
+        }
         if (timing)
         {
             timing->decode_ms += elapsed_ms(decoder_step_start, Clock::now());
@@ -1563,13 +1649,18 @@ bool validate_dflash_runtime_request(bool runtime_ready,
 
 } // namespace
 
-TextRuntime::TextRuntime(int num_threads, bool mmap_weights)
+TextRuntime::TextRuntime(int num_threads,
+                         bool mmap_weights,
+                         bool use_vulkan,
+                         int vulkan_device)
     : text_embed_net_(new ncnn::Net),
       text_decoder_net_(new ncnn::Net),
       lm_head_net_(new ncnn::Net),
       dflash_draft_(new DFlashDraftRuntime(num_threads, mmap_weights)),
       num_threads_(num_threads),
-      mmap_weights_(mmap_weights)
+      mmap_weights_(mmap_weights),
+      use_vulkan_(use_vulkan),
+      vulkan_device_(vulkan_device)
 {
 }
 
@@ -1599,6 +1690,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "text_embed" / "text_embed.ncnn.bin",
                   num_threads_,
                   mmap_weights_,
+                  false,
+                  0,
                   &text_embed_model_mapping_,
                   error))
     {
@@ -1609,7 +1702,9 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                                           text_decoder_net_.get(),
                                           error,
                                           mmap_weights_,
-                                          &text_decoder_model_mapping_))
+                                          &text_decoder_model_mapping_,
+                                          use_vulkan_,
+                                          vulkan_device_))
     {
         return false;
     }
@@ -1618,6 +1713,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
                   root / "lm_head" / "lm_head.ncnn.bin",
                   num_threads_,
                   mmap_weights_,
+                  false,
+                  0,
                   &lm_head_model_mapping_,
                   error))
     {
@@ -1633,6 +1730,11 @@ bool TextRuntime::load_dflash(const std::string& model_root, std::string* error)
     if (!ready_)
     {
         if (error) *error = "text runtime is not loaded";
+        return false;
+    }
+    if (use_vulkan_)
+    {
+        if (error) *error = "DFlash is not supported with Text Vulkan yet";
         return false;
     }
     const std::filesystem::path root = path_from_utf8(model_root);
@@ -1999,7 +2101,9 @@ bool load_text_decoder_kv_net(const std::string& model_root,
                               ncnn::Net* net,
                               std::string* error,
                               bool mmap_weights,
-                              std::shared_ptr<MappedModelFile>* model_mapping)
+                              std::shared_ptr<MappedModelFile>* model_mapping,
+                              bool use_vulkan,
+                              int vulkan_device)
 {
     if (net == nullptr)
     {
@@ -2022,6 +2126,8 @@ bool load_text_decoder_kv_net(const std::string& model_root,
                     root / "text_decoder" / "text_decoder_kv.ncnn.bin",
                     num_threads,
                     mmap_weights,
+                    use_vulkan,
+                    vulkan_device,
                     model_mapping,
                     error);
 }

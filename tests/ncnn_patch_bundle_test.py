@@ -14,6 +14,7 @@ MATMUL_COMMIT = "88e0927f6e6b640fea19bd5721ff5409fcca99ef"
 PATCHES = (
     "0001-vulkan-matmul-pr6579.patch",
     "0002-vulkan-exact-gelu.patch",
+    "0003-vulkan-rotaryembed-full-cache.patch",
 )
 
 
@@ -41,6 +42,10 @@ def test_bundle_metadata(root: Path) -> None:
     gelu = (bundle / PATCHES[1]).read_text(encoding="utf-8")
     require("Vulkan exact GELU" in gelu, "GELU patch must describe its purpose")
     require("BSD 3-Clause" in gelu, "GELU patch must identify the ncnn license")
+
+    rotary = (bundle / PATCHES[2]).read_text(encoding="utf-8")
+    require("full-cache RotaryEmbed" in rotary, "RotaryEmbed patch must describe its purpose")
+    require("BSD 3-Clause" in rotary, "RotaryEmbed patch must identify the ncnn license")
 
     license_text = (bundle / "LICENSE.ncnn.txt").read_text(encoding="utf-8")
     for phrase in ("Redistribution and use", "Neither the name of [copyright holder]", "AS IS"):

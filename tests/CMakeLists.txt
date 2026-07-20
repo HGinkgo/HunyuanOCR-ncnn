@@ -175,6 +175,13 @@ add_executable(hunyuan_ocr_text_decoder_aux_test ${CMAKE_CURRENT_SOURCE_DIR}/tex
 target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_text_decoder_aux_test PRIVATE cxx_std_17)
 
+add_executable(hunyuan_ocr_text_decoder_vulkan_session_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_vulkan_session_test.cpp)
+target_link_libraries(hunyuan_ocr_text_decoder_vulkan_session_test PRIVATE hunyuan_ocr)
+target_compile_features(hunyuan_ocr_text_decoder_vulkan_session_test PRIVATE cxx_std_17)
+target_include_directories(hunyuan_ocr_text_decoder_vulkan_session_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+
 add_executable(hunyuan_ocr_dflash_probe_integration_test
     ${CMAKE_CURRENT_SOURCE_DIR}/dflash_probe_integration_test.cpp
 )
@@ -310,6 +317,9 @@ add_test(NAME decoder_microbench_parser
 )
 add_test(NAME text_decoder_aux
     COMMAND hunyuan_ocr_text_decoder_aux_test
+)
+add_test(NAME text_decoder_vulkan_session
+    COMMAND hunyuan_ocr_text_decoder_vulkan_session_test
 )
 add_test(NAME utf8
     COMMAND hunyuan_ocr_utf8_test

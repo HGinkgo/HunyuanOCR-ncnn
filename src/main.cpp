@@ -78,6 +78,8 @@ void print_usage(const char* program)
         << "  --mmap-weights         Load model weights from read-only file mappings.\n"
         << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
         << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
+        << "  --text-vulkan         Run the text decoder with ncnn Vulkan fp32.\n"
+        << "  --text-vulkan-device N Vulkan device index for text. Default: 0.\n"
         << "  --image PATH           Run one-image OCR. Default prompt: document.\n"
         << "  --batch-input PATH     Read ordered inference requests from a JSONL file.\n"
         << "  --batch-output PATH    Write one ordered JSON result per input line.\n"
@@ -381,10 +383,15 @@ int run_vlm_decode_with_features(const std::string& label,
                                  int max_tokens,
                                  int num_threads,
                                  bool use_dflash,
-                                 bool mmap_weights)
+                                 bool mmap_weights,
+                                 bool text_vulkan,
+                                 int text_vulkan_device)
 {
     std::string error;
-    hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
+    hunyuan_ocr::TextRuntime text_runtime(num_threads,
+                                          mmap_weights,
+                                          text_vulkan,
+                                          text_vulkan_device);
     if (!text_runtime.load(model_root, &error))
     {
         std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -700,6 +707,8 @@ int run_image_benchmark(const std::string& model_root,
                         int warmup,
                         int repeat,
                         const hunyuan_ocr::VisionRuntimeOptions& vision_options,
+                        bool text_vulkan,
+                        int text_vulkan_device,
                         Clock::time_point process_start)
 {
     std::string error;
@@ -738,7 +747,10 @@ int run_image_benchmark(const std::string& model_root,
     print_vision_compute_backend(vision_options, vision_runtime);
     const double vision_load_ms = elapsed_ms(vision_load_start, Clock::now());
 
-    hunyuan_ocr::TextRuntime text_runtime(num_threads, vision_options.mmap_weights);
+    hunyuan_ocr::TextRuntime text_runtime(num_threads,
+                                          vision_options.mmap_weights,
+                                          text_vulkan,
+                                          text_vulkan_device);
     const auto text_load_start = Clock::now();
     if (!text_runtime.load(model_root, &error))
     {
@@ -944,6 +956,9 @@ int main(int argc, char** argv)
     bool vision_vulkan = false;
     bool vision_vulkan_device_explicit = false;
     int vision_vulkan_device = 0;
+    bool text_vulkan = false;
+    bool text_vulkan_device_explicit = false;
+    int text_vulkan_device = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -959,6 +974,9 @@ int main(int argc, char** argv)
             std::cout << "ncnn " << hunyuan_ocr::ncnn_version() << "\n";
             std::cout << "vision Vulkan support: "
                       << (hunyuan_ocr::vision_vulkan_compiled() ? "enabled" : "disabled")
+                      << "\n";
+            std::cout << "text Vulkan support: "
+                      << (hunyuan_ocr::text_vulkan_compiled() ? "enabled" : "disabled")
                       << "\n";
             return 0;
         }
@@ -1014,6 +1032,30 @@ int main(int argc, char** argv)
                 return 1;
             }
             vision_vulkan_device_explicit = true;
+            continue;
+        }
+        if (arg == "--text-vulkan")
+        {
+            text_vulkan = true;
+            continue;
+        }
+        if (arg == "--text-vulkan-device")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--text-vulkan-device requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                text_vulkan_device = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--text-vulkan-device value must be an integer\n";
+                return 1;
+            }
+            text_vulkan_device_explicit = true;
             continue;
         }
         if (arg == "--image")
@@ -1238,6 +1280,21 @@ int main(int argc, char** argv)
         std::cerr << "--vision-vulkan-device must be non-negative\n";
         return 1;
     }
+    if (text_vulkan_device_explicit && !text_vulkan)
+    {
+        std::cerr << "--text-vulkan-device requires --text-vulkan\n";
+        return 1;
+    }
+    if (text_vulkan_device < 0)
+    {
+        std::cerr << "--text-vulkan-device must be non-negative\n";
+        return 1;
+    }
+    if (text_vulkan && dflash)
+    {
+        std::cerr << "--text-vulkan cannot be combined with --dflash yet\n";
+        return 1;
+    }
     const bool plain_image_inference =
         !image_path.empty() && vlm_fixture_dir.empty() && !benchmark;
     const bool image_executes_vision = !image_path.empty();
@@ -1248,6 +1305,11 @@ int main(int argc, char** argv)
         return 1;
     }
     if (vision_vulkan && !hunyuan_ocr::vision_vulkan_compiled())
+    {
+        std::cerr << "ncnn was built without Vulkan support\n";
+        return 1;
+    }
+    if (text_vulkan && !hunyuan_ocr::text_vulkan_compiled())
     {
         std::cerr << "ncnn was built without Vulkan support\n";
         return 1;
@@ -1329,6 +1391,8 @@ int main(int argc, char** argv)
         runtime_options.vision_vulkan_device = vision_vulkan_device;
         runtime_options.dflash = dflash;
         runtime_options.mmap_weights = mmap_weights;
+        runtime_options.text_vulkan = text_vulkan;
+        runtime_options.text_vulkan_device = text_vulkan_device;
         runtime_options.repetition_penalty = repetition_penalty;
 
         hunyuan_ocr::HunyuanOCR runtime;
@@ -1375,6 +1439,8 @@ int main(int argc, char** argv)
                                    benchmark_warmup,
                                    benchmark_repeat,
                                    vision_options,
+                                   text_vulkan,
+                                   text_vulkan_device,
                                    process_start);
     }
 
@@ -1391,6 +1457,8 @@ int main(int argc, char** argv)
         runtime_options.vision_vulkan_device = vision_vulkan_device;
         runtime_options.dflash = dflash;
         runtime_options.mmap_weights = mmap_weights;
+        runtime_options.text_vulkan = text_vulkan;
+        runtime_options.text_vulkan_device = text_vulkan_device;
         runtime_options.repetition_penalty = repetition_penalty;
 
         hunyuan_ocr::RuntimeError runtime_error;
@@ -1471,7 +1539,10 @@ int main(int argc, char** argv)
     if (pure_dflash_fixture)
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads,
+                                              mmap_weights,
+                                              text_vulkan,
+                                              text_vulkan_device);
         if (!text_runtime.load(model_root, &error) ||
             !text_runtime.load_dflash(model_root, &error))
         {
@@ -1651,7 +1722,10 @@ int main(int argc, char** argv)
                     }
                 }
 
-                hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
+                hunyuan_ocr::TextRuntime text_runtime(num_threads,
+                                                      mmap_weights,
+                                                      text_vulkan,
+                                                      text_vulkan_device);
                 if (!text_runtime.load(model_root, &error))
                 {
                     std::cerr << "Failed to load text runtime: " << error << "\n";
@@ -1731,7 +1805,9 @@ int main(int argc, char** argv)
                                                             max_tokens,
                                                             num_threads,
                                                             dflash,
-                                                            mmap_weights);
+                                                            mmap_weights,
+                                                            text_vulkan,
+                                                            text_vulkan_device);
                 if (rc != 0)
                 {
                     return rc;
@@ -1747,7 +1823,10 @@ int main(int argc, char** argv)
         prompt_text.empty())
     {
         std::string error;
-        hunyuan_ocr::TextRuntime text_runtime(num_threads, mmap_weights);
+        hunyuan_ocr::TextRuntime text_runtime(num_threads,
+                                              mmap_weights,
+                                              text_vulkan,
+                                              text_vulkan_device);
         if (!text_runtime.load(model_root, &error))
         {
             std::cerr << "Failed to load text runtime: " << error << "\n";

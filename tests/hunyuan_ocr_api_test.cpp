@@ -59,6 +59,8 @@ int main()
         !expect(runtime_options.vision_vulkan_device == 0, "default Vulkan device mismatch") ||
         !expect(!runtime_options.dflash, "DFlash must default off") ||
         !expect(!runtime_options.mmap_weights, "mmap weights must default off") ||
+        !expect(!runtime_options.text_vulkan, "text Vulkan must default off") ||
+        !expect(runtime_options.text_vulkan_device == 0, "text Vulkan device mismatch") ||
         !expect(runtime_options.repetition_penalty == 1.08f,
                 "default repetition penalty mismatch") ||
         !expect(aggregate_options.repetition_penalty == 1.25f,

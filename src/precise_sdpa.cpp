@@ -99,6 +99,11 @@ public:
         one_blob_only = false;
         support_inplace = false;
         support_packing = false;
+#if NCNN_VULKAN
+        support_vulkan = true;
+        support_vulkan_packing = false;
+        support_vulkan_any_packing = false;
+#endif
     }
 
     int load_param(const ncnn::ParamDict& pd) override
@@ -131,19 +136,60 @@ public:
             native_sdpa_->destroy_pipeline(opt);
             native_sdpa_.reset();
         }
+#if NCNN_VULKAN
+        native_sdpa_vulkan_.reset();
+        if (opt.use_vulkan_compute)
+        {
+            native_sdpa_vulkan_.reset(ncnn::create_layer_vulkan("SDPA"));
+            if (!native_sdpa_vulkan_)
+            {
+                return -1;
+            }
+            native_sdpa_vulkan_->vkdev = vkdev;
+            if (native_sdpa_vulkan_->load_param(pd) != 0 ||
+                native_sdpa_vulkan_->create_pipeline(opt) != 0)
+            {
+                native_sdpa_vulkan_->destroy_pipeline(opt);
+                native_sdpa_vulkan_.reset();
+                return -1;
+            }
+        }
+#endif
         return 0;
     }
 
     int destroy_pipeline(const ncnn::Option& opt) override
     {
-        if (!native_sdpa_)
+        int result = 0;
+        if (native_sdpa_)
         {
-            return 0;
+            result = native_sdpa_->destroy_pipeline(opt);
         }
-        const int result = native_sdpa_->destroy_pipeline(opt);
         native_sdpa_.reset();
+#if NCNN_VULKAN
+        if (native_sdpa_vulkan_)
+        {
+            const int vulkan_result = native_sdpa_vulkan_->destroy_pipeline(opt);
+            if (result == 0) result = vulkan_result;
+        }
+        native_sdpa_vulkan_.reset();
+#endif
         return result;
     }
+
+#if NCNN_VULKAN
+    int forward(const std::vector<ncnn::VkMat>& bottom_blobs,
+                std::vector<ncnn::VkMat>& top_blobs,
+                ncnn::VkCompute& cmd,
+                const ncnn::Option& opt) const override
+    {
+        if (!native_sdpa_vulkan_)
+        {
+            return -1;
+        }
+        return native_sdpa_vulkan_->forward(bottom_blobs, top_blobs, cmd, opt);
+    }
+#endif
 
     int forward(const std::vector<ncnn::Mat>& bottom_blobs,
                 std::vector<ncnn::Mat>& top_blobs,
@@ -307,6 +353,9 @@ private:
     float scale_ = 0.0f;
     int kv_cache_ = 0;
     std::unique_ptr<ncnn::Layer> native_sdpa_;
+#if NCNN_VULKAN
+    std::unique_ptr<ncnn::Layer> native_sdpa_vulkan_;
+#endif
 };
 
 } // namespace

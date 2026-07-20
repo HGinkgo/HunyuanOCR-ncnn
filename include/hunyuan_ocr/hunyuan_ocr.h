@@ -26,6 +26,8 @@ struct RuntimeOptions {
     bool dflash = false;
     float repetition_penalty = 1.08f;
     bool mmap_weights = false;
+    bool text_vulkan = false;
+    int text_vulkan_device = 0;
 };
 
 struct InferenceChunk {

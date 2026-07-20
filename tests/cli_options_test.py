@@ -98,6 +98,8 @@ def main() -> int:
         or "--dflash             " not in help_result.stdout
         or "--vision-vulkan" not in help_result.stdout
         or "--vision-vulkan-device" not in help_result.stdout
+        or "--text-vulkan" not in help_result.stdout
+        or "--text-vulkan-device" not in help_result.stdout
         or "--mmap-weights" not in help_result.stdout
         or "--batch-input" not in help_result.stdout
         or "--batch-output" not in help_result.stdout
@@ -298,6 +300,30 @@ def main() -> int:
         binary,
         ["--model", ".", "--vision-vulkan", "--vision-vulkan-device", "gpu"],
         "--vision-vulkan-device value must be an integer",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--text-vulkan-device", "0"],
+        "--text-vulkan-device requires --text-vulkan",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--text-vulkan", "--text-vulkan-device", "-1"],
+        "--text-vulkan-device must be non-negative",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--text-vulkan", "--text-vulkan-device", "gpu"],
+        "--text-vulkan-device value must be an integer",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vlm-fixture", ".", "--text-vulkan", "--dflash"],
+        "--text-vulkan cannot be combined with --dflash yet",
     ):
         return 1
     if not require_rejected(

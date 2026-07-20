@@ -15,6 +15,8 @@ namespace hunyuan_ocr {
 
 class MappedModelFile;
 
+bool text_vulkan_compiled();
+
 using TextTokenCallback = std::function<void(int)>;
 
 namespace detail {
@@ -81,7 +83,10 @@ struct DFlashDecodeResult {
 
 class TextRuntime {
 public:
-    explicit TextRuntime(int num_threads = 0, bool mmap_weights = false);
+    explicit TextRuntime(int num_threads = 0,
+                         bool mmap_weights = false,
+                         bool use_vulkan = false,
+                         int vulkan_device = 0);
 
     bool load(const std::string& model_root, std::string* error);
     bool load_dflash(const std::string& model_root, std::string* error);
@@ -147,6 +152,8 @@ private:
     std::vector<int> eos_ids_;
     int num_threads_ = 0;
     bool mmap_weights_ = false;
+    bool use_vulkan_ = false;
+    int vulkan_device_ = 0;
     bool ready_ = false;
 };
 

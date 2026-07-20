@@ -73,6 +73,7 @@ target_sources(hunyuan_ocr
         src/prompt_builder.cpp
         src/precise_sdpa.cpp
         src/text_runtime.cpp
+        src/text_decoder_vulkan_session.cpp
         src/tokenizer.cpp
         src/utf8.cpp
         src/vision_runtime.cpp

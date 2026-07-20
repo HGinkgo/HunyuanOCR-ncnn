@@ -7,6 +7,9 @@
 int main()
 {
     std::unique_ptr<ncnn::Layer> layer(hunyuan_ocr::create_multimodal_rope_layer(nullptr));
+#if NCNN_VULKAN
+    if (!layer->support_vulkan) return 4;
+#endif
     ncnn::ParamDict params;
     params.set(0, 0);
     if (layer->load_param(params) != 0) return 1;
@@ -30,6 +33,7 @@ int main()
     std::vector<ncnn::Mat> outputs(1);
     ncnn::Option options;
     options.num_threads = 1;
+    if (layer->create_pipeline(options) != 0) return 5;
     if (layer->forward({input, cosine, sine}, outputs, options) != 0) return 2;
 
     const float expected[4] = {
@@ -42,5 +46,6 @@ int main()
     {
         if (std::fabs(outputs[0][index] - expected[index]) > 1e-6f) return 3;
     }
+    if (layer->destroy_pipeline(options) != 0) return 6;
     return 0;
 }
