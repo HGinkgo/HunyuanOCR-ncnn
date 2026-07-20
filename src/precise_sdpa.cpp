@@ -1,6 +1,7 @@
 #include "hunyuan_ocr/precise_sdpa.h"
 
 #include "kv_cache_capacity.h"
+#include "precise_sdpa_policy.h"
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
 #include "precise_sdpa_profile.h"
 #endif
@@ -15,6 +16,7 @@
 #if defined(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
 #include <mutex>
 #endif
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -107,6 +109,42 @@ public:
         return 0;
     }
 
+    int create_pipeline(const ncnn::Option& opt) override
+    {
+        native_sdpa_.reset(ncnn::create_layer_cpu("SDPA"));
+        if (!native_sdpa_)
+        {
+            return 0;
+        }
+
+        ncnn::ParamDict pd;
+        pd.set(5, attn_mask_);
+        pd.set(6, scale_);
+        pd.set(7, kv_cache_);
+        if (native_sdpa_->load_param(pd) != 0)
+        {
+            native_sdpa_.reset();
+            return 0;
+        }
+        if (native_sdpa_->create_pipeline(opt) != 0)
+        {
+            native_sdpa_->destroy_pipeline(opt);
+            native_sdpa_.reset();
+        }
+        return 0;
+    }
+
+    int destroy_pipeline(const ncnn::Option& opt) override
+    {
+        if (!native_sdpa_)
+        {
+            return 0;
+        }
+        const int result = native_sdpa_->destroy_pipeline(opt);
+        native_sdpa_.reset();
+        return result;
+    }
+
     int forward(const std::vector<ncnn::Mat>& bottom_blobs,
                 std::vector<ncnn::Mat>& top_blobs,
                 const ncnn::Option& opt) const override
@@ -132,6 +170,13 @@ public:
         const int key_len = past_len + current_len;
         const int heads_per_group = num_heads / num_kv_heads;
         const double scale = scale_ == 0.0f ? 1.0 / std::sqrt(static_cast<double>(head_dim)) : scale_;
+
+        if (native_sdpa_ && detail::should_use_native_sdpa_prefill(kv_cache_ != 0,
+                                                                   past_len,
+                                                                   query_len))
+        {
+            return native_sdpa_->forward(bottom_blobs, top_blobs, opt);
+        }
 
         ncnn::Mat key = current_key;
         ncnn::Mat value = current_value;
@@ -261,6 +306,7 @@ private:
     int attn_mask_ = 0;
     float scale_ = 0.0f;
     int kv_cache_ = 0;
+    std::unique_ptr<ncnn::Layer> native_sdpa_;
 };
 
 } // namespace

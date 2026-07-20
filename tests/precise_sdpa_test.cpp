@@ -1,6 +1,7 @@
 #include "hunyuan_ocr/precise_sdpa.h"
 
 #include "kv_cache_capacity.h"
+#include "precise_sdpa_policy.h"
 
 #include <allocator.h>
 
@@ -146,6 +147,63 @@ int main()
     using hunyuan_ocr::detail::kv_cache_capacity_rows;
     using hunyuan_ocr::detail::make_kv_cache_logical_view;
     using hunyuan_ocr::detail::round_up_kv_capacity_rows;
+    using hunyuan_ocr::detail::should_use_native_sdpa_prefill;
+
+    if (!should_use_native_sdpa_prefill(true, 0, 533) ||
+        should_use_native_sdpa_prefill(false, 0, 533) ||
+        should_use_native_sdpa_prefill(true, 533, 1) ||
+        should_use_native_sdpa_prefill(true, 533, 16))
+    {
+        return fail("hybrid SDPA routing policy mismatch", 34);
+    }
+
+    // Exercise the same built-in CPU SDPA pipeline used by cache-enabled prefill.
+    {
+        std::unique_ptr<ncnn::Layer> hybrid(hunyuan_ocr::create_precise_sdpa_layer(nullptr));
+        std::unique_ptr<ncnn::Layer> native(ncnn::create_layer_cpu("SDPA"));
+        if (!native)
+        {
+            return fail("native SDPA layer is unavailable", 35);
+        }
+
+        ncnn::ParamDict params;
+        params.set(5, 0);
+        params.set(6, 0.5f);
+        params.set(7, 1);
+        ncnn::Option options;
+        options.num_threads = 2;
+        if (hybrid->load_param(params) != 0 || native->load_param(params) != 0 ||
+            hybrid->create_pipeline(options) != 0 || native->create_pipeline(options) != 0)
+        {
+            return fail("hybrid prefill pipeline creation failed", 36);
+        }
+
+        ncnn::Mat query(4, 2, 2);
+        ncnn::Mat key(4, 2, 1);
+        ncnn::Mat value(4, 2, 1);
+        fill_channel_rows(query, 0.3f);
+        fill_channel_rows(key, 0.4f);
+        fill_channel_rows(value, 0.5f);
+        const std::vector<ncnn::Mat> bottoms = {query, key, value, ncnn::Mat(), ncnn::Mat()};
+        std::vector<ncnn::Mat> hybrid_outputs(3);
+        std::vector<ncnn::Mat> native_outputs(3);
+        if (hybrid->forward(bottoms, hybrid_outputs, options) != 0 ||
+            native->forward(bottoms, native_outputs, options) != 0)
+        {
+            return fail("hybrid prefill forward failed", 37);
+        }
+        for (size_t index = 0; index < hybrid_outputs.size(); ++index)
+        {
+            if (!mats_equal_logical(hybrid_outputs[index], native_outputs[index], 0.0f))
+            {
+                return fail("hybrid prefill did not use native SDPA", 38);
+            }
+        }
+        if (hybrid->destroy_pipeline(options) != 0 || native->destroy_pipeline(options) != 0)
+        {
+            return fail("hybrid prefill pipeline destruction failed", 39);
+        }
+    }
 
     if (round_up_kv_capacity_rows(INT_MAX) != 0)
     {
