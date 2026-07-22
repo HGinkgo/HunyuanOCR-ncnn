@@ -33,6 +33,7 @@ Example:
 python tools/benchmark.py \
   --model ./hunyuan_ocr_ncnn_model \
   --cases hf_demo \
+  --config cpu_fp32 \
   --threads 1,2,4,8,16 \
   --mmap-weights \
   --repeat 3 \
@@ -40,6 +41,13 @@ python tools/benchmark.py \
   --max-tokens 64 \
   --output-dir outputs/benchmark_hf_demo
 ```
+
+Use `--vision-vulkan` and `--text-vulkan` to benchmark the optional backends;
+their device indices default to zero. `--config` assigns a stable label to the
+CSV and Markdown rows so results from separate model/backend configurations can
+be compared without inferring the configuration from directory names. On an
+otherwise idle NVIDIA device, `--nvidia-smi-device 0` also records the total
+device-memory baseline, peak, and peak delta once per second.
 
 Run all bundled cases:
 
@@ -72,6 +80,18 @@ Reported fields:
 - `token_select_ms`: repetition penalty, argmax, and token selection.
 - `tokenizer_decode_ms`: generated token ids to text.
 - `decode_token_per_s`: incremental decoder-step throughput.
+- `benchmark_process_wall_ms`: wall time measured by the Python parent process.
+- `benchmark_process_peak_rss_bytes`: child-process peak RSS from Linux
+  `VmHWM`.
+- `benchmark_process_max_sampled_rss_anon_bytes`: maximum sampled anonymous
+  RSS while the child process is alive.
+- `benchmark_process_max_sampled_rss_file_bytes`: maximum sampled file-backed
+  RSS while the child process is alive.
+- `benchmark_process_memory_supported`: `1` when Linux process memory fields
+  were available; unsupported platforms report zero-valued process memory
+  fields and set this flag to `0`.
+- `benchmark_device_memory_peak_delta_bytes`: peak total device memory minus
+  the pre-launch baseline when `--nvidia-smi-device` is enabled.
 
 The tool checks that generated token ids remain identical across all selected
 thread counts for each case. `--output-dir` writes separate cold-start and warm
@@ -80,6 +100,10 @@ inference CSV files plus a compact Markdown summary.
 Mapped pages count toward process RSS/PSS after they are touched. Use anonymous
 and file-backed memory fields separately when comparing `--mmap-weights`; total
 RSS alone does not represent private model memory.
+
+The process memory fields do not include device-local Vulkan allocations. The
+optional NVIDIA fields are device-level measurements, not per-process values;
+NVIDIA process monitoring does not attribute this Vulkan workload reliably.
 
 The script does not download models or prepare fixtures. It expects a packaged
 runtime model directory produced by `tools/package_model.py`.
