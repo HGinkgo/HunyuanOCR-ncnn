@@ -1,3 +1,4 @@
 0001-vulkan-matmul-pr6579.patch
 0002-vulkan-exact-gelu.patch
 0003-vulkan-rotaryembed-full-cache.patch
+0004-vulkan-innerproduct-m1.patch

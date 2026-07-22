@@ -16,6 +16,7 @@ PATCHES = (
     "0001-vulkan-matmul-pr6579.patch",
     "0002-vulkan-exact-gelu.patch",
     "0003-vulkan-rotaryembed-full-cache.patch",
+    "0004-vulkan-innerproduct-m1.patch",
 )
 
 
@@ -47,6 +48,14 @@ def test_bundle_metadata(root: Path) -> None:
     rotary = (bundle / PATCHES[2]).read_text(encoding="utf-8")
     require("full-cache RotaryEmbed" in rotary, "RotaryEmbed patch must describe its purpose")
     require("BSD 3-Clause" in rotary, "RotaryEmbed patch must identify the ncnn license")
+
+    innerproduct = (bundle / PATCHES[3]).read_text(encoding="utf-8")
+    require("InnerProduct M=1 vector dispatch" in innerproduct,
+            "InnerProduct patch must describe its purpose")
+    require("single-row InnerProduct" in innerproduct,
+            "InnerProduct patch must document the M=1 routing policy")
+    require("BSD 3-Clause" in innerproduct,
+            "InnerProduct patch must identify the ncnn license")
 
     license_text = (bundle / "LICENSE.ncnn.txt").read_text(encoding="utf-8")
     for phrase in ("Redistribution and use", "Neither the name of [copyright holder]", "AS IS"):
