@@ -23,7 +23,7 @@ def main() -> int:
         "cmake --build build --config Release --parallel",
         "ctest --test-dir build -C Release --output-on-failure",
         "--no-tests=error",
-        "hunyuan_ocr_api|batch_jsonl|precise_sdpa|multimodal_rope|utf8|dflash_runtime|decoder_microbench_parser|text_decoder_aux|cli_options|package_model|memory_lifecycle|mapped_model_file|kv_cache_lifecycle",
+        "hunyuan_ocr_api|batch_jsonl|precise_sdpa|multimodal_rope|utf8|dflash_runtime|decoder_microbench_parser|text_decoder_aux|interactive_cli|install_cli|cli_options|package_model|memory_lifecycle|mapped_model_file|kv_cache_lifecycle",
         "msys2/setup-msys2@v2",
         "msystem: UCRT64",
         "mingw-w64-ucrt-x86_64-gcc",

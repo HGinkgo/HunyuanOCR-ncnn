@@ -35,7 +35,7 @@ def require_commented_commands(text: str, heading: str, label: str) -> None:
             index > 0 and lines[index - 1].startswith("# "),
             f"{label} command must have an immediately preceding comment: {line}",
         )
-    require(commands >= 7, f"{label} must retain the common command entries")
+    require(commands >= 6, f"{label} must retain the common command entries")
 
 
 def main() -> int:
@@ -98,8 +98,13 @@ def main() -> int:
         require(DISCUSSION in text, f"{label} must link the technical Discussion")
         require("--dflash" in text, f"{label} must document optional DFlash use")
         require("--mmap-weights" in text, f"{label} must document optional mmap loading")
-        require("--vision-vulkan" in text, f"{label} must document optional Vulkan vision use")
-        require("--text-vulkan" in text, f"{label} must document optional Vulkan text use")
+        require("--vulkan" in text, f"{label} must document the unified Vulkan option")
+        require("--vision-vulkan" not in text,
+                f"{label} must hide the legacy granular Vision Vulkan option")
+        require("--text-vulkan" not in text,
+                f"{label} must hide the legacy granular Text Vulkan option")
+        require("hunyuan-ocr --model ./hunyuan_ocr_ncnn_model --interactive" in text,
+                f"{label} must document the installed interactive command with its model")
         require("scripts/apply_ncnn_patches.py" in text,
                 f"{label} must document the required ncnn Vulkan patch step")
         for developer_entry in ("export/export_all.py", "tools/package_model.py", "tools/run_regression.py"):
@@ -148,6 +153,7 @@ def main() -> int:
                 "## License",
             ],
             [
+                "### Interactive OCR",
                 "### Single-image inference",
                 "### JSONL batch inference",
                 "### C++ runtime",
@@ -167,6 +173,7 @@ def main() -> int:
                 "## 许可证",
             ],
             [
+                "### 交互 OCR",
                 "### 单图推理",
                 "### JSONL 批量推理",
                 "### C++ Runtime",
@@ -179,7 +186,7 @@ def main() -> int:
         )
         require(
             all(section in text for section in subsections),
-            f"{label} must retain single-image, JSONL, and C++ integration paths",
+            f"{label} must retain interactive, single-image, JSONL, and C++ integration paths",
         )
         require(
             len(text.splitlines()) <= 220,

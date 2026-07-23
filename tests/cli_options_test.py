@@ -96,18 +96,74 @@ def main() -> int:
         or "Default max tokens: 8192." not in help_result.stdout
         or "Auto-detects common model directories." not in help_result.stdout
         or "--dflash             " not in help_result.stdout
-        or "--vision-vulkan" not in help_result.stdout
-        or "--vision-vulkan-device" not in help_result.stdout
-        or "--text-vulkan" not in help_result.stdout
-        or "--text-vulkan-device" not in help_result.stdout
+        or "--interactive" not in help_result.stdout
+        or "--vulkan             " not in help_result.stdout
+        or "--vulkan-device N" not in help_result.stdout
         or "--mmap-weights" not in help_result.stdout
         or "--batch-input" not in help_result.stdout
         or "--batch-output" not in help_result.stdout
         or "--force" not in help_result.stdout
         or "--vlm-fixture or a single --image"
         not in help_result.stdout
+        or "Common options:" not in help_result.stdout
+        or "Batch options:" not in help_result.stdout
+        or "Advanced options:" not in help_result.stdout
     ):
         print("CLI help does not report the expected 1.5/DFlash options", file=sys.stderr)
+        return 1
+    legacy_vulkan_help = (
+        "--vision-vulkan",
+        "--vision-vulkan-device",
+        "--text-vulkan",
+        "--text-vulkan-device",
+    )
+    if any(option in help_result.stdout for option in legacy_vulkan_help):
+        print("CLI help exposes legacy granular Vulkan options", file=sys.stderr)
+        return 1
+
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--interactive", "--image", "x.png"],
+        "--interactive and --image are mutually exclusive",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        [
+            "--model",
+            ".",
+            "--interactive",
+            "--batch-input",
+            "requests.jsonl",
+            "--batch-output",
+            "results.jsonl",
+        ],
+        "--interactive and batch mode are mutually exclusive",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--interactive", "--benchmark"],
+        "--interactive does not support diagnostic or benchmark options",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--interactive", "--vlm-fixture", "."],
+        "--interactive does not support diagnostic or benchmark options",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vulkan-device", "0", "--interactive"],
+        "--vulkan-device requires --vulkan",
+    ):
+        return 1
+    if not require_rejected(
+        binary,
+        ["--model", ".", "--vulkan", "--dflash", "--interactive"],
+        "--vulkan cannot be combined with --dflash yet",
+    ):
         return 1
 
     if not require_rejected(

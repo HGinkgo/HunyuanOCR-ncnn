@@ -53,14 +53,14 @@ modelscope download \
 > This is an unofficial community conversion maintained by an individual. It is not
 > released, endorsed, or supported by Tencent.
 
-The script auto-detects `./hunyuan_ocr_ncnn_model` and a sibling `../ncnn/build/src`, then builds and runs an example:
+The script auto-detects `./hunyuan_ocr_ncnn_model` and a sibling `../ncnn/build/src`, then builds and fully recognizes a bilingual subtitle example:
 
 ```bash
 scripts/quickstart_existing_model.sh
 ```
 
 Pass `--model PATH` or `--ncnn-dir PATH` when either dependency is elsewhere.
-Quickstart generates 16 tokens for a fast smoke test; use the single-image command below for complete OCR.
+The example runs until the model completes naturally without a token cutoff.
 
 Model weights are not stored in this source repository.
 
@@ -72,6 +72,7 @@ Requirements are CMake 3.18, a C++17 compiler, and ncnn. The validated ncnn revi
 ```bash
 cmake -S . -B build -Dncnn_DIR=/path/to/ncnn/lib/cmake/ncnn
 cmake --build build -j
+cmake --install build --prefix ~/.local
 ```
 
 Before using Vulkan, apply the project patches to the pinned ncnn revision, then
@@ -97,14 +98,26 @@ cmake --build build -j
 
 ## Run and Integrate
 
+### Interactive OCR
+
+After installation, keep the model resident and enter image paths without reloading it. CPU fp32 remains the default; Vulkan-enabled builds can run both vision and text with one flag:
+
+```bash
+~/.local/bin/hunyuan-ocr --model ./hunyuan_ocr_ncnn_model --interactive
+~/.local/bin/hunyuan-ocr --model ./hunyuan_ocr_ncnn_model --interactive --vulkan
+```
+
+Sessions start in `document` mode. Use `:mode spotting`, `:prompt TEXT`, `:status`, `:help`, and `:quit` to adjust or exit.
+
 ### Single-image inference
 
 ```bash
 ./build/hunyuan_ocr_cli \
+  --model ./hunyuan_ocr_ncnn_model \
   --image ./examples/images/hf_demo_tools-dark.png
 ```
 
-The CLI auto-detects `./hunyuan_ocr_ncnn_model` and common `assets/` directories. Single-image inference defaults to the `document` prompt and streams decoded text while it is generated. The default limit is 8192 tokens, with early stopping on EOS or tail repetition. Use `--prompt-mode spotting` when coordinates are needed, or pass a custom prompt with `--prompt "Return only the visible text"`.
+Inside the repository, `--model` may be omitted because the CLI auto-detects `./hunyuan_ocr_ncnn_model` and common `assets/` directories. Single-image inference defaults to the `document` prompt and streams decoded text while it is generated. The default limit is 8192 tokens, with early stopping on EOS or tail repetition. Use `--prompt-mode spotting` when coordinates are needed, or pass a custom prompt with `--prompt "Return only the visible text"`.
 
 ### JSONL batch inference
 
@@ -161,18 +174,16 @@ owns contiguous RGB pixels.
 | --- | --- | --- |
 | DFlash | `--dflash` | AR remains the default; low-acceptance inputs may be slower, so no universal speedup is claimed. |
 | mmap weights | `--mmap-weights` | Reduces loading copies and anonymous memory; model files remain the same size. |
-| Vision Vulkan | `--vision-vulkan` | Runs the Vision Encoder on Vulkan; text generation stays on CPU fp32 unless Text Vulkan is enabled. |
-| Text Vulkan | `--text-vulkan` | Runs the Decoder and LM Head on Vulkan; not yet compatible with DFlash. |
+| Vulkan | `--vulkan` | Runs vision, the Decoder, and LM Head with Vulkan; it is not yet compatible with DFlash. |
 
-Both Vulkan paths require [`patches/ncnn`](patches/ncnn) and can be enabled independently or together:
+The Vulkan path requires [`patches/ncnn`](patches/ncnn):
 
 ```bash
-./build/hunyuan_ocr_cli --image ./document.png --vision-vulkan --text-vulkan
+./build/hunyuan_ocr_cli --image ./document.png --vulkan
 ```
 
-Select devices independently with `--vision-vulkan-device N` and
-`--text-vulkan-device N`. C++ callers can set the corresponding fields in
-`RuntimeOptions`.
+Select the device with `--vulkan-device N`. C++ callers can still configure
+Vision and Text Vulkan separately through `RuntimeOptions`.
 
 ## More Commands
 
@@ -181,8 +192,6 @@ Select devices independently with `--vision-vulkan-device N` and
 ./build/hunyuan_ocr_cli --help
 # Show project and ncnn versions
 ./build/hunyuan_ocr_cli --version
-# Run a quick smoke test with the default example image
-scripts/smoke_test.sh --model ./hunyuan_ocr_ncnn_model
 # List bundled examples
 python tools/run_example.py --list
 # Run one bundled example
@@ -202,7 +211,7 @@ in [`tools/README.md`](tools/README.md#benchmark).
 - JPEG decoder rounding can affect decision-sensitive images; use PNG for stable reproduction.
 - Custom prompts do not yet cover every tokenizer boundary input.
 - Vulkan is an explicit optional backend and requires the pinned ncnn revision plus the project patch series.
-- Text Vulkan cannot yet be combined with DFlash; DFlash keeps the CPU fp32 text path.
+- `--vulkan` cannot yet be combined with DFlash; DFlash keeps the CPU fp32 text path.
 - The shipped CPU/Vulkan paths use fp32. Evaluated fp16, int8, and decoder/full-model quantization did not meet the release quality/performance trade-off, so no low-precision model package is provided.
 
 ## License

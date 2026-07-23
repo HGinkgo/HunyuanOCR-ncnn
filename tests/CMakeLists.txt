@@ -177,6 +177,15 @@ target_compile_features(hunyuan_ocr_text_decoder_vulkan_session_test PRIVATE cxx
 target_include_directories(hunyuan_ocr_text_decoder_vulkan_session_test
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 
+add_executable(hunyuan_ocr_interactive_cli_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/interactive_cli_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/interactive_cli.cpp
+)
+target_link_libraries(hunyuan_ocr_interactive_cli_test PRIVATE hunyuan_ocr)
+target_compile_features(hunyuan_ocr_interactive_cli_test PRIVATE cxx_std_17)
+target_include_directories(hunyuan_ocr_interactive_cli_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/src")
+
 add_executable(hunyuan_ocr_utf8_test ${CMAKE_CURRENT_SOURCE_DIR}/utf8_test.cpp)
 target_link_libraries(hunyuan_ocr_utf8_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_utf8_test PRIVATE cxx_std_17)
@@ -310,6 +319,9 @@ add_test(NAME text_decoder_aux
 add_test(NAME text_decoder_vulkan_session
     COMMAND hunyuan_ocr_text_decoder_vulkan_session_test
 )
+add_test(NAME interactive_cli
+    COMMAND hunyuan_ocr_interactive_cli_test
+)
 add_test(NAME utf8
     COMMAND hunyuan_ocr_utf8_test
 )
@@ -387,6 +399,12 @@ add_test(NAME quickstart
             "${CMAKE_CURRENT_SOURCE_DIR}/quickstart_test.py"
 )
 if(HUNYUAN_OCR_BUILD_CLI)
+    add_test(NAME install_cli
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/install_cli_test.py"
+                "${PROJECT_BINARY_DIR}"
+                "${CMAKE_EXECUTABLE_SUFFIX}"
+    )
     add_test(NAME windows_utf8_integration
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/windows_utf8_integration_test.py"

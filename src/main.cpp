@@ -7,6 +7,7 @@
 #include "hunyuan_ocr/vision_runtime.h"
 
 #include "batch_jsonl.h"
+#include "interactive_cli.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -69,29 +70,32 @@ void print_usage(const char* program)
         << "\n"
         << "HunyuanOCR-ncnn CLI for PNG/JPEG and JSONL inference.\n"
         << "\n"
-        << "Options:\n"
+        << "Common options:\n"
         << "  --help          Show this help message.\n"
         << "  --version       Print project and ncnn version information.\n"
         << "  --model PATH    Use a model directory. Auto-detects common model directories.\n"
-        << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n"
-        << "  --dflash               Run DFlash with --vlm-fixture or a single --image.\n"
-        << "  --mmap-weights         Load model weights from read-only file mappings.\n"
-        << "  --vision-vulkan       Run only the vision network with ncnn Vulkan fp32.\n"
-        << "  --vision-vulkan-device N Vulkan device index for vision. Default: 0.\n"
-        << "  --text-vulkan         Run the text decoder with ncnn Vulkan fp32.\n"
-        << "  --text-vulkan-device N Vulkan device index for text. Default: 0.\n"
         << "  --image PATH           Run one-image OCR. Default prompt: document.\n"
+        << "  --interactive          Keep the model loaded for repeated image OCR.\n"
+        << "  --vulkan               Run vision and text with ncnn Vulkan fp32.\n"
+        << "  --vulkan-device N      Vulkan device index. Default: 0.\n"
+        << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
+        << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
+        << "  --num-threads N        ncnn thread count for all submodels.\n"
+        << "  --max-tokens N         Limit generated token count. Default max tokens: 8192.\n"
+        << "\n"
+        << "Batch options:\n"
         << "  --batch-input PATH     Read ordered inference requests from a JSONL file.\n"
         << "  --batch-output PATH    Write one ordered JSON result per input line.\n"
         << "  --force                Replace an existing --batch-output file.\n"
-        << "  --prompt-mode MODE     Build built-in prompt tensors in C++: spotting or document.\n"
-        << "  --prompt TEXT          Build a custom image prompt with the bundled tokenizer.\n"
+        << "\n"
+        << "Advanced options:\n"
+        << "  --dflash               Run DFlash with --vlm-fixture or a single --image.\n"
+        << "  --mmap-weights         Load model weights from read-only file mappings.\n"
+        << "  --repetition-penalty F Greedy decode repetition penalty. Default: 1.08.\n"
         << "  --benchmark            Run cold-start and same-process warm inference timing.\n"
         << "  --benchmark-warmup N   Same-process warmup iterations. Default: 0.\n"
         << "  --benchmark-repeat N   Same-process measured iterations. Default: 1.\n"
-        << "  --num-threads N        ncnn thread count for all submodels.\n"
-        << "  --repetition-penalty F Greedy decode repetition penalty. Default: 1.08.\n"
-        << "  --max-tokens N         Limit generated token count. Default max tokens: 8192.\n";
+        << "  --vlm-fixture PATH     Run input_ids + vision_features + text decode fixture.\n";
 }
 
 void print_file_group(std::ostream& output,
@@ -941,6 +945,10 @@ int main(int argc, char** argv)
     std::string vlm_fixture_dir;
     bool dflash = false;
     bool mmap_weights = false;
+    bool interactive = false;
+    bool vulkan = false;
+    bool vulkan_device_explicit = false;
+    int vulkan_device = 0;
     std::string image_path;
     std::string batch_input_path;
     std::string batch_output_path;
@@ -1008,6 +1016,35 @@ int main(int argc, char** argv)
         if (arg == "--mmap-weights")
         {
             mmap_weights = true;
+            continue;
+        }
+        if (arg == "--interactive")
+        {
+            interactive = true;
+            continue;
+        }
+        if (arg == "--vulkan")
+        {
+            vulkan = true;
+            continue;
+        }
+        if (arg == "--vulkan-device")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "--vulkan-device requires an integer\n";
+                return 1;
+            }
+            try
+            {
+                vulkan_device = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&)
+            {
+                std::cerr << "--vulkan-device value must be an integer\n";
+                return 1;
+            }
+            vulkan_device_explicit = true;
             continue;
         }
         if (arg == "--vision-vulkan")
@@ -1244,6 +1281,21 @@ int main(int argc, char** argv)
         return 1;
     }
     const bool batch_mode = has_batch_input && has_batch_output;
+    if (interactive && !image_path.empty())
+    {
+        std::cerr << "--interactive and --image are mutually exclusive\n";
+        return 1;
+    }
+    if (interactive && batch_mode)
+    {
+        std::cerr << "--interactive and batch mode are mutually exclusive\n";
+        return 1;
+    }
+    if (interactive && (!vlm_fixture_dir.empty() || benchmark))
+    {
+        std::cerr << "--interactive does not support diagnostic or benchmark options\n";
+        return 1;
+    }
     if (force_batch_output && !batch_mode)
     {
         std::cerr << "--force requires batch mode\n";
@@ -1269,6 +1321,28 @@ int main(int argc, char** argv)
     {
         std::cerr << "--num-threads must be positive when provided\n";
         return 1;
+    }
+    if (vulkan_device_explicit && !vulkan)
+    {
+        std::cerr << "--vulkan-device requires --vulkan\n";
+        return 1;
+    }
+    if (vulkan_device < 0)
+    {
+        std::cerr << "--vulkan-device must be non-negative\n";
+        return 1;
+    }
+    if (vulkan && dflash)
+    {
+        std::cerr << "--vulkan cannot be combined with --dflash yet\n";
+        return 1;
+    }
+    if (vulkan)
+    {
+        vision_vulkan = true;
+        vision_vulkan_device = vulkan_device;
+        text_vulkan = true;
+        text_vulkan_device = vulkan_device;
     }
     if (vision_vulkan_device_explicit && !vision_vulkan)
     {
@@ -1297,7 +1371,7 @@ int main(int argc, char** argv)
     }
     const bool plain_image_inference =
         !image_path.empty() && vlm_fixture_dir.empty() && !benchmark;
-    const bool image_executes_vision = !image_path.empty();
+    const bool image_executes_vision = !image_path.empty() || interactive;
     const bool executes_vision = batch_mode || image_executes_vision;
     if (vision_vulkan && !executes_vision)
     {
@@ -1351,7 +1425,7 @@ int main(int argc, char** argv)
 
     if (!benchmark)
     {
-        if (plain_image_inference)
+        if (plain_image_inference || interactive)
         {
             std::cerr << "Loading OCR model from " << report.root << "\n";
         }
@@ -1444,9 +1518,65 @@ int main(int argc, char** argv)
                                    process_start);
     }
 
-    if (!plain_image_inference)
+    if (!plain_image_inference && !interactive)
     {
         std::cout << "Model layout check passed for the current runtime files.\n";
+    }
+
+    if (interactive)
+    {
+        hunyuan_ocr::RuntimeOptions runtime_options;
+        runtime_options.num_threads = num_threads;
+        runtime_options.vision_vulkan = vision_vulkan;
+        runtime_options.vision_vulkan_device = vision_vulkan_device;
+        runtime_options.dflash = dflash;
+        runtime_options.mmap_weights = mmap_weights;
+        runtime_options.text_vulkan = text_vulkan;
+        runtime_options.text_vulkan_device = text_vulkan_device;
+        runtime_options.repetition_penalty = repetition_penalty;
+
+        hunyuan_ocr::PromptMode initial_mode = hunyuan_ocr::PromptMode::Document;
+        if (!prompt_mode_text.empty())
+        {
+            std::string prompt_error;
+            if (!hunyuan_ocr::parse_prompt_mode(prompt_mode_text, &initial_mode, &prompt_error))
+            {
+                std::cerr << "Prompt mode failed: " << prompt_error << "\n";
+                return 1;
+            }
+        }
+
+        hunyuan_ocr::RuntimeError runtime_error;
+        hunyuan_ocr::HunyuanOCR runtime;
+        const auto load_start = Clock::now();
+        if (!runtime.load(model_root, runtime_options, &runtime_error))
+        {
+            std::cerr << "Runtime load failed at " << runtime_error.stage
+                      << ": " << runtime_error.message << "\n";
+            return 1;
+        }
+        std::cerr << std::fixed << std::setprecision(1)
+                  << "Model ready in " << elapsed_ms(load_start, Clock::now()) / 1000.0
+                  << " s.\n";
+
+        hunyuan_ocr::cli::InteractiveSessionConfig config;
+        config.model_root = model_root;
+        config.backend_label = vulkan ? "Vulkan fp32" : "CPU fp32";
+        config.num_threads = num_threads;
+        config.max_tokens = max_tokens > 0 ? max_tokens : kDefaultImageMaxTokens;
+        config.initial_mode = initial_mode;
+        config.initial_prompt = prompt_text;
+        return hunyuan_ocr::cli::run_interactive_session(
+            config,
+            [&](const std::string& image,
+                const hunyuan_ocr::InferenceRequest& request,
+                hunyuan_ocr::InferenceResult* result,
+                hunyuan_ocr::RuntimeError* error) {
+                return runtime.infer_file(image, request, result, error);
+            },
+            std::cin,
+            std::cout,
+            std::cerr);
     }
 
     if (plain_image_inference)

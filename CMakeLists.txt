@@ -5,6 +5,8 @@ project(HunyuanOCR_ncnn
     LANGUAGES CXX
 )
 
+include(GNUInstallDirs)
+
 option(HUNYUAN_OCR_BUILD_CLI "Build the hunyuan_ocr_cli executable" ON)
 option(HUNYUAN_OCR_BUILD_EXAMPLES "Build minimal HunyuanOCR integration examples" ON)
 option(HUNYUAN_OCR_BUILD_TESTS "Build HunyuanOCR-ncnn test executables" OFF)
@@ -101,12 +103,19 @@ if(HUNYUAN_OCR_STRICT_WARNINGS)
 endif()
 
 if(HUNYUAN_OCR_BUILD_CLI)
-    add_executable(hunyuan_ocr_cli src/main.cpp)
+    add_executable(hunyuan_ocr_cli
+        src/main.cpp
+        src/interactive_cli.cpp
+    )
     target_link_libraries(hunyuan_ocr_cli PRIVATE hunyuan_ocr)
     if(WIN32)
         target_link_libraries(hunyuan_ocr_cli PRIVATE shell32)
     endif()
     target_compile_features(hunyuan_ocr_cli PRIVATE cxx_std_17)
+    install(PROGRAMS "$<TARGET_FILE:hunyuan_ocr_cli>"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME "hunyuan-ocr${CMAKE_EXECUTABLE_SUFFIX}"
+    )
 
     if(HUNYUAN_OCR_STRICT_WARNINGS)
         if(MSVC)

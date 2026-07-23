@@ -11,10 +11,9 @@ Usage:
 
 Options:
   --model       Packaged model directory. Default: auto-detect common paths.
-  --ncnn-dir    ncnn CMake package directory. Default: auto-detect common paths.
+  --ncnn-dir    ncnn CMake package or build/src directory. Default: auto-detect.
   --build-dir   CMake build directory. Default: build
-  --case        Example case key. Default: hf_demo
-  --max-tokens  Smoke-test generation limit. Default: 16
+  --case        Example case key. Default: hunyuan_zimu2
 EOF
 }
 
@@ -23,15 +22,34 @@ fail() {
   exit 1
 }
 
-has_ncnn_config() {
-  [[ -f "$1/ncnnConfig.cmake" || -f "$1/ncnn-config.cmake" ]]
+has_ncnn_package() {
+  [[ -f "$1/ncnnConfig.cmake" || -f "$1/ncnn-config.cmake" ]] &&
+    [[ -f "$1/ncnn.cmake" ]]
+}
+
+ncnn_build_library() {
+  local directory="$1"
+  local name
+  for name in libncnn.a libncnn.so libncnn.dylib ncnn.lib; do
+    if [[ -f "$directory/$name" ]]; then
+      echo "$directory/$name"
+      return 0
+    fi
+  done
+  return 1
+}
+
+has_ncnn_build_tree() {
+  [[ -f "$1/platform.h" && -f "$1/../../src/net.h" ]] &&
+    ncnn_build_library "$1" >/dev/null
 }
 
 MODEL=""
 NCNN_DIR=""
+NCNN_MODE=""
+NCNN_LIBRARY_PATH=""
 BUILD_DIR="$REPO_ROOT/build"
-CASE="hf_demo"
-MAX_TOKENS=16
+CASE="hunyuan_zimu2"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,15 +65,10 @@ while [[ $# -gt 0 ]]; do
     --case)
       [[ $# -ge 2 ]] || fail "--case requires a value"
       CASE="$2"; shift 2 ;;
-    --max-tokens)
-      [[ $# -ge 2 ]] || fail "--max-tokens requires an integer"
-      MAX_TOKENS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1" ;;
   esac
 done
-
-[[ "$MAX_TOKENS" =~ ^[1-9][0-9]*$ ]] || fail "--max-tokens must be a positive integer"
 
 if [[ -n "$MODEL" ]]; then
   [[ -d "$MODEL" ]] || fail "model directory was not found: $MODEL"
@@ -76,7 +89,13 @@ fi
 MODEL="$(cd "$MODEL" && pwd)"
 
 if [[ -n "$NCNN_DIR" ]]; then
-  has_ncnn_config "$NCNN_DIR" || fail "ncnnConfig.cmake was not found under: $NCNN_DIR"
+  if has_ncnn_package "$NCNN_DIR"; then
+    NCNN_MODE="package"
+  elif has_ncnn_build_tree "$NCNN_DIR"; then
+    NCNN_MODE="build-tree"
+  else
+    fail "ncnnConfig.cmake was not found and no usable ncnn build tree exists under: $NCNN_DIR"
+  fi
 else
   NCNN_CANDIDATES=()
   if [[ -n "${ncnn_DIR:-}" ]]; then
@@ -95,8 +114,14 @@ else
     done
   fi
   for candidate in "${NCNN_CANDIDATES[@]}"; do
-    if has_ncnn_config "$candidate"; then
+    if has_ncnn_package "$candidate"; then
       NCNN_DIR="$candidate"
+      NCNN_MODE="package"
+      break
+    fi
+    if has_ncnn_build_tree "$candidate"; then
+      NCNN_DIR="$candidate"
+      NCNN_MODE="build-tree"
       break
     fi
   done
@@ -107,18 +132,29 @@ echo "Using model: $MODEL"
 CMAKE_ARGS=(-S "$REPO_ROOT" -B "$BUILD_DIR")
 if [[ -n "$NCNN_DIR" ]]; then
   NCNN_DIR="$(cd "$NCNN_DIR" && pwd)"
-  echo "Using ncnn package: $NCNN_DIR"
-  CMAKE_ARGS+=("-Dncnn_DIR=$NCNN_DIR")
+  if [[ "$NCNN_MODE" == "package" ]]; then
+    echo "Using ncnn package: $NCNN_DIR"
+    CMAKE_ARGS+=("-Dncnn_DIR=$NCNN_DIR")
+  else
+    NCNN_SOURCE_DIR="$(cd "$NCNN_DIR/../.." && pwd)"
+    NCNN_LIBRARY_PATH="$(ncnn_build_library "$NCNN_DIR")"
+    echo "Using ncnn build tree: $NCNN_DIR"
+    CMAKE_ARGS+=(
+      "-DHUNYUAN_OCR_USE_NCNN_PACKAGE=OFF"
+      "-DNCNN_INCLUDE_DIR=$NCNN_SOURCE_DIR/src"
+      "-DNCNN_BUILD_INCLUDE_DIR=$NCNN_DIR"
+      "-DNCNN_LIBRARY=$NCNN_LIBRARY_PATH"
+    )
+  fi
 else
-  echo "No common ncnn package path found; trying CMake package discovery."
+  echo "No common ncnn package or build tree found; trying CMake package discovery."
 fi
 
 if ! cmake "${CMAKE_ARGS[@]}"; then
   fail "CMake could not find ncnn; pass --ncnn-dir PATH or set ncnn_DIR"
 fi
 cmake --build "$BUILD_DIR" -j
-"$SCRIPT_DIR/smoke_test.sh" \
+python "$REPO_ROOT/tools/run_example.py" \
   --model "$MODEL" \
   --binary "$BUILD_DIR/hunyuan_ocr_cli" \
-  --case "$CASE" \
-  --max-tokens "$MAX_TOKENS"
+  --case "$CASE"
