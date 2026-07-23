@@ -1,0 +1,210 @@
+From: HunyuanOCR-ncnn contributors
+Subject: [PATCH 4/4] Vulkan Gemm M=1 vector dispatch
+Upstream: https://github.com/Tencent/ncnn
+License: BSD 3-Clause
+Local-Note: Reuse the existing InnerProduct vector shaders for compatible
+ constant-weight FP32 Gemm layers when the runtime input has M=1, while
+ preserving the original M>1 Gemm pipeline. The two paths share the uploaded
+ Gemm weights, so models require no graph rewrite or duplicate weight buffer.
+diff --git a/src/layer/vulkan/gemm_vulkan.cpp b/src/layer/vulkan/gemm_vulkan.cpp
+index b2e57c2d..9086b9fb 100644
+--- a/src/layer/vulkan/gemm_vulkan.cpp
++++ b/src/layer/vulkan/gemm_vulkan.cpp
+@@ -26,6 +26,8 @@ Gemm_vulkan::Gemm_vulkan()
+     support_vulkan_any_packing = true;
+ 
+     pipeline_gemm = 0;
++    pipeline_gemv_sum8 = 0;
++    pipeline_gemv_reduce_sum8 = 0;
+ #if NCNN_INT8
+     pipeline_gemm_quantize_A_int8 = 0;
+     pipeline_gemm_quantize_B_absmax_int8 = 0;
+@@ -610,6 +612,39 @@ int Gemm_vulkan::create_pipeline(const Option& opt)
+         pipeline_gemm->create(LayerShaderType::gemm, opt, specializations);
+     }
+ 
++    const bool gemv_compatible = constantA == 0 && constantB == 1 && constantC == 1 &&
++                                 transA == 0 && transB == 1 && alpha == 1.f &&
++                                 constant_broadcast_type_C == -1 && output_N1M == 0 &&
++                                 output_elempack == 0 && output_elemtype == 0 &&
++                                 output_transpose == 0 && !use_cooperative_matrix &&
++                                 B_data_packed.elempack == 1 && constantK >= 32;
++    if (gemv_compatible)
++    {
++        const int outw_sum8 = (constantK + 7) / 8;
++
++        std::vector<vk_specialization_type> specializations(3);
++        specializations[0].i = constantK;
++        specializations[1].i = outw_sum8;
++        specializations[2].i = constantN;
++
++        pipeline_gemv_sum8 = new Pipeline(vkdev);
++        pipeline_gemv_sum8->set_local_size_xyz(8, std::min(8, constantN), 1);
++        pipeline_gemv_sum8->create(LayerShaderType::innerproduct_sum8, opt, specializations);
++
++        std::vector<vk_specialization_type> reduce_specializations(7);
++        reduce_specializations[0].i = 0;
++        reduce_specializations[1].i = 0;
++        reduce_specializations[2].f = 0.f;
++        reduce_specializations[3].f = 0.f;
++        reduce_specializations[4].i = outw_sum8;
++        reduce_specializations[5].i = constantN;
++        reduce_specializations[6].i = constantN;
++
++        pipeline_gemv_reduce_sum8 = new Pipeline(vkdev);
++        pipeline_gemv_reduce_sum8->set_local_size_xyz(std::min(64, constantN), 1, 1);
++        pipeline_gemv_reduce_sum8->create(LayerShaderType::innerproduct_reduce_sum8, opt, reduce_specializations);
++    }
++
+     if (opt.lightmode)
+     {
+         A_data.release();
+@@ -625,6 +660,11 @@ int Gemm_vulkan::destroy_pipeline(const Option& /*opt*/)
+     delete pipeline_gemm;
+     pipeline_gemm = 0;
+ 
++    delete pipeline_gemv_sum8;
++    delete pipeline_gemv_reduce_sum8;
++    pipeline_gemv_sum8 = 0;
++    pipeline_gemv_reduce_sum8 = 0;
++
+ #if NCNN_INT8
+     delete pipeline_gemm_quantize_A_int8;
+     pipeline_gemm_quantize_A_int8 = 0;
+@@ -825,6 +865,44 @@ int Gemm_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vector<VkM
+     if (top_blob.empty())
+         return -100;
+ 
++    if (pipeline_gemv_sum8 && M == 1 && A_elempack == 1 && B_elempack == 1 && out_elempack == 1)
++    {
++        VkMat top_blob_sum8;
++        top_blob_sum8.create((K + 7) / 8, N, elemsize, 1, opt.blob_vkallocator);
++        if (top_blob_sum8.empty())
++            return -100;
++
++        {
++            std::vector<VkMat> bindings(3);
++            bindings[0] = A;
++            bindings[1] = top_blob_sum8;
++            bindings[2] = B;
++
++            std::vector<vk_constant_type> constants(3);
++            constants[0].i = K;
++            constants[1].i = top_blob_sum8.w;
++            constants[2].i = top_blob_sum8.h;
++
++            cmd.record_pipeline(pipeline_gemv_sum8, bindings, constants, top_blob_sum8);
++        }
++
++        {
++            std::vector<VkMat> bindings(3);
++            bindings[0] = top_blob_sum8;
++            bindings[1] = top_blob;
++            bindings[2] = C;
++
++            std::vector<vk_constant_type> constants(3);
++            constants[0].i = top_blob_sum8.w;
++            constants[1].i = top_blob_sum8.h;
++            constants[2].i = N;
++
++            cmd.record_pipeline(pipeline_gemv_reduce_sum8, bindings, constants, top_blob);
++        }
++
++        return 0;
++    }
++
+     if (use_cooperative_matrix)
+     {
+         std::vector<VkMat> bindings(5);
+diff --git a/src/layer/vulkan/gemm_vulkan.h b/src/layer/vulkan/gemm_vulkan.h
+index ca750dc0..1c29a047 100644
+--- a/src/layer/vulkan/gemm_vulkan.h
++++ b/src/layer/vulkan/gemm_vulkan.h
+@@ -39,6 +39,8 @@ public:
+     VkMat C_data_gpu;
+ 
+     Pipeline* pipeline_gemm;
++    Pipeline* pipeline_gemv_sum8;
++    Pipeline* pipeline_gemv_reduce_sum8;
+ 
+     // subgroup
+     bool use_subgroup_ops;
+diff --git a/tests/test_gemm_vulkan_m1.cpp b/tests/test_gemm_vulkan_m1.cpp
+new file mode 100644
+index 00000000..f0912943
+--- /dev/null
++++ b/tests/test_gemm_vulkan_m1.cpp
+@@ -0,0 +1,73 @@
++// Copyright 2026 Tencent
++// SPDX-License-Identifier: BSD-3-Clause
++
++#include "testutil.h"
++
++#if NCNN_VULKAN
++#include "gpu.h"
++#include "vulkan/gemm_vulkan.h"
++
++static int test_gemm_m1_creates_vector_and_matrix_pipelines()
++{
++    if (ncnn::get_gpu_count() == 0)
++        return 0;
++
++    const int input_size = 128;
++    const int output_size = 64;
++
++    ncnn::Gemm_vulkan op;
++    op.vkdev = ncnn::get_gpu_device(0);
++
++    ncnn::ParamDict pd;
++    pd.set(0, 1.f); // alpha
++    pd.set(1, 1.f); // beta
++    pd.set(2, 0);   // transA
++    pd.set(3, 1);   // transB
++    pd.set(4, 0);   // constantA
++    pd.set(5, 1);   // constantB
++    pd.set(6, 1);   // constantC
++    pd.set(8, output_size);
++    pd.set(9, input_size);
++    pd.set(10, -1); // no C data
++    if (op.load_param(pd) != 0)
++        return -1;
++
++    op.B_data = RandomMat(input_size, output_size);
++
++    ncnn::Option opt;
++    opt.use_vulkan_compute = true;
++    opt.use_packing_layout = true;
++    opt.use_fp16_packed = false;
++    opt.use_fp16_storage = false;
++    opt.use_fp16_arithmetic = false;
++    opt.use_bf16_packed = false;
++    opt.use_bf16_storage = false;
++
++    if (op.create_pipeline(opt) != 0)
++        return -1;
++
++    const bool keeps_matrix_pipeline = op.pipeline_gemm != 0;
++    const bool creates_vector_pipeline = op.pipeline_gemv_sum8 != 0 &&
++                                         op.pipeline_gemv_reduce_sum8 != 0;
++    op.destroy_pipeline(opt);
++
++    if (!keeps_matrix_pipeline || !creates_vector_pipeline)
++    {
++        fprintf(stderr, "Gemm must keep M>1 pipeline and create M=1 vector pipelines\n");
++        return -1;
++    }
++
++    return 0;
++}
++#endif
++
++int main()
++{
++    SRAND(7767517);
++
++#if NCNN_VULKAN
++    return test_gemm_m1_creates_vector_and_matrix_pipelines();
++#else
++    return 0;
++#endif
++}

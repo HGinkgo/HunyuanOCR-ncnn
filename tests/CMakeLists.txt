@@ -171,26 +171,6 @@ add_executable(hunyuan_ocr_model_load_probe
 target_link_libraries(hunyuan_ocr_model_load_probe PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_model_load_probe PRIVATE cxx_std_17)
 
-add_executable(hunyuan_ocr_native_innerproduct_m1_test
-    ${CMAKE_CURRENT_SOURCE_DIR}/native_innerproduct_m1_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/native_innerproduct_m1.cpp
-)
-target_include_directories(hunyuan_ocr_native_innerproduct_m1_test PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-target_link_libraries(hunyuan_ocr_native_innerproduct_m1_test PRIVATE ncnn)
-target_compile_features(hunyuan_ocr_native_innerproduct_m1_test PRIVATE cxx_std_17)
-
-add_executable(hunyuan_ocr_native_innerproduct_m1_benchmark
-    ${CMAKE_CURRENT_SOURCE_DIR}/native_innerproduct_m1_main.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/native_innerproduct_m1.cpp
-)
-target_include_directories(hunyuan_ocr_native_innerproduct_m1_benchmark PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-target_link_libraries(hunyuan_ocr_native_innerproduct_m1_benchmark PRIVATE ncnn)
-target_compile_features(hunyuan_ocr_native_innerproduct_m1_benchmark PRIVATE cxx_std_17)
-
 add_executable(hunyuan_ocr_text_decoder_aux_test ${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_aux_test.cpp)
 target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_text_decoder_aux_test PRIVATE cxx_std_17)
@@ -337,9 +317,6 @@ add_test(NAME kv_cache_lifecycle
 add_test(NAME decoder_microbench_parser
     COMMAND hunyuan_ocr_decoder_microbench_parser_test
 )
-add_test(NAME native_innerproduct_m1
-    COMMAND hunyuan_ocr_native_innerproduct_m1_test
-)
 add_test(NAME text_decoder_aux
     COMMAND hunyuan_ocr_text_decoder_aux_test
 )
@@ -377,10 +354,6 @@ add_test(NAME export_dflash
 add_test(NAME text_decoder_kv
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_kv_test.py"
-)
-add_test(NAME patch_innerproduct_m1
-    COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/patch_innerproduct_m1_test.py"
 )
 add_test(NAME benchmark_parser
     COMMAND "${Python3_EXECUTABLE}"
