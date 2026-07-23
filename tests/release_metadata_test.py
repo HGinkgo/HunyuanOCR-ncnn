@@ -99,6 +99,9 @@ def main() -> int:
         require("--dflash" in text, f"{label} must document optional DFlash use")
         require("--mmap-weights" in text, f"{label} must document optional mmap loading")
         require("--vision-vulkan" in text, f"{label} must document optional Vulkan vision use")
+        require("--text-vulkan" in text, f"{label} must document optional Vulkan text use")
+        require("scripts/apply_ncnn_patches.py" in text,
+                f"{label} must document the required ncnn Vulkan patch step")
         for developer_entry in ("export/export_all.py", "tools/package_model.py", "tools/run_regression.py"):
             require(developer_entry not in text,
                     f"{label} must keep developer workflow out of the user README: {developer_entry}")
@@ -109,8 +112,8 @@ def main() -> int:
         require("preview" not in text.lower(), f"{label} must not mark version 0.4.0 as preview")
     for text, label in ((readme_en, "README_en"), (readme_zh, "README")):
         require(
-            "backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32" in text,
-            f"{label} must retain the CPU/Vulkan backend badge",
+            "backend-CPU%20fp32%20%7C%20Vulkan%20vision%2Ftext%20fp32" in text,
+            f"{label} must retain the CPU/Vulkan vision-text backend badge",
         )
         require("main" in text, f"{label} must identify the HunyuanOCR 1.5 default branch")
         require("feat/hunyuanocr-1.0" in text, f"{label} must identify the preserved HunyuanOCR 1.0 branch")

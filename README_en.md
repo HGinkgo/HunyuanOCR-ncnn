@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
     <img src="https://img.shields.io/badge/C%2B%2B-17-f34b7d.svg" alt="C++17">
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux and Windows">
-    <img src="https://img.shields.io/badge/backend-CPU%20fp32%20%7C%20Vulkan%20vision%20fp32-4c1.svg" alt="CPU fp32 and Vulkan vision fp32">
+    <img src="https://img.shields.io/badge/backend-CPU%20fp32%20%7C%20Vulkan%20vision%2Ftext%20fp32-4c1.svg" alt="CPU fp32 and Vulkan vision/text fp32">
   </p>
   <p>
     <a href="https://github.com/Tencent/ncnn/discussions/6808">Technical Discussion</a>
@@ -33,9 +33,9 @@ and tokenizer postprocessing in C++.
 - PNG/JPEG input and dynamic image sizes within the exported processor range.
 - Built-in `spotting` and `document` modes plus custom UTF-8 prompts.
 - Reusable C++ runtime, per-token streaming callbacks, and JSONL batch inference.
-- CPU fp32 by default, with optional DFlash, mmap weight loading, and Vulkan vision.
+- CPU fp32 by default, with optional DFlash, mmap weight loading, and Vision / Text Vulkan.
 - Linux and Windows support, including UTF-8 paths and command-line input.
-- Strict token/text regression and Sanitizer gates over public images.
+- Strict token/text tests and Sanitizer gates over public images.
 
 ## Quick Start
 
@@ -71,6 +71,13 @@ Requirements are CMake 3.18, a C++17 compiler, and ncnn. The validated ncnn revi
 ```bash
 cmake -S . -B build -Dncnn_DIR=/path/to/ncnn/lib/cmake/ncnn
 cmake --build build -j
+```
+
+Before using Vulkan, apply the project patches to the pinned ncnn revision, then
+build ncnn with `NCNN_VULKAN=ON`:
+
+```bash
+python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
 ```
 
 <details>
@@ -153,10 +160,18 @@ owns contiguous RGB pixels.
 | --- | --- | --- |
 | DFlash | `--dflash` | AR remains the default; low-acceptance inputs may be slower, so no universal speedup is claimed. |
 | mmap weights | `--mmap-weights` | Reduces loading copies and anonymous memory; model files remain the same size. |
-| Vulkan vision | `--vision-vulkan` | Requires [`patches/ncnn`](patches/ncnn); text generation remains CPU fp32. |
+| Vision Vulkan | `--vision-vulkan` | Runs the Vision Encoder on Vulkan; text generation stays on CPU fp32 unless Text Vulkan is enabled. |
+| Text Vulkan | `--text-vulkan` | Runs the Decoder and LM Head on Vulkan; not yet compatible with DFlash. |
 
-Select a Vulkan device with `--vision-vulkan-device N`. C++ callers can set the
-corresponding fields in `RuntimeOptions`.
+Both Vulkan paths require [`patches/ncnn`](patches/ncnn) and can be enabled independently or together:
+
+```bash
+./build/hunyuan_ocr_cli --image ./document.png --vision-vulkan --text-vulkan
+```
+
+Select devices independently with `--vision-vulkan-device N` and
+`--text-vulkan-device N`. C++ callers can set the corresponding fields in
+`RuntimeOptions`.
 
 ## More Commands
 
@@ -185,7 +200,8 @@ in [`tools/README.md`](tools/README.md#benchmark).
 - The current package uses `max_pixels=524288` and omits the original high-resolution path.
 - JPEG decoder rounding can affect decision-sensitive images; use PNG for stable reproduction.
 - Custom prompts do not yet cover every tokenizer boundary input.
-- Vulkan applies only to the vision encoder; text generation remains CPU fp32.
+- Vulkan is an explicit optional backend and requires the pinned ncnn revision plus the project patch series.
+- Text Vulkan cannot yet be combined with DFlash; DFlash keeps the CPU fp32 text path.
 
 ## License
 
