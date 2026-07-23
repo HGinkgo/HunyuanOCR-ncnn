@@ -34,6 +34,7 @@ and tokenizer postprocessing in C++.
 - Built-in `spotting` and `document` modes plus custom UTF-8 prompts.
 - Reusable C++ runtime, per-token streaming callbacks, and JSONL batch inference.
 - CPU fp32 by default, with optional DFlash, mmap weight loading, and Vision / Text Vulkan.
+- Text Vulkan uses the project-maintained ncnn patch to dispatch runtime `M=1` in `Gemm_vulkan` through the GEMV pipeline.
 - Linux and Windows support, including UTF-8 paths and command-line input.
 - Strict token/text tests and Sanitizer gates over public images.
 
@@ -202,6 +203,7 @@ in [`tools/README.md`](tools/README.md#benchmark).
 - Custom prompts do not yet cover every tokenizer boundary input.
 - Vulkan is an explicit optional backend and requires the pinned ncnn revision plus the project patch series.
 - Text Vulkan cannot yet be combined with DFlash; DFlash keeps the CPU fp32 text path.
+- The shipped CPU/Vulkan paths use fp32. Evaluated fp16, int8, and decoder/full-model quantization did not meet the release quality/performance trade-off, so no low-precision model package is provided.
 
 ## License
 

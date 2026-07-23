@@ -164,13 +164,6 @@ if(HUNYUAN_OCR_ENABLE_SDPA_PROFILE)
         HUNYUAN_OCR_ENABLE_SDPA_PROFILE=1)
 endif()
 
-# Model-backed load probe: build only under tests, never register as CTest.
-add_executable(hunyuan_ocr_model_load_probe
-    ${CMAKE_CURRENT_SOURCE_DIR}/model_load_probe.cpp
-)
-target_link_libraries(hunyuan_ocr_model_load_probe PRIVATE hunyuan_ocr)
-target_compile_features(hunyuan_ocr_model_load_probe PRIVATE cxx_std_17)
-
 add_executable(hunyuan_ocr_text_decoder_aux_test ${CMAKE_CURRENT_SOURCE_DIR}/text_decoder_aux_test.cpp)
 target_link_libraries(hunyuan_ocr_text_decoder_aux_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_text_decoder_aux_test PRIVATE cxx_std_17)
@@ -183,12 +176,6 @@ target_link_libraries(hunyuan_ocr_text_decoder_vulkan_session_test PRIVATE hunyu
 target_compile_features(hunyuan_ocr_text_decoder_vulkan_session_test PRIVATE cxx_std_17)
 target_include_directories(hunyuan_ocr_text_decoder_vulkan_session_test
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
-
-add_executable(hunyuan_ocr_dflash_probe_integration_test
-    ${CMAKE_CURRENT_SOURCE_DIR}/dflash_probe_integration_test.cpp
-)
-target_link_libraries(hunyuan_ocr_dflash_probe_integration_test PRIVATE hunyuan_ocr)
-target_compile_features(hunyuan_ocr_dflash_probe_integration_test PRIVATE cxx_std_17)
 
 add_executable(hunyuan_ocr_utf8_test ${CMAKE_CURRENT_SOURCE_DIR}/utf8_test.cpp)
 target_link_libraries(hunyuan_ocr_utf8_test PRIVATE hunyuan_ocr)

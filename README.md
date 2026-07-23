@@ -32,6 +32,7 @@
 - `spotting`、`document` 和自定义 UTF-8 prompt。
 - 可复用 C++ runtime、逐 token 流式回调和 JSONL 批量推理。
 - 默认 CPU fp32；可选 DFlash、mmap 权重加载和 Vision / Text Vulkan。
+- Text Vulkan 通过项目维护的 ncnn 补丁，将 `Gemm_vulkan` 的运行时 `M=1` 路径分派到 GEMV。
 - Linux、Windows、UTF-8 路径及命令行支持。
 - 公开图片的 token/text 严格测试与 Sanitizer 门禁。
 
@@ -197,6 +198,7 @@ python tools/benchmark.py --model ./hunyuan_ocr_ncnn_model --cases hf_demo
 - 自定义 prompt 尚未覆盖所有 tokenizer 边界输入。
 - Vulkan 是显式可选后端，并依赖固定 ncnn revision 和项目补丁集。
 - Text Vulkan 暂不与 DFlash 组合；DFlash 仍使用 CPU fp32 文本路径。
+- 当前交付为 CPU/Vulkan fp32；fp16、int8 及 decoder/full-model 量化经评估未达到可发布的质量与性能权衡，因此不提供低精度模型包。
 
 ## 许可证
 
