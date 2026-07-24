@@ -103,15 +103,12 @@ constexpr float kRopeAlpha = 1000.0f;
 constexpr float kMaskNegInf = -1.0e38f;
 constexpr float kDefaultRepetitionPenalty = 1.08f;
 
-bool load_net(ncnn::Net& net,
-              const std::filesystem::path& param,
-              const std::filesystem::path& bin,
-              int num_threads,
-              bool mmap_weights,
-              bool use_vulkan,
-              int vulkan_device,
-              std::shared_ptr<MappedModelFile>* model_mapping,
-              std::string* error)
+bool configure_net(ncnn::Net& net,
+                   const std::filesystem::path& param,
+                   int num_threads,
+                   bool use_vulkan,
+                   int vulkan_device,
+                   std::string* error)
 {
     (void)vulkan_device;
     net.opt = make_fp32_ncnn_option(num_threads);
@@ -145,6 +142,23 @@ bool load_net(ncnn::Net& net,
     if (net.load_param(param.c_str()) != 0)
     {
         if (error) *error = "failed to load param: " + path_to_utf8(param);
+        return false;
+    }
+    return true;
+}
+
+bool load_net(ncnn::Net& net,
+              const std::filesystem::path& param,
+              const std::filesystem::path& bin,
+              int num_threads,
+              bool mmap_weights,
+              bool use_vulkan,
+              int vulkan_device,
+              std::shared_ptr<MappedModelFile>* model_mapping,
+              std::string* error)
+{
+    if (!configure_net(net, param, num_threads, use_vulkan, vulkan_device, error))
+    {
         return false;
     }
     if (!load_model_file(net, bin, mmap_weights, model_mapping, error))
@@ -1676,9 +1690,8 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     text_embed_net_.reset();
     text_decoder_net_.reset();
     lm_head_net_.reset();
-    text_embed_model_mapping_.reset();
     text_decoder_model_mapping_.reset();
-    lm_head_model_mapping_.reset();
+    tied_model_data_.reset();
     text_embed_net_.reset(new ncnn::Net);
     text_decoder_net_.reset(new ncnn::Net);
     lm_head_net_.reset(new ncnn::Net);
@@ -1689,16 +1702,21 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
         return false;
     }
 
-    if (!load_net(*text_embed_net_,
-                  root / "text_embed" / "text_embed.ncnn.param",
-                  root / "text_embed" / "text_embed.ncnn.bin",
-                  num_threads_,
-                  mmap_weights_,
-                  detail::text_stage_uses_vulkan(detail::TextNetStage::Embedding,
-                                                  use_vulkan_),
-                  vulkan_device_,
-                  &text_embed_model_mapping_,
-                  error))
+    tied_model_data_.reset(new SharedModelData);
+    if (!tied_model_data_->open(root / "text_embed" / "text_embed.ncnn.bin",
+                                mmap_weights_,
+                                error))
+    {
+        return false;
+    }
+    if (!configure_net(*text_embed_net_,
+                       root / "text_embed" / "text_embed.ncnn.param",
+                       num_threads_,
+                       detail::text_stage_uses_vulkan(detail::TextNetStage::Embedding,
+                                                       use_vulkan_),
+                       vulkan_device_,
+                       error) ||
+        !load_shared_model_data(*text_embed_net_, *tied_model_data_, error))
     {
         return false;
     }
@@ -1714,16 +1732,14 @@ bool TextRuntime::load(const std::string& model_root, std::string* error)
     {
         return false;
     }
-    if (!load_net(*lm_head_net_,
-                  root / "lm_head" / "lm_head.ncnn.param",
-                  root / "lm_head" / "lm_head.ncnn.bin",
-                  num_threads_,
-                  mmap_weights_,
-                  detail::text_stage_uses_vulkan(detail::TextNetStage::LmHead,
-                                                  use_vulkan_),
-                  vulkan_device_,
-                  &lm_head_model_mapping_,
-                  error))
+    if (!configure_net(*lm_head_net_,
+                       root / "lm_head" / "lm_head.ncnn.param",
+                       num_threads_,
+                       detail::text_stage_uses_vulkan(detail::TextNetStage::LmHead,
+                                                       use_vulkan_),
+                       vulkan_device_,
+                       error) ||
+        !load_shared_model_data(*lm_head_net_, *tied_model_data_, error))
     {
         return false;
     }
@@ -1763,9 +1779,8 @@ bool TextRuntime::dflash_ready() const
 size_t TextRuntime::mapped_weight_bytes() const
 {
     size_t bytes = 0;
-    if (text_embed_model_mapping_) bytes += text_embed_model_mapping_->size();
+    if (tied_model_data_) bytes += tied_model_data_->mapped_bytes();
     if (text_decoder_model_mapping_) bytes += text_decoder_model_mapping_->size();
-    if (lm_head_model_mapping_) bytes += lm_head_model_mapping_->size();
     if (dflash_draft_) bytes += dflash_draft_->mapped_weight_bytes();
     return bytes;
 }

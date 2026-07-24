@@ -24,7 +24,6 @@ std::uintmax_t expected_mapped_weight_bytes(const std::filesystem::path& model_r
            std::filesystem::file_size(model_root / "text_embed" / "text_embed.ncnn.bin") +
            std::filesystem::file_size(
                model_root / "text_decoder" / "text_decoder_kv.ncnn.bin") +
-           std::filesystem::file_size(model_root / "lm_head" / "lm_head.ncnn.bin") +
            std::filesystem::file_size(model_root / "dflash" / "dflash.ncnn.bin");
 }
 

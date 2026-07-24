@@ -31,7 +31,7 @@ This project exports the Hugging Face HunyuanOCR model into ncnn submodules with
 - PNG/JPEG input and dynamic image sizes within the exported processor range.
 - Built-in `spotting` and `document` modes plus custom UTF-8 prompts.
 - Reusable C++ runtime, per-token streaming callbacks, and JSONL batch inference.
-- CPU fp32 by default; one `--vulkan` flag enables Vision / Text Vulkan, with DFlash and mmap weight loading also available.
+- CPU fp32 by default; one `--vulkan` flag enables Vision / Text Vulkan, with DFlash, mmap, and a shared backing for tied text-embedding / LM Head weights.
 - Text Vulkan uses the project-maintained ncnn patch to dispatch runtime `M=1` in `Gemm_vulkan` through the GEMV pipeline.
 - Linux and Windows support, including UTF-8 paths and command-line input.
 - Strict token/text tests and Sanitizer gates over public images.

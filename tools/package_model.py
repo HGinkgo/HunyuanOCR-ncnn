@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import shutil
 import sys
@@ -30,7 +31,6 @@ STOCK_RUNTIME_FILES = [
     ("models/export/text_decoder/text_decoder_kv.ncnn.param", "text_decoder/text_decoder_kv.ncnn.param"),
     ("models/export/text_decoder/text_decoder_kv.ncnn.bin", "text_decoder/text_decoder_kv.ncnn.bin"),
     ("models/export/lm_head/lm_head.ncnn.param", "lm_head/lm_head.ncnn.param"),
-    ("models/export/lm_head/lm_head.ncnn.bin", "lm_head/lm_head.ncnn.bin"),
 ]
 
 # Kept for import compatibility with tests/artifact_paths_test.py helpers and callers.
@@ -52,7 +52,6 @@ BASE_RUNTIME_FILES = [
     "text_decoder/text_decoder_kv.ncnn.param",
     "text_decoder/text_decoder_kv.ncnn.bin",
     "lm_head/lm_head.ncnn.param",
-    "lm_head/lm_head.ncnn.bin",
 ]
 
 BASE_RUNTIME_FILES_WITHOUT_DECODER = [
@@ -137,6 +136,16 @@ def require_file(path: Path) -> None:
         fail(f"required file not found: {path}")
 
 
+def require_tied_weights_match(text_embed_bin: Path, lm_head_bin: Path) -> None:
+    require_file(text_embed_bin)
+    require_file(lm_head_bin)
+    if not filecmp.cmp(text_embed_bin, lm_head_bin, shallow=False):
+        fail(
+            "tied text embedding and lm_head weights differ: "
+            f"{text_embed_bin} != {lm_head_bin}"
+        )
+
+
 def safe_prepare_output(output: Path, workspace: Path, repo_root: Path, force: bool) -> None:
     protected = {
         Path("/").resolve(),
@@ -219,6 +228,7 @@ def write_dynamic_manifest(repo_root: Path, output: Path) -> None:
         "align_corners": False,
         "size": ["grid_h", "grid_w"],
     }
+    manifest["networks"]["lm_head"]["bin"] = "text_embed/text_embed.ncnn.bin"
     (output / "model.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
@@ -252,6 +262,11 @@ def main() -> int:
     # List of (src_path, dst_rel) for non-vision core runtime files.
     core_sources: list[tuple[Path, str]] = []
     if base_runtime_dir is not None:
+        base_embed_bin = base_runtime_dir / "text_embed/text_embed.ncnn.bin"
+        legacy_lm_head_bin = base_runtime_dir / "lm_head/lm_head.ncnn.bin"
+        require_file(base_embed_bin)
+        if legacy_lm_head_bin.is_file():
+            require_tied_weights_match(base_embed_bin, legacy_lm_head_bin)
         runtime_rels = (
             BASE_RUNTIME_FILES_WITHOUT_DECODER if args.dflash else BASE_RUNTIME_FILES
         )
@@ -260,6 +275,10 @@ def main() -> int:
             require_file(src)
             core_sources.append((src, rel))
     else:
+        require_tied_weights_match(
+            workspace / "models/export/text_embed/text_embed.ncnn.bin",
+            workspace / "models/export/lm_head/lm_head.ncnn.bin",
+        )
         stock_files = RUNTIME_FILES_WITHOUT_DECODER if args.dflash else STOCK_RUNTIME_FILES
         for src_rel, dst_rel in stock_files:
             src = workspace / src_rel
@@ -298,6 +317,7 @@ def main() -> int:
     print(f"packaged_model: {output}")
     print(f"mode: {mode}")
     print("vision_backend: dynamic")
+    print("tied_text_weights: shared")
     print(f"runtime_files: {copied_files}")
     print(f"dflash: {'enabled' if args.dflash else 'disabled'}")
     print(

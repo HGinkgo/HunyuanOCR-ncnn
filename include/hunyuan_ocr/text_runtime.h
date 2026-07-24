@@ -14,6 +14,7 @@
 namespace hunyuan_ocr {
 
 class MappedModelFile;
+class SharedModelData;
 
 bool text_vulkan_compiled();
 
@@ -142,9 +143,8 @@ public:
                                     const TextTokenCallback& token_callback = {}) const;
 
 private:
-    std::shared_ptr<MappedModelFile> text_embed_model_mapping_;
     std::shared_ptr<MappedModelFile> text_decoder_model_mapping_;
-    std::shared_ptr<MappedModelFile> lm_head_model_mapping_;
+    std::shared_ptr<SharedModelData> tied_model_data_;
     std::unique_ptr<ncnn::Net> text_embed_net_;
     std::unique_ptr<ncnn::Net> text_decoder_net_;
     std::unique_ptr<ncnn::Net> lm_head_net_;

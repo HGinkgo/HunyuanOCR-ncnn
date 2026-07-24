@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -44,7 +45,7 @@ def make_workspace(root: Path, *, include_stock: bool = True) -> Path:
                 "models/export/text_decoder/text_decoder_kv.ncnn.param": "base-decoder-param\n",
                 "models/export/text_decoder/text_decoder_kv.ncnn.bin": "base-decoder-bin\n",
                 "models/export/lm_head/lm_head.ncnn.param": "base-lm-param\n",
-                "models/export/lm_head/lm_head.ncnn.bin": "base-lm-bin\n",
+                "models/export/lm_head/lm_head.ncnn.bin": "base-embed-bin\n",
             }
         )
     for rel, content in files.items():
@@ -64,7 +65,7 @@ def make_base_runtime(root: Path) -> Path:
         "text_decoder/text_decoder_kv.ncnn.param": "runtime-decoder-param\n",
         "text_decoder/text_decoder_kv.ncnn.bin": "runtime-decoder-bin\n",
         "lm_head/lm_head.ncnn.param": "runtime-lm-param\n",
-        "lm_head/lm_head.ncnn.bin": "runtime-lm-bin\n",
+        "lm_head/lm_head.ncnn.bin": "runtime-embed-bin\n",
         # Present in real runtimes but must not be auto-copied by --base-runtime-dir.
         "vision/vision.ncnn.param": "runtime-vision-param\n",
         "vision/vision.ncnn.bin": "runtime-vision-bin\n",
@@ -90,6 +91,43 @@ def run_package(workspace: Path, output: Path, extra: list[str]) -> subprocess.C
 
 
 class PackageModelTest(unittest.TestCase):
+    def test_identical_tied_weights_are_packaged_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="package_model_tied_") as tmp:
+            root = Path(tmp)
+            workspace = make_workspace(root)
+            embed_bin = workspace / "models/export/text_embed/text_embed.ncnn.bin"
+            lm_head_bin = workspace / "models/export/lm_head/lm_head.ncnn.bin"
+            lm_head_bin.write_bytes(embed_bin.read_bytes())
+
+            output = root / "out_tied"
+            result = run_package(workspace, output, [])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((output / "text_embed/text_embed.ncnn.bin").is_file())
+            self.assertFalse((output / "lm_head/lm_head.ncnn.bin").exists())
+
+            manifest = json.loads((output / "model.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["networks"]["text_embed"]["bin"],
+                "text_embed/text_embed.ncnn.bin",
+            )
+            self.assertEqual(
+                manifest["networks"]["lm_head"]["bin"],
+                "text_embed/text_embed.ncnn.bin",
+            )
+
+    def test_mismatched_tied_weights_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="package_model_tied_mismatch_") as tmp:
+            root = Path(tmp)
+            workspace = make_workspace(root)
+            (workspace / "models/export/lm_head/lm_head.ncnn.bin").write_text(
+                "different-lm-head-weights\n",
+                encoding="utf-8",
+            )
+            output = root / "out_tied_mismatch"
+            result = run_package(workspace, output, [])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("tied text embedding and lm_head weights differ", result.stderr)
+
     def test_only_canonical_dynamic_vision_is_exposed(self) -> None:
         result = subprocess.run(
             [sys.executable, str(PACKAGE_MODEL), "--help"],
@@ -256,6 +294,23 @@ class PackageModelTest(unittest.TestCase):
                 "vision-param\n",
             )
 
+    def test_deduplicated_base_runtime_can_be_repackaged(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="package_model_dedup_runtime_") as tmp:
+            root = Path(tmp)
+            workspace = make_workspace(root, include_stock=False)
+            runtime = make_base_runtime(root)
+            (runtime / "lm_head/lm_head.ncnn.bin").unlink()
+
+            output = root / "out_dedup_runtime"
+            result = run_package(
+                workspace,
+                output,
+                ["--base-runtime-dir", str(runtime)],
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((output / "text_embed/text_embed.ncnn.bin").is_file())
+            self.assertFalse((output / "lm_head/lm_head.ncnn.bin").exists())
+
     def test_base_runtime_dir_with_dflash_replaces_decoder(self) -> None:
         with tempfile.TemporaryDirectory(prefix="package_model_runtime_dflash_") as tmp:
             root = Path(tmp)
@@ -278,9 +333,10 @@ class PackageModelTest(unittest.TestCase):
                 "runtime-embed-bin\n",
             )
             self.assertEqual(
-                (output / "lm_head/lm_head.ncnn.bin").read_text(encoding="utf-8"),
-                "runtime-lm-bin\n",
+                (output / "text_embed/text_embed.ncnn.bin").read_text(encoding="utf-8"),
+                "runtime-embed-bin\n",
             )
+            self.assertFalse((output / "lm_head/lm_head.ncnn.bin").exists())
             self.assertEqual(
                 (output / "text_decoder/text_decoder_kv.ncnn.param").read_text(encoding="utf-8"),
                 "aux-decoder-param out1 out2 out3 out4\n",

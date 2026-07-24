@@ -124,6 +124,15 @@ target_include_directories(hunyuan_ocr_mapped_model_file_test PRIVATE
 target_link_libraries(hunyuan_ocr_mapped_model_file_test PRIVATE hunyuan_ocr)
 target_compile_features(hunyuan_ocr_mapped_model_file_test PRIVATE cxx_std_17)
 
+add_executable(hunyuan_ocr_shared_model_data_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/shared_model_data_test.cpp
+)
+target_include_directories(hunyuan_ocr_shared_model_data_test PRIVATE
+    "${PROJECT_SOURCE_DIR}/src"
+)
+target_link_libraries(hunyuan_ocr_shared_model_data_test PRIVATE hunyuan_ocr)
+target_compile_features(hunyuan_ocr_shared_model_data_test PRIVATE cxx_std_17)
+
 add_executable(hunyuan_ocr_kv_cache_lifecycle_test
     ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache_lifecycle_test.cpp
 )
@@ -306,6 +315,9 @@ add_test(NAME memory_lifecycle
 )
 add_test(NAME mapped_model_file
     COMMAND hunyuan_ocr_mapped_model_file_test
+)
+add_test(NAME shared_model_data
+    COMMAND hunyuan_ocr_shared_model_data_test
 )
 add_test(NAME kv_cache_lifecycle
     COMMAND hunyuan_ocr_kv_cache_lifecycle_test

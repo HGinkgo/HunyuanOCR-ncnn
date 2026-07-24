@@ -47,10 +47,33 @@ private:
     mutable size_t offset_ = 0;
 };
 
+class SharedModelData {
+public:
+    SharedModelData() = default;
+    SharedModelData(const SharedModelData&) = delete;
+    SharedModelData& operator=(const SharedModelData&) = delete;
+
+    bool open(const std::filesystem::path& path, bool use_mmap, std::string* error);
+    void close();
+    bool ready() const;
+    const unsigned char* data() const;
+    size_t size() const;
+    size_t mapped_bytes() const;
+
+private:
+    std::shared_ptr<MappedModelFile> mapped_file_;
+    std::unique_ptr<unsigned char[]> owned_data_;
+    size_t owned_size_ = 0;
+};
+
 bool load_model_file(ncnn::Net& net,
                      const std::filesystem::path& path,
                      bool use_mmap,
                      std::shared_ptr<MappedModelFile>* mapped_file,
                      std::string* error);
+
+bool load_shared_model_data(ncnn::Net& net,
+                            const SharedModelData& model_data,
+                            std::string* error);
 
 } // namespace hunyuan_ocr

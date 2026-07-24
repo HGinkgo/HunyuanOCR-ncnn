@@ -30,7 +30,7 @@
 - PNG/JPEG 输入和已导出范围内的动态图片尺寸。
 - `spotting`、`document` 和自定义 UTF-8 prompt。
 - 可复用 C++ runtime、逐 token 流式回调和 JSONL 批量推理。
-- 默认 CPU fp32；统一的 `--vulkan` 可启用 Vision / Text Vulkan，另有 DFlash 和 mmap 权重加载。
+- 默认 CPU fp32；统一的 `--vulkan` 可启用 Vision / Text Vulkan；另有 DFlash、mmap 和共享 backing 的 tied text embedding / LM Head 权重。
 - Text Vulkan 通过项目维护的 ncnn 补丁，将 `Gemm_vulkan` 的运行时 `M=1` 路径分派到 GEMV。
 - Linux、Windows、UTF-8 路径及命令行支持。
 - 公开图片的 token/text 严格测试与 Sanitizer 门禁。

@@ -19,7 +19,6 @@ hunyuan_ocr_ncnn_model/
     text_decoder_kv.ncnn.bin
   lm_head/
     lm_head.ncnn.param
-    lm_head.ncnn.bin
   dflash/                       # optional
     dflash.ncnn.param
     dflash.ncnn.bin
@@ -32,7 +31,10 @@ hunyuan_ocr_ncnn_model/
 ## Required Files
 
 The current runtime requires tokenizer files, `text_embed`, `text_decoder`,
-`lm_head`, and the canonical dynamic vision files.
+the LM Head param, and the canonical dynamic vision files. Text embedding and
+LM Head are tied, so both networks load the single
+`text_embed/text_embed.ncnn.bin` asset. Legacy packages containing the duplicate
+`lm_head/lm_head.ncnn.bin` remain accepted.
 
 `model.json` records the expected relative paths. See
 `models/model.json.example` for the current schema.
@@ -72,7 +74,8 @@ python tools/package_model.py \
 
 Here `<workspace>` is the directory containing `models/tokenizer/` and
 `models/export/`. The generated model package can be moved independently when
-`--copy` is used.
+`--copy` is used. Packaging verifies that the exported text embedding and LM
+Head binaries are byte-identical before omitting the duplicate LM Head binary.
 
 Pass `--dflash` to include the draft network and auxiliary decoder. Existing base
 runtime files may be supplied with `--base-runtime-dir`; custom draft and decoder

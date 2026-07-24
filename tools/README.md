@@ -5,7 +5,8 @@ verification helpers for the C++ runtime.
 
 `package_model.py` builds the standard runtime model directory from exported
 workspace artifacts. It creates symlinks by default and supports `--copy` for
-portable bundles. The package always uses the canonical dynamic vision layout.
+portable bundles. The package verifies tied text embedding / LM Head weights
+and stores their FP32 binary once. It always uses the canonical dynamic vision layout.
 Use `--dflash` to include the optional DFlash draft
 and auxiliary decoder; `--base-runtime-dir` can provide an existing 1.5 runtime
 instead of the stock export layout.

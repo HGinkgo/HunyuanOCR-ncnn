@@ -145,6 +145,7 @@ layout:
 ## Runtime Package Layout
 
 `tools/package_model.py` rewrites this export workspace into the standard
-runtime package. The canonical directory tree, required files, DFlash options,
-and dynamic vision package are documented in
+runtime package. It verifies the exported tied text embedding and LM Head
+weights are byte-identical, then stores only the text embedding binary. The
+canonical directory tree, required files, DFlash options, and dynamic vision package are documented in
 [`models/README.md`](../models/README.md).
