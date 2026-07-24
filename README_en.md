@@ -21,9 +21,7 @@
 
 ---
 
-This project exports the Hugging Face HunyuanOCR model into ncnn submodules with
-pnnx and implements image preprocessing, dynamic vision, prompts, KV-cache decoding,
-and tokenizer postprocessing in C++.
+This project exports the Hugging Face HunyuanOCR model into ncnn submodules with pnnx and implements image preprocessing, dynamic vision, prompts, KV-cache decoding, and tokenizer postprocessing in C++.
 
 > `main` is HunyuanOCR 1.5 `0.4.0`. The `feat/hunyuanocr-1.0` branch
 > and `v0.2.0` retain the HunyuanOCR 1.0 version.
@@ -33,15 +31,14 @@ and tokenizer postprocessing in C++.
 - PNG/JPEG input and dynamic image sizes within the exported processor range.
 - Built-in `spotting` and `document` modes plus custom UTF-8 prompts.
 - Reusable C++ runtime, per-token streaming callbacks, and JSONL batch inference.
-- CPU fp32 by default, with optional DFlash, mmap weight loading, and Vision / Text Vulkan.
+- CPU fp32 by default; one `--vulkan` flag enables Vision / Text Vulkan, with DFlash and mmap weight loading also available.
 - Text Vulkan uses the project-maintained ncnn patch to dispatch runtime `M=1` in `Gemm_vulkan` through the GEMV pipeline.
 - Linux and Windows support, including UTF-8 paths and command-line input.
 - Strict token/text tests and Sanitizer gates over public images.
 
 ## Quick Start
 
-The pre-converted runtime model is hosted on
-[ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn):
+The pre-converted runtime model is hosted on [ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn):
 
 ```bash
 python -m pip install modelscope
@@ -59,15 +56,13 @@ The script auto-detects `./hunyuan_ocr_ncnn_model` and a sibling `../ncnn/build/
 scripts/quickstart_existing_model.sh
 ```
 
-Pass `--model PATH` or `--ncnn-dir PATH` when either dependency is elsewhere.
-The example runs until the model completes naturally without a token cutoff.
+Pass `--model PATH` or `--ncnn-dir PATH` when either dependency is elsewhere. The example runs until the model completes naturally without a token cutoff.
 
 Model weights are not stored in this source repository.
 
 ## Build
 
-Requirements are CMake 3.18, a C++17 compiler, and ncnn. The validated ncnn revision is
-`dda2e28bae2a084760361197d87f06e685604e52`.
+Requirements are CMake 3.18, a C++17 compiler, and ncnn. The validated ncnn revision is `dda2e28bae2a084760361197d87f06e685604e52`.
 
 ```bash
 cmake -S . -B build -Dncnn_DIR=/path/to/ncnn/lib/cmake/ncnn
@@ -80,6 +75,10 @@ build ncnn with `NCNN_VULKAN=ON`:
 
 ```bash
 python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
+cmake -S /path/to/ncnn -B /path/to/ncnn/build-vulkan \
+  -DNCNN_VULKAN=ON -DNCNN_INSTALL_SDK=ON \
+  -DCMAKE_INSTALL_PREFIX=/path/to/ncnn/install
+cmake --build /path/to/ncnn/build-vulkan -j && cmake --install /path/to/ncnn/build-vulkan
 ```
 
 <details>
@@ -107,7 +106,7 @@ After installation, keep the model resident and enter image paths without reload
 ~/.local/bin/hunyuan-ocr --model ./hunyuan_ocr_ncnn_model --interactive --vulkan
 ```
 
-Sessions start in `document` mode. Use `:mode spotting`, `:prompt TEXT`, `:status`, `:help`, and `:quit` to adjust or exit.
+Sessions start in `document` mode. Use `:mode spotting`, `:prompt TEXT`, `:status`, `:help`, and `:quit` to adjust or exit. The unified Vulkan entry point was validated on an RTX 3090 with NVIDIA 580.95.05 by running document and spotting requests in one process; both outputs exactly matched the CPU fp32 fixtures.
 
 ### Single-image inference
 

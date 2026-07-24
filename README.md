@@ -20,8 +20,7 @@
 
 ---
 
-本项目使用 pnnx 将 Hugging Face 版 HunyuanOCR 导出为 ncnn 子模块，并在 C++ 中完成
-图片预处理、动态 vision、prompt、KV cache 解码和 tokenizer 后处理。
+本项目使用 pnnx 将 Hugging Face 版 HunyuanOCR 导出为 ncnn 子模块，并在 C++ 中完成图片预处理、动态 vision、prompt、KV cache 解码和 tokenizer 后处理。
 
 > `main` 是 HunyuanOCR 1.5 的 `0.4.0`；`feat/hunyuanocr-1.0` 和 `v0.2.0`
 > 保留 HunyuanOCR 1.0 兼容版本。
@@ -31,15 +30,14 @@
 - PNG/JPEG 输入和已导出范围内的动态图片尺寸。
 - `spotting`、`document` 和自定义 UTF-8 prompt。
 - 可复用 C++ runtime、逐 token 流式回调和 JSONL 批量推理。
-- 默认 CPU fp32；可选 DFlash、mmap 权重加载和 Vision / Text Vulkan。
+- 默认 CPU fp32；统一的 `--vulkan` 可启用 Vision / Text Vulkan，另有 DFlash 和 mmap 权重加载。
 - Text Vulkan 通过项目维护的 ncnn 补丁，将 `Gemm_vulkan` 的运行时 `M=1` 路径分派到 GEMV。
 - Linux、Windows、UTF-8 路径及命令行支持。
 - 公开图片的 token/text 严格测试与 Sanitizer 门禁。
 
 ## 快速开始
 
-预转换模型包托管在
-[ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn)：
+预转换模型包托管在 [ModelScope](https://modelscope.cn/models/HGinkgo/HunyuanOCR-1.5-ncnn)：
 
 ```bash
 python -m pip install modelscope
@@ -62,8 +60,7 @@ scripts/quickstart_existing_model.sh
 
 ## 构建
 
-依赖 CMake 3.18、C++17 编译器和 ncnn。验证 revision 为
-`dda2e28bae2a084760361197d87f06e685604e52`。
+依赖 CMake 3.18、C++17 编译器和 ncnn。验证 revision 为 `dda2e28bae2a084760361197d87f06e685604e52`。
 
 ```bash
 cmake -S . -B build -Dncnn_DIR=/path/to/ncnn/lib/cmake/ncnn
@@ -76,6 +73,10 @@ cmake --install build --prefix ~/.local
 
 ```bash
 python scripts/apply_ncnn_patches.py --ncnn-dir /path/to/ncnn
+cmake -S /path/to/ncnn -B /path/to/ncnn/build-vulkan \
+  -DNCNN_VULKAN=ON -DNCNN_INSTALL_SDK=ON \
+  -DCMAKE_INSTALL_PREFIX=/path/to/ncnn/install
+cmake --build /path/to/ncnn/build-vulkan -j && cmake --install /path/to/ncnn/build-vulkan
 ```
 
 <details>
@@ -108,7 +109,7 @@ cmake --build build -j
 ~/.local/bin/hunyuan-ocr --model ./hunyuan_ocr_ncnn_model --interactive --vulkan
 ```
 
-会话默认使用 `document`，可用 `:mode spotting`、`:prompt TEXT`、`:status`、`:help` 和 `:quit` 调整或退出。
+会话默认使用 `document`，可用 `:mode spotting`、`:prompt TEXT`、`:status`、`:help` 和 `:quit` 调整或退出。统一 Vulkan 入口已在 RTX 3090 / NVIDIA 580.95.05 上完成同进程 document、spotting 真机验证，输出与 CPU fp32 fixture 逐字符一致。
 
 ### 单图推理
 
