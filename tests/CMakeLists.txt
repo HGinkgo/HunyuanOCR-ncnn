@@ -427,6 +427,10 @@ if(HUNYUAN_OCR_BUILD_CLI)
                 "${CMAKE_CURRENT_SOURCE_DIR}/cli_options_test.py"
                 "$<TARGET_FILE:hunyuan_ocr_cli>"
     )
+    add_test(NAME cli_structure
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cli_structure_test.py"
+    )
 endif()
 if(HUNYUAN_OCR_BUILD_EXAMPLES)
     add_test(NAME ocr_example

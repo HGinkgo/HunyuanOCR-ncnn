@@ -104,6 +104,9 @@ endif()
 
 if(HUNYUAN_OCR_BUILD_CLI)
     add_executable(hunyuan_ocr_cli
+        src/cli_benchmark.cpp
+        src/cli_fixture.cpp
+        src/cli_options.cpp
         src/main.cpp
         src/interactive_cli.cpp
     )
